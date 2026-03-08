@@ -30,6 +30,11 @@
           </div>
         </div>
       }
+      @case ('syncing') {
+        <div class="qr-placeholder" aria-busy="true">
+          <div class="spinner" role="status" aria-label="Syncing data"></div>
+        </div>
+      }
       @case ('error') {
         <div class="error-container">
           <p class="error-message">{{ errorMessage() }}</p>

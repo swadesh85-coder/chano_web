@@ -1,0 +1,146 @@
+:host {
+  display: block;
+  height: 100dvh;
+  width: 100%;
+}
+
+/* ── Screen ─────────────────────────────────────────────── */
+.explorer-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: #09090b;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.explorer-header {
+  padding: 1.5rem 1.25rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.explorer-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #f5f5f7;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.explorer-subtitle {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.35);
+  margin: 0.25rem 0 0;
+}
+
+/* ── Empty state ────────────────────────────────────────── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.empty-text {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.3);
+  margin: 0;
+}
+
+/* ── Tree ───────────────────────────────────────────────── */
+.tree-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+}
+
+/* ── Node row ───────────────────────────────────────────── */
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  color: #f5f5f7;
+  font-size: 0.875rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  text-align: left;
+}
+
+.node-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.node-row:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.node-row--record {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* ── Chevron ────────────────────────────────────────────── */
+.node-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.3);
+  transition: transform 0.15s ease;
+}
+
+.node-chevron--open {
+  transform: rotate(90deg);
+}
+
+.node-chevron--hidden {
+  visibility: hidden;
+}
+
+/* ── Type icon ──────────────────────────────────────────── */
+.node-type-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 0.1875rem;
+  flex-shrink: 0;
+}
+
+.node-type-icon--folder {
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.node-type-icon--thread {
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 0.25rem;
+}
+
+.node-type-icon--record {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 50%;
+}
+
+/* ── Node name ──────────────────────────────────────────── */
+.node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+/* ── Children container ─────────────────────────────────── */
+.node-children {
+  border-left: 1px solid rgba(255, 255, 255, 0.04);
+  margin-left: 1.125rem;
+}

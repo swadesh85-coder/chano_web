@@ -7,19 +7,23 @@ import {
   inject,
   ChangeDetectionStrategy,
   NgZone,
+  effect,
 } from '@angular/core';
+import { Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import QRCode from 'qrcode';
+import { RelayService } from '../relay/relay.service';
+import { ProjectionStore } from '../projection/projection.store';
+import type { RelayEnvelope } from '../relay/relay.models';
 
 const RELAY_URL = 'ws://172.20.10.3:8080';
 
-type PairingStatus = 'connecting' | 'waiting_for_scan' | 'paired' | 'error';
-
-interface RelayEnvelope {
-  type: string;
-  sessionId: string | null;
-  timestamp: number;
-  payload: Record<string, unknown>;
-}
+type PairingStatus =
+  | 'connecting'
+  | 'waiting_for_scan'
+  | 'paired'
+  | 'syncing'
+  | 'error';
 
 @Component({
   selector: 'app-pairing',
@@ -28,10 +32,12 @@ interface RelayEnvelope {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PairingComponent implements OnInit {
+  private readonly relay = inject(RelayService);
+  private readonly projection = inject(ProjectionStore);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
 
-  private ws: WebSocket | null = null;
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
   private expiresAtMs = 0;
 
@@ -48,78 +54,71 @@ export class PairingComponent implements OnInit {
         return 'Scan QR code with Chano mobile';
       case 'paired':
         return 'Connected to Mobile';
+      case 'syncing':
+        return 'Syncing your data\u2026';
       case 'error':
         return this.errorMessage() || 'Connection error';
     }
   });
 
-  ngOnInit(): void {
-    this.openConnection();
-    this.destroyRef.onDestroy(() => this.cleanup());
+  constructor() {
+    effect(() => {
+      if (this.projection.phase() === 'ready') {
+        this.router.navigate(['/explorer']);
+      }
+    });
   }
 
-  /** Retry connection from the UI after an error. */
+  ngOnInit(): void {
+    this.relay.connected$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.requestNewSession());
+
+    this.relay.messages$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((msg) => this.handleMessage(msg));
+
+    this.relay.connectionError$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((err) => {
+        if (this.status() !== 'paired') {
+          this.status.set('error');
+          this.errorMessage.set(err);
+        }
+      });
+
+    this.openConnection();
+    this.destroyRef.onDestroy(() => this.stopCountdown());
+  }
+
   retry(): void {
     this.openConnection();
   }
 
-  // ── WebSocket lifecycle ────────────────────────────────────
+  // ── Connection ─────────────────────────────────────────────
 
   private openConnection(): void {
-    this.cleanup();
+    this.stopCountdown();
     this.status.set('connecting');
-
-    this.ngZone.runOutsideAngular(() => {
-      const ws = new WebSocket(RELAY_URL);
-
-      ws.onopen = () =>
-        this.ngZone.run(() => this.requestNewSession());
-
-      ws.onmessage = (event: MessageEvent) =>
-        this.ngZone.run(() => this.handleMessage(event));
-
-      ws.onerror = () =>
-        this.ngZone.run(() => {
-          this.status.set('error');
-          this.errorMessage.set('Failed to connect to relay server');
-        });
-
-      ws.onclose = () =>
-        this.ngZone.run(() => {
-          if (this.status() !== 'paired' && this.status() !== 'error') {
-            this.status.set('error');
-            this.errorMessage.set('Connection to relay lost');
-          }
-        });
-
-      this.ws = ws;
-    });
+    this.relay.connect(RELAY_URL);
   }
 
   private requestNewSession(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'qr_session_create' }));
-    }
+    this.relay.send({ type: 'qr_session_create' });
   }
 
   // ── Message handling ───────────────────────────────────────
 
-  private handleMessage(event: MessageEvent): void {
-    let msg: RelayEnvelope;
-    try {
-      msg = JSON.parse(String(event.data));
-    } catch {
-      return; // ignore malformed frames
-    }
-
-    if (!msg.type) return;
-
+  private handleMessage(msg: RelayEnvelope): void {
     switch (msg.type) {
       case 'qr_session_ready':
         void this.onSessionReady(msg);
         break;
       case 'pair_approved':
         this.onPairApproved();
+        break;
+      case 'snapshot_start':
+        this.status.set('syncing');
         break;
     }
   }
@@ -130,10 +129,10 @@ export class PairingComponent implements OnInit {
 
     if (!sessionId || !expiresAt) return;
 
-    // Relay sends expiresAt as epoch ms
-    this.expiresAtMs = typeof expiresAt === 'number'
-      ? expiresAt
-      : new Date(String(expiresAt)).getTime();
+    this.expiresAtMs =
+      typeof expiresAt === 'number'
+        ? expiresAt
+        : new Date(String(expiresAt)).getTime();
 
     const expiresAtIso = new Date(this.expiresAtMs).toISOString();
 
@@ -196,27 +195,6 @@ export class PairingComponent implements OnInit {
     if (this.countdownTimer !== null) {
       clearInterval(this.countdownTimer);
       this.countdownTimer = null;
-    }
-  }
-
-  // ── Cleanup ────────────────────────────────────────────────
-
-  private cleanup(): void {
-    this.stopCountdown();
-
-    if (this.ws) {
-      this.ws.onopen = null;
-      this.ws.onmessage = null;
-      this.ws.onerror = null;
-      this.ws.onclose = null;
-
-      if (
-        this.ws.readyState === WebSocket.OPEN ||
-        this.ws.readyState === WebSocket.CONNECTING
-      ) {
-        this.ws.close();
-      }
-      this.ws = null;
     }
   }
 }

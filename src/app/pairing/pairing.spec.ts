@@ -1,5 +1,7 @@
 import { TestBed } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
 import { PairingComponent } from './pairing';
+import { ProjectionStore } from '../projection/projection.store';
 import QRCode from 'qrcode';
 
 // Helper to mock QRCode.toDataURL with proper typing
@@ -58,7 +60,6 @@ class MockWebSocket {
 
   /** Simulate a server message in relay envelope format. */
   simulateMessage(msg: Record<string, unknown>): void {
-    // Wrap in relay envelope if not already wrapped
     const envelope = msg['timestamp']
       ? msg
       : {
@@ -100,11 +101,16 @@ afterAll(() => {
 describe('PairingComponent', () => {
   let fixture: ReturnType<typeof TestBed.createComponent<PairingComponent>>;
   let component: PairingComponent;
+  let router: Router;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [PairingComponent],
+      providers: [provideRouter([])],
     }).compileComponents();
+
+    router = TestBed.inject(Router);
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
     fixture = TestBed.createComponent(PairingComponent);
     component = fixture.componentInstance;
@@ -134,7 +140,6 @@ describe('PairingComponent', () => {
     });
 
     it('must not store vault data or user records', () => {
-      // Component should only expose pairing-state signals
       const publicKeys = Object.keys(component);
       const forbidden = ['vault', 'user', 'record', 'media', 'storage'];
       for (const key of publicKeys) {
@@ -143,20 +148,15 @@ describe('PairingComponent', () => {
         }
       }
     });
-
-    it('pairing logic must be fully contained in PairingComponent', () => {
-      // No service injection for pairing — only Angular-provided DestroyRef & NgZone
-      expect(component).toBeTruthy();
-    });
   });
 
-  // ── 2. WebSocket connects to relay ──────────────────────
+  // ── 2. WebSocket connects to relay via RelayService ─────
 
   describe('WebSocket connection', () => {
     it('should open a WebSocket to the relay on init', () => {
       fixture.detectChanges();
       expect(MockWebSocket.last).toBeDefined();
-      expect(MockWebSocket.last.url).toBe('ws://localhost:8080');
+      expect(MockWebSocket.last.url).toBe('ws://172.20.10.3:8080');
     });
 
     it('should set status to "connecting" initially', () => {
@@ -196,14 +196,13 @@ describe('PairingComponent', () => {
         payload: { expiresAt: expiresAtMs },
       });
 
-      // Let the async QRCode.toDataURL resolve
       await fixture.whenStable();
 
       expect(qrSpy).toHaveBeenCalledOnce();
       const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
       expect(payload).toEqual({
         sessionId: 'sess-abc-123',
-        relayUrl: 'ws://localhost:8080',
+        relayUrl: 'ws://172.20.10.3:8080',
         expiresAt: expiresAtIso,
       });
 
@@ -273,7 +272,6 @@ describe('PairingComponent', () => {
       const ws = MockWebSocket.last;
       ws.simulateOpen();
 
-      // First qr_session_create already sent
       expect(ws.sent.length).toBe(1);
 
       const expiresAt = Date.now() + 5_000;
@@ -284,10 +282,8 @@ describe('PairingComponent', () => {
       });
       await fixture.whenStable();
 
-      // Advance past expiry
       vi.advanceTimersByTime(6_000);
 
-      // Should have sent a second qr_session_create
       expect(ws.sent.length).toBe(2);
       expect(JSON.parse(ws.sent[1])).toEqual({ type: 'qr_session_create' });
 
@@ -296,7 +292,100 @@ describe('PairingComponent', () => {
     });
   });
 
-  // ── 7. Error / resilience ───────────────────────────────
+  // ── 7. Snapshot flow (syncing → navigation) ─────────────
+
+  describe('Snapshot handling', () => {
+    it('should set status to syncing on snapshot_start', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-snap',
+        payload: { expiresAt: Date.now() + 120_000 },
+      });
+      await fixture.whenStable();
+
+      ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateMessage({ type: 'snapshot_start' });
+
+      expect(component.status()).toBe('syncing');
+      expect(component.statusText()).toBe('Syncing your data\u2026');
+
+      qrSpy.mockRestore();
+    });
+
+    it('should navigate to /explorer when snapshot completes', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-nav',
+        payload: { expiresAt: Date.now() + 120_000 },
+      });
+      await fixture.whenStable();
+
+      ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateMessage({ type: 'snapshot_start' });
+      ws.simulateMessage({
+        type: 'snapshot_chunk',
+        payload: { folders: [{ id: 'f1', name: 'Work' }], threads: [], records: [] },
+      });
+      ws.simulateMessage({ type: 'snapshot_complete' });
+
+      // Flush effect that watches projection.phase()
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(router.navigate).toHaveBeenCalledWith(['/explorer']);
+
+      qrSpy.mockRestore();
+    });
+
+    it('should accumulate snapshot data in ProjectionStore', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+      const store = TestBed.inject(ProjectionStore);
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-acc',
+        payload: { expiresAt: Date.now() + 120_000 },
+      });
+      await fixture.whenStable();
+
+      ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateMessage({ type: 'snapshot_start' });
+      ws.simulateMessage({
+        type: 'snapshot_chunk',
+        payload: {
+          folders: [{ id: 'f1', name: 'Work' }],
+          threads: [{ id: 't1', folderId: 'f1', title: 'Log' }],
+          records: [{ id: 'r1', threadId: 't1', type: 'text', name: 'Entry', createdAt: 1 }],
+        },
+      });
+      ws.simulateMessage({ type: 'snapshot_complete' });
+
+      expect(store.phase()).toBe('ready');
+      expect(store.folders().length).toBe(1);
+      expect(store.threads().length).toBe(1);
+      expect(store.records().length).toBe(1);
+
+      qrSpy.mockRestore();
+    });
+  });
+
+  // ── 8. Error / resilience ───────────────────────────────
 
   describe('Error handling', () => {
     it('should set error status on WebSocket error', () => {
@@ -356,25 +445,25 @@ describe('PairingComponent', () => {
       const ws = MockWebSocket.last;
       ws.simulateOpen();
 
-      // Send non-JSON
+      // Send non-JSON — RelayService catches the parse error
       ws.onmessage?.({ data: 'not json at all {{{{' });
 
-      // Should still be connecting/waiting, not crashed
       expect(component.status()).not.toBe('error');
     });
   });
 
-  // ── 8. Cleanup on destroy ───────────────────────────────
+  // ── 9. Cleanup on destroy ───────────────────────────────
 
   describe('Cleanup', () => {
-    it('should close the WebSocket when the component is destroyed', () => {
+    it('should keep relay connected after component destroy (service-owned)', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
 
       fixture.destroy();
 
-      expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+      // RelayService owns the connection — it persists for explorer
+      expect(ws.readyState).toBe(MockWebSocket.OPEN);
     });
   });
 });

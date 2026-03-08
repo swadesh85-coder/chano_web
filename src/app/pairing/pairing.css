@@ -221,6 +221,11 @@
   background: #22c55e;
 }
 
+.status-dot--syncing {
+  background: #a855f7;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
 .status-dot--error {
   background: #ef4444;
 }
