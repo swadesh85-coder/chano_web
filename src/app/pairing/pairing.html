@@ -1,0 +1,46 @@
+<section class="pairing-screen" role="main" aria-label="Device pairing">
+  <div class="pairing-card">
+    <header class="pairing-header">
+      <h1 class="pairing-title">Chano</h1>
+      <p class="pairing-subtitle">Pair with your mobile device</p>
+    </header>
+
+    @switch (status()) {
+      @case ('connecting') {
+        <div class="qr-placeholder" aria-busy="true">
+          <div class="spinner" role="status" aria-label="Connecting to relay"></div>
+        </div>
+      }
+      @case ('waiting_for_scan') {
+        <div class="qr-container" role="img" aria-label="QR code for device pairing">
+          <img [src]="qrDataUrl()" alt="Pairing QR Code" class="qr-image" width="220" height="220" />
+        </div>
+        <div class="countdown" aria-live="polite">
+          <span class="countdown-label">Session expires in</span>
+          <span class="countdown-value">{{ countdown() }}</span>
+        </div>
+      }
+      @case ('paired') {
+        <div class="paired-container">
+          <div class="paired-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+        </div>
+      }
+      @case ('error') {
+        <div class="error-container">
+          <p class="error-message">{{ errorMessage() }}</p>
+          <button class="retry-btn" (click)="retry()">Retry Connection</button>
+        </div>
+      }
+    }
+
+    <div class="status-bar" aria-live="polite">
+      <span class="status-dot" [class]="'status-dot--' + status()"></span>
+      <span class="status-text">{{ statusText() }}</span>
+    </div>
+  </div>
+</section>

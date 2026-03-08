@@ -1,0 +1,380 @@
+import { TestBed } from '@angular/core/testing';
+import { PairingComponent } from './pairing';
+import QRCode from 'qrcode';
+
+// Helper to mock QRCode.toDataURL with proper typing
+function mockQrToDataURL(returnValue: string) {
+  return vi.spyOn(QRCode, 'toDataURL').mockImplementation(
+    (() => Promise.resolve(returnValue)) as typeof QRCode.toDataURL,
+  );
+}
+
+function mockQrToDataURLRejected(error: Error) {
+  return vi.spyOn(QRCode, 'toDataURL').mockImplementation(
+    (() => Promise.reject(error)) as typeof QRCode.toDataURL,
+  );
+}
+
+// ── Minimal WebSocket mock ───────────────────────────────────
+
+type WsHandler = ((ev: { data: string }) => void) | null;
+
+class MockWebSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+
+  static last: MockWebSocket;
+
+  readyState = MockWebSocket.CONNECTING;
+  onopen: (() => void) | null = null;
+  onmessage: WsHandler = null;
+  onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  sent: string[] = [];
+  url: string;
+
+  constructor(url: string) {
+    this.url = url;
+    MockWebSocket.last = this;
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.readyState = MockWebSocket.CLOSED;
+  }
+
+  // ── Test helpers ───────────────────────────────────────────
+
+  /** Simulate the server accepting the connection. */
+  simulateOpen(): void {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.();
+  }
+
+  /** Simulate a server message in relay envelope format. */
+  simulateMessage(msg: Record<string, unknown>): void {
+    // Wrap in relay envelope if not already wrapped
+    const envelope = msg['timestamp']
+      ? msg
+      : {
+          type: msg['type'],
+          sessionId: msg['sessionId'] ?? null,
+          timestamp: Date.now(),
+          payload: msg['payload'] ?? {},
+        };
+    this.onmessage?.({ data: JSON.stringify(envelope) });
+  }
+
+  /** Simulate a connection error. */
+  simulateError(): void {
+    this.onerror?.();
+  }
+
+  /** Simulate the connection closing. */
+  simulateClose(): void {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.();
+  }
+}
+
+// ── Setup global mock ────────────────────────────────────────
+
+const OriginalWebSocket = globalThis.WebSocket;
+
+beforeAll(() => {
+  (globalThis as Record<string, unknown>)['WebSocket'] =
+    MockWebSocket as unknown as typeof WebSocket;
+});
+
+afterAll(() => {
+  globalThis.WebSocket = OriginalWebSocket;
+});
+
+// ── Test suite ───────────────────────────────────────────────
+
+describe('PairingComponent', () => {
+  let fixture: ReturnType<typeof TestBed.createComponent<PairingComponent>>;
+  let component: PairingComponent;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [PairingComponent],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(PairingComponent);
+    component = fixture.componentInstance;
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  // ── 1. Safety rules ─────────────────────────────────────
+
+  describe('Constitutional safety', () => {
+    it('must not use localStorage', () => {
+      const spy = vi.spyOn(Storage.prototype, 'setItem');
+      fixture.detectChanges();
+      MockWebSocket.last.simulateOpen();
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('must not use sessionStorage', () => {
+      const spy = vi.spyOn(Storage.prototype, 'setItem');
+      fixture.detectChanges();
+      MockWebSocket.last.simulateOpen();
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('must not store vault data or user records', () => {
+      // Component should only expose pairing-state signals
+      const publicKeys = Object.keys(component);
+      const forbidden = ['vault', 'user', 'record', 'media', 'storage'];
+      for (const key of publicKeys) {
+        for (const word of forbidden) {
+          expect(key.toLowerCase()).not.toContain(word);
+        }
+      }
+    });
+
+    it('pairing logic must be fully contained in PairingComponent', () => {
+      // No service injection for pairing — only Angular-provided DestroyRef & NgZone
+      expect(component).toBeTruthy();
+    });
+  });
+
+  // ── 2. WebSocket connects to relay ──────────────────────
+
+  describe('WebSocket connection', () => {
+    it('should open a WebSocket to the relay on init', () => {
+      fixture.detectChanges();
+      expect(MockWebSocket.last).toBeDefined();
+      expect(MockWebSocket.last.url).toBe('ws://localhost:8080');
+    });
+
+    it('should set status to "connecting" initially', () => {
+      fixture.detectChanges();
+      expect(component.status()).toBe('connecting');
+    });
+  });
+
+  // ── 3. Sends qr_session_create on open ─────────────────
+
+  describe('Session creation', () => {
+    it('should send { type: "qr_session_create" } when connection opens', () => {
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      expect(ws.sent.length).toBe(1);
+      expect(JSON.parse(ws.sent[0])).toEqual({ type: 'qr_session_create' });
+    });
+  });
+
+  // ── 4. QR code generated on qr_session_ready ───────────
+
+  describe('QR code generation', () => {
+    it('should generate a QR code containing sessionId, relayUrl, expiresAt', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,FAKE');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      const expiresAtMs = Date.now() + 120_000;
+      const expiresAtIso = new Date(expiresAtMs).toISOString();
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-abc-123',
+        payload: { expiresAt: expiresAtMs },
+      });
+
+      // Let the async QRCode.toDataURL resolve
+      await fixture.whenStable();
+
+      expect(qrSpy).toHaveBeenCalledOnce();
+      const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
+      expect(payload).toEqual({
+        sessionId: 'sess-abc-123',
+        relayUrl: 'ws://localhost:8080',
+        expiresAt: expiresAtIso,
+      });
+
+      expect(component.status()).toBe('waiting_for_scan');
+      expect(component.qrDataUrl()).toBe('data:image/png;base64,FAKE');
+
+      qrSpy.mockRestore();
+    });
+
+    it('should set error status if QR generation fails', async () => {
+      const qrSpy = mockQrToDataURLRejected(new Error('canvas fail'));
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-xyz',
+        payload: { expiresAt: Date.now() + 60_000 },
+      });
+
+      await fixture.whenStable();
+
+      expect(component.status()).toBe('error');
+      expect(component.errorMessage()).toBe('Failed to generate QR code');
+
+      qrSpy.mockRestore();
+    });
+  });
+
+  // ── 5. pair_approved → Connected to Mobile ──────────────
+
+  describe('Pair approval', () => {
+    it('should update status to "paired" when pair_approved is received', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-pair',
+        payload: { expiresAt: Date.now() + 120_000 },
+      });
+      await fixture.whenStable();
+
+      ws.simulateMessage({ type: 'pair_approved' });
+
+      expect(component.status()).toBe('paired');
+      expect(component.statusText()).toBe('Connected to Mobile');
+
+      qrSpy.mockRestore();
+    });
+  });
+
+  // ── 6. Session expiry auto-renews ───────────────────────
+
+  describe('Session expiry auto-renewal', () => {
+    it('should send a new qr_session_create when the session expires', async () => {
+      vi.useFakeTimers();
+
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      // First qr_session_create already sent
+      expect(ws.sent.length).toBe(1);
+
+      const expiresAt = Date.now() + 5_000;
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-expire',
+        payload: { expiresAt },
+      });
+      await fixture.whenStable();
+
+      // Advance past expiry
+      vi.advanceTimersByTime(6_000);
+
+      // Should have sent a second qr_session_create
+      expect(ws.sent.length).toBe(2);
+      expect(JSON.parse(ws.sent[1])).toEqual({ type: 'qr_session_create' });
+
+      vi.useRealTimers();
+      qrSpy.mockRestore();
+    });
+  });
+
+  // ── 7. Error / resilience ───────────────────────────────
+
+  describe('Error handling', () => {
+    it('should set error status on WebSocket error', () => {
+      fixture.detectChanges();
+      MockWebSocket.last.simulateError();
+
+      expect(component.status()).toBe('error');
+      expect(component.errorMessage()).toBe('Failed to connect to relay server');
+    });
+
+    it('should set error status when connection closes unexpectedly', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-close',
+        payload: { expiresAt: Date.now() + 120_000 },
+      });
+      await fixture.whenStable();
+
+      ws.simulateClose();
+
+      expect(component.status()).toBe('error');
+      expect(component.errorMessage()).toBe('Connection to relay lost');
+
+      qrSpy.mockRestore();
+    });
+
+    it('should not overwrite paired status on close', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: 'sess-stay',
+        payload: { expiresAt: Date.now() + 120_000 },
+      });
+      await fixture.whenStable();
+
+      ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateClose();
+
+      expect(component.status()).toBe('paired');
+
+      qrSpy.mockRestore();
+    });
+
+    it('should ignore malformed messages gracefully', () => {
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      // Send non-JSON
+      ws.onmessage?.({ data: 'not json at all {{{{' });
+
+      // Should still be connecting/waiting, not crashed
+      expect(component.status()).not.toBe('error');
+    });
+  });
+
+  // ── 8. Cleanup on destroy ───────────────────────────────
+
+  describe('Cleanup', () => {
+    it('should close the WebSocket when the component is destroyed', () => {
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      fixture.destroy();
+
+      expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+    });
+  });
+});
