@@ -1,6 +1,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { WebRelayClient } from '../../transport/web-relay-client';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
+import { SnapshotLoader, type SnapshotLoaderEvent } from './snapshot_loader';
 import type {
   Folder,
   Thread,
@@ -50,22 +51,26 @@ type RecordEntityData = {
 @Injectable({ providedIn: 'root' })
 export class ProjectionStore {
   private readonly relay = inject(WebRelayClient);
+  private readonly snapshotLoader = inject(SnapshotLoader);
 
   private readonly _folders = signal<Folder[]>([]);
   private readonly _threads = signal<Thread[]>([]);
   private readonly _records = signal<RecordEntry[]>([]);
   private readonly _phase = signal<SnapshotPhase>('idle');
+  private readonly _baseEventVersion = signal<number | null>(null);
 
   readonly phase = this._phase.asReadonly();
   readonly folders = this._folders.asReadonly();
   readonly threads = this._threads.asReadonly();
   readonly records = this._records.asReadonly();
+  readonly baseEventVersion = this._baseEventVersion.asReadonly();
 
   readonly explorerTree = computed<ExplorerNode[]>(() =>
     this.buildHierarchy(this._folders(), this._threads(), this._records()),
   );
 
   constructor() {
+    this.snapshotLoader.onEvent((event) => this.handleSnapshotLoaderEvent(event));
     this.relay.onEnvelope((msg) => this.handleEnvelope(msg));
   }
 
@@ -73,13 +78,13 @@ export class ProjectionStore {
     if (msg.type.startsWith('snapshot_')) {
       switch (msg.type) {
         case 'snapshot_start':
-          this.onSnapshotStart();
+          this.onSnapshotStart(msg);
           break;
         case 'snapshot_chunk':
-          this.onSnapshotChunk(msg.payload);
+          this.onSnapshotChunk(msg);
           break;
         case 'snapshot_complete':
-          this.onSnapshotComplete();
+          void this.onSnapshotComplete(msg);
           break;
       }
       return;
@@ -92,14 +97,42 @@ export class ProjectionStore {
 
   // ── Snapshot lifecycle ───────────────────────────────────
 
-  private onSnapshotStart(): void {
-    this._folders.set([]);
-    this._threads.set([]);
-    this._records.set([]);
+  private onSnapshotStart(msg: TransportEnvelope): void {
+    if (this.isByteSnapshotStartPayload(msg.payload)) {
+      this.snapshotLoader.handleSnapshotStart(msg);
+    } else {
+      this._folders.set([]);
+      this._threads.set([]);
+      this._records.set([]);
+      this._baseEventVersion.set(null);
+    }
+
     this._phase.set('receiving');
   }
 
-  private onSnapshotChunk(payload: Record<string, unknown>): void {
+  private onSnapshotChunk(msg: TransportEnvelope): void {
+    if (this._phase() !== 'receiving') {
+      return;
+    }
+
+    if (this.isByteSnapshotChunkPayload(msg.payload)) {
+      this.snapshotLoader.handleSnapshotChunk(msg);
+      return;
+    }
+
+    this.applyLegacySnapshotChunk(msg.payload);
+  }
+
+  private async onSnapshotComplete(msg: TransportEnvelope): Promise<void> {
+    if (this.isByteSnapshotCompletePayload(msg.payload)) {
+      await this.snapshotLoader.handleSnapshotComplete(msg);
+      return;
+    }
+
+    this._phase.set('ready');
+  }
+
+  private applyLegacySnapshotChunk(payload: Record<string, unknown>): void {
     if (this._phase() !== 'receiving') return;
 
     let chunk: Record<string, unknown>;
@@ -150,8 +183,66 @@ export class ProjectionStore {
     }
   }
 
-  private onSnapshotComplete(): void {
+  private handleSnapshotLoaderEvent(event: SnapshotLoaderEvent): void {
+    switch (event.type) {
+      case 'SNAPSHOT_ERROR':
+        this._phase.set('idle');
+        return;
+      case 'SNAPSHOT_LOADED':
+        this.applyDecodedSnapshot(event.snapshotJson, event.baseEventVersion);
+        return;
+    }
+  }
+
+  private applyDecodedSnapshot(snapshotJson: string, baseEventVersion: number): void {
+    let snapshot: unknown;
+
+    try {
+      snapshot = JSON.parse(snapshotJson);
+    } catch {
+      this._phase.set('idle');
+      this.reportSchemaValidationError();
+      return;
+    }
+
+    if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      this._phase.set('idle');
+      this.reportSchemaValidationError();
+      return;
+    }
+
+    const snapshotRecord = snapshot as Record<string, unknown>;
+    const folders = this.parseSnapshotEntities(snapshotRecord['folders'], ['folder', 'imageGroup'])
+      .map((entity) => this.parseFolderData(entity.data))
+      .filter((entity): entity is Folder => entity !== null);
+    const threads = this.parseSnapshotEntities(snapshotRecord['threads'], ['thread'])
+      .map((entity) => this.parseThreadData(entity.data))
+      .filter((entity): entity is Thread => entity !== null);
+    const records = this.parseSnapshotEntities(snapshotRecord['records'], ['record'])
+      .map((entity) => this.parseRecordData(entity.data))
+      .filter((entity): entity is RecordEntry => entity !== null);
+
+    this._folders.set(folders);
+    this._threads.set(threads);
+    this._records.set(records);
+    this._baseEventVersion.set(baseEventVersion);
     this._phase.set('ready');
+  }
+
+  private isByteSnapshotStartPayload(payload: Record<string, unknown>): boolean {
+    return 'snapshotId' in payload
+      || 'totalChunks' in payload
+      || 'totalBytes' in payload
+      || 'baseEventVersion' in payload
+      || 'checksum' in payload;
+  }
+
+  private isByteSnapshotChunkPayload(payload: Record<string, unknown>): boolean {
+    return 'index' in payload;
+  }
+
+  private isByteSnapshotCompletePayload(payload: Record<string, unknown>): boolean {
+    return 'totalChunks' in payload;
   }
 
   // ── Event stream handling ────────────────────────────────

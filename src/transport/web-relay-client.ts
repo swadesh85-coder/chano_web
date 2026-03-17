@@ -1,4 +1,5 @@
 import { Injectable, NgZone, inject, signal } from '@angular/core';
+import type { MutationCommand } from './mutation-command';
 import type { TransportEnvelope } from './transport-envelope';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -14,9 +15,11 @@ export class WebRelayClient {
 
   private ws: WebSocket | null = null;
   private outboundSequence = 1;
+  private readonly currentSessionId = signal<string | null>(null);
 
   readonly state = signal<ConnectionState>('disconnected');
   readonly lastError = signal<string | null>(null);
+  readonly sessionId = this.currentSessionId.asReadonly();
 
   connect(relayUrl: string): void {
     this.disconnect();
@@ -40,7 +43,9 @@ export class WebRelayClient {
             const envelope = this.parseEnvelope(raw);
 
             if (envelope !== null) {
+              this.captureSession(envelope);
               console.log(`WEB_RELAY_ENVELOPE_RECEIVED type=${envelope.type}`);
+              console.log('TRANSPORT_ENVELOPE_PARSED', envelope);
               for (const handler of this.envelopeHandlers) {
                 handler(envelope);
               }
@@ -86,23 +91,40 @@ export class WebRelayClient {
     }
 
     this.state.set('disconnected');
+    this.currentSessionId.set(null);
     this.emitState('disconnected');
   }
 
   createEnvelope(
   type: string,
   payload: Record<string, unknown> = {},
-  sessionId: string | null = null,
+  sessionId?: string | null,
 ): TransportEnvelope {
+  const resolvedSessionId = sessionId === undefined ? this.currentSessionId() : sessionId;
+
   return {
     protocolVersion: TRANSPORT_PROTOCOL_VERSION,
     type,
-    sessionId: sessionId ?? crypto.randomUUID(),
+    sessionId: resolvedSessionId,
     timestamp: Date.now(),
     sequence: this.outboundSequence++,
     payload,
   };
 }
+
+  sendMutationCommand(
+    command: MutationCommand,
+    sessionId?: string | null,
+  ): TransportEnvelope | null {
+    const envelope = this.createEnvelope('mutation_command', { ...command }, sessionId);
+    const sentEnvelope = this.sendEnvelope(envelope);
+
+    if (sentEnvelope !== null) {
+      console.log('MUTATION_COMMAND_SENT', sentEnvelope);
+    }
+
+    return sentEnvelope;
+  }
 
   sendEnvelope(envelope: TransportEnvelope): TransportEnvelope | null {
     if (this.ws?.readyState !== WebSocket.OPEN) {
@@ -175,6 +197,15 @@ export class WebRelayClient {
       sequence,
       payload: payload as Record<string, unknown>,
     };
+  }
+
+  private captureSession(envelope: TransportEnvelope): void {
+    if (envelope.sessionId === null || envelope.sessionId === this.currentSessionId()) {
+      return;
+    }
+
+    this.currentSessionId.set(envelope.sessionId);
+    console.log(`WEB_SESSION_CREATED sessionId=${envelope.sessionId}`);
   }
 
   private emitState(state: ConnectionState): void {

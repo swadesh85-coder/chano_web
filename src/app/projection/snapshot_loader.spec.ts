@@ -1,0 +1,187 @@
+import { SnapshotLoader, type SnapshotLoaderEvent } from './snapshot_loader';
+import type { TransportEnvelope } from '../../transport/transport-envelope';
+
+function createEnvelope(
+  type: string,
+  payload: Record<string, unknown>,
+  sequence = 1,
+): TransportEnvelope {
+  return {
+    protocolVersion: 2,
+    type,
+    sessionId: 'session-runtime-1',
+    timestamp: 1_710_000_000,
+    sequence,
+    payload,
+  };
+}
+
+function encodeUtf8(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function toBase64(bytes: Uint8Array): string {
+  if (typeof globalThis.btoa === 'function') {
+    let binary = '';
+
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+
+    return globalThis.btoa(binary);
+  }
+
+  const bufferCtor = (globalThis as typeof globalThis & {
+    Buffer?: { from(input: Uint8Array): { toString(encoding: string): string } };
+  }).Buffer;
+
+  if (!bufferCtor) {
+    throw new Error('No base64 encoder available');
+  }
+
+  return bufferCtor.from(bytes).toString('base64');
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', copy.buffer);
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+async function createSnapshotProtocol(snapshotJson: string, baseEventVersion = 41): Promise<{
+  readonly start: TransportEnvelope;
+  readonly chunks: readonly TransportEnvelope[];
+  readonly complete: TransportEnvelope;
+}> {
+  const bytes = encodeUtf8(snapshotJson);
+  const midpoint = Math.max(1, Math.floor(bytes.length / 2));
+  const chunkBytes = [bytes.slice(0, midpoint), bytes.slice(midpoint)].filter((chunk) => chunk.byteLength > 0);
+  const checksum = await sha256Hex(bytes);
+
+  return {
+    start: createEnvelope('snapshot_start', {
+      snapshotId: 'snapshot-1',
+      totalChunks: chunkBytes.length,
+      totalBytes: bytes.byteLength,
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion,
+      entityCount: 3,
+      checksum,
+    }),
+    chunks: chunkBytes.map((chunk, index) =>
+      createEnvelope('snapshot_chunk', {
+        index,
+        data: toBase64(chunk),
+      }, index + 2),
+    ),
+    complete: createEnvelope('snapshot_complete', { totalChunks: chunkBytes.length }, chunkBytes.length + 2),
+  };
+}
+
+describe('SnapshotLoader', () => {
+  let loader: SnapshotLoader;
+  let events: SnapshotLoaderEvent[];
+
+  beforeEach(() => {
+    loader = new SnapshotLoader();
+    events = [];
+    loader.onEvent((event) => {
+      events.push(event);
+    });
+  });
+
+  it('snapshot_start_initializes_loader', async () => {
+    const firstProtocol = await createSnapshotProtocol('{"folders":[1],"threads":[],"records":[]}');
+    const secondProtocol = await createSnapshotProtocol('{"folders":[2],"threads":[],"records":[]}', 84);
+
+    loader.handleSnapshotStart(firstProtocol.start);
+    loader.handleSnapshotChunk(firstProtocol.chunks[0]!);
+
+    loader.handleSnapshotStart(secondProtocol.start);
+    loader.handleSnapshotChunk(secondProtocol.chunks[0]!);
+    if (secondProtocol.chunks[1]) {
+      loader.handleSnapshotChunk(secondProtocol.chunks[1]);
+    }
+    await loader.handleSnapshotComplete(secondProtocol.complete);
+
+    expect(events).toEqual([
+      {
+        type: 'SNAPSHOT_LOADED',
+        snapshotJson: '{"folders":[2],"threads":[],"records":[]}',
+        baseEventVersion: 84,
+      },
+    ]);
+  });
+
+  it('snapshot_chunk_byte_reconstruction', async () => {
+    const snapshotJson = '{"folders":[{"name":"Cafe \u2615"}],"threads":[],"records":[]}';
+    const protocol = await createSnapshotProtocol(snapshotJson, 12);
+
+    loader.handleSnapshotStart(protocol.start);
+    for (const chunk of protocol.chunks) {
+      loader.handleSnapshotChunk(chunk);
+    }
+    await loader.handleSnapshotComplete(protocol.complete);
+
+    expect(events).toContainEqual({
+      type: 'SNAPSHOT_LOADED',
+      snapshotJson,
+      baseEventVersion: 12,
+    });
+  });
+
+  it('snapshot_complete_snapshot_rebuild', async () => {
+    const snapshotJson = JSON.stringify({
+      folders: [{ entityType: 'folder', entityUuid: 'f1', entityVersion: 1, ownerUserId: 'u1', data: { uuid: 'f1', name: 'Inbox', parentFolderUuid: null } }],
+      threads: [],
+      records: [],
+    });
+    const protocol = await createSnapshotProtocol(snapshotJson, 7);
+
+    loader.handleSnapshotStart(protocol.start);
+    protocol.chunks.forEach((chunk) => loader.handleSnapshotChunk(chunk));
+    await loader.handleSnapshotComplete(protocol.complete);
+
+    expect(events[0]).toEqual({
+      type: 'SNAPSHOT_LOADED',
+      snapshotJson,
+      baseEventVersion: 7,
+    });
+  });
+
+  it('snapshot_checksum_verification', async () => {
+    const protocol = await createSnapshotProtocol('{"folders":[],"threads":[],"records":[]}');
+    const invalidStart = createEnvelope('snapshot_start', {
+      ...protocol.start.payload,
+      checksum: 'deadbeef',
+    });
+
+    loader.handleSnapshotStart(invalidStart);
+    protocol.chunks.forEach((chunk) => loader.handleSnapshotChunk(chunk));
+    await loader.handleSnapshotComplete(protocol.complete);
+
+    expect(events).toEqual([
+      {
+        type: 'SNAPSHOT_ERROR',
+        reason: 'checksum mismatch',
+      },
+    ]);
+  });
+
+  it('snapshot_reject_on_invalid_chunk_order', async () => {
+    const protocol = await createSnapshotProtocol('{"folders":[],"threads":[],"records":[]}');
+
+    loader.handleSnapshotStart(protocol.start);
+    loader.handleSnapshotChunk(protocol.chunks[1] ?? protocol.chunks[0]!);
+
+    expect(events).toEqual([
+      {
+        type: 'SNAPSHOT_ERROR',
+        reason: 'invalid chunk order expected=0 actual=1',
+      },
+    ]);
+  });
+});

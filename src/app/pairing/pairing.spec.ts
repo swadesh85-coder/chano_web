@@ -98,6 +98,83 @@ function normalizeEntities(
   });
 }
 
+function encodeUtf8(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function toBase64(bytes: Uint8Array): string {
+  if (typeof globalThis.btoa === 'function') {
+    let binary = '';
+
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+
+    return globalThis.btoa(binary);
+  }
+
+  const bufferCtor = (globalThis as typeof globalThis & {
+    Buffer?: { from(input: Uint8Array): { toString(encoding: string): string } };
+  }).Buffer;
+
+  if (!bufferCtor) {
+    throw new Error('No base64 encoder available');
+  }
+
+  return bufferCtor.from(bytes).toString('base64');
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', copy.buffer);
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+async function createSnapshotMessages(snapshotJson: string): Promise<{
+  readonly start: Record<string, unknown>;
+  readonly chunks: readonly Record<string, unknown>[];
+  readonly complete: Record<string, unknown>;
+}> {
+  const bytes = encodeUtf8(snapshotJson);
+  const checksum = await sha256Hex(bytes);
+
+  return {
+    start: {
+      type: 'snapshot_start',
+      payload: {
+        snapshotId: 'snapshot-pairing-1',
+        totalChunks: 1,
+        totalBytes: bytes.byteLength,
+        snapshotVersion: 1,
+        protocolVersion: 2,
+        schemaVersion: 1,
+        baseEventVersion: 9,
+        entityCount: 3,
+        checksum,
+      },
+    },
+    chunks: [
+      {
+        type: 'snapshot_chunk',
+        payload: {
+          index: 0,
+          data: toBase64(bytes),
+        },
+      },
+    ],
+    complete: {
+      type: 'snapshot_complete',
+      payload: { totalChunks: 1 },
+    },
+  };
+}
+
+async function flushSnapshotAsyncWork(): Promise<void> {
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 type WsHandler = ((ev: { data: string }) => void) | null;
 
 class MockWebSocket {
@@ -242,7 +319,7 @@ describe('PairingComponent', () => {
     it('should open a WebSocket to the relay on init', () => {
       fixture.detectChanges();
       expect(MockWebSocket.last).toBeDefined();
-      expect(MockWebSocket.last.url).toBe('ws://172.20.10.3:8080');
+      expect(MockWebSocket.last.url).toBe('ws://localhost:8080/relay');
     });
 
     it('should set status to "connecting" initially', () => {
@@ -295,7 +372,7 @@ describe('PairingComponent', () => {
       const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
       expect(payload).toEqual({
         sessionId: 'sess-abc-123',
-        relayUrl: 'ws://172.20.10.3:8080',
+        relayUrl: 'ws://localhost:8080/relay',
         expiresAt: expiresAtIso,
       });
 
@@ -381,7 +458,7 @@ describe('PairingComponent', () => {
       expect(JSON.parse(ws.sent[1])).toEqual({
         protocolVersion: 2,
         type: 'qr_session_create',
-        sessionId: null,
+        sessionId: 'sess-expire',
         timestamp: expect.any(Number),
         sequence: 2,
         payload: {},
@@ -397,6 +474,7 @@ describe('PairingComponent', () => {
   describe('Snapshot handling', () => {
     it('should set status to syncing on snapshot_start', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+      const snapshot = await createSnapshotMessages('{"folders":[],"threads":[],"records":[]}');
 
       fixture.detectChanges();
       const ws = MockWebSocket.last;
@@ -410,7 +488,7 @@ describe('PairingComponent', () => {
       await fixture.whenStable();
 
       ws.simulateMessage({ type: 'pair_approved' });
-      ws.simulateMessage({ type: 'snapshot_start' });
+  ws.simulateMessage(snapshot.start);
 
       expect(component.status()).toBe('syncing');
       expect(component.statusText()).toBe('Syncing your data\u2026');
@@ -420,6 +498,19 @@ describe('PairingComponent', () => {
 
     it('should navigate to /explorer when snapshot completes', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+      const snapshot = await createSnapshotMessages(JSON.stringify({
+        folders: [
+          {
+            entityType: 'folder',
+            entityUuid: 'f1',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: { uuid: 'f1', name: 'Work', parentFolderUuid: null },
+          },
+        ],
+        threads: [],
+        records: [],
+      }));
 
       fixture.detectChanges();
       const ws = MockWebSocket.last;
@@ -433,16 +524,13 @@ describe('PairingComponent', () => {
       await fixture.whenStable();
 
       ws.simulateMessage({ type: 'pair_approved' });
-      ws.simulateMessage({ type: 'snapshot_start' });
-      ws.simulateMessage({
-        type: 'snapshot_chunk',
-        payload: { folders: [{ id: 'f1', name: 'Work' }], threads: [], records: [] },
-      });
-      ws.simulateMessage({ type: 'snapshot_complete' });
+      ws.simulateMessage(snapshot.start);
+      snapshot.chunks.forEach((message) => ws.simulateMessage(message));
+      ws.simulateMessage(snapshot.complete);
 
-      // Flush effect that watches projection.phase()
+      await flushSnapshotAsyncWork();
       fixture.detectChanges();
-      await fixture.whenStable();
+      await flushSnapshotAsyncWork();
 
       expect(router.navigate).toHaveBeenCalledWith(['/explorer']);
 
@@ -452,6 +540,45 @@ describe('PairingComponent', () => {
     it('should accumulate snapshot data in ProjectionStore', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
       const store = TestBed.inject(ProjectionStore);
+      const snapshot = await createSnapshotMessages(JSON.stringify({
+        folders: [
+          {
+            entityType: 'folder',
+            entityUuid: 'f1',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: { uuid: 'f1', name: 'Work', parentFolderUuid: null },
+          },
+        ],
+        threads: [
+          {
+            entityType: 'thread',
+            entityUuid: 't1',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: { uuid: 't1', folderUuid: 'f1', title: 'Log' },
+          },
+        ],
+        records: [
+          {
+            entityType: 'record',
+            entityUuid: 'r1',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: 'r1',
+              threadUuid: 't1',
+              type: 'text',
+              body: 'Entry',
+              createdAt: 1,
+              editedAt: 1,
+              orderIndex: 0,
+              isStarred: false,
+              imageGroupId: null,
+            },
+          },
+        ],
+      }));
 
       fixture.detectChanges();
       const ws = MockWebSocket.last;
@@ -465,16 +592,11 @@ describe('PairingComponent', () => {
       await fixture.whenStable();
 
       ws.simulateMessage({ type: 'pair_approved' });
-      ws.simulateMessage({ type: 'snapshot_start' });
-      ws.simulateMessage({
-        type: 'snapshot_chunk',
-        payload: {
-          folders: [{ id: 'f1', name: 'Work' }],
-          threads: [{ id: 't1', folderId: 'f1', title: 'Log' }],
-          records: [{ id: 'r1', threadId: 't1', type: 'text', name: 'Entry', createdAt: 1 }],
-        },
-      });
-      ws.simulateMessage({ type: 'snapshot_complete' });
+      ws.simulateMessage(snapshot.start);
+      snapshot.chunks.forEach((message) => ws.simulateMessage(message));
+      ws.simulateMessage(snapshot.complete);
+      await flushSnapshotAsyncWork();
+      fixture.detectChanges();
 
       expect(store.phase()).toBe('ready');
       expect(store.folders().length).toBe(1);
