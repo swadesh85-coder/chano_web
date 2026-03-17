@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { ProjectionStore } from './projection.store';
-import { RelayService } from '../relay/relay.service';
 import type { RelayEnvelope } from '../relay/relay.models';
+import { WebRelayClient } from '../../transport/web-relay-client';
 
 describe('ProjectionStore', () => {
   let store: ProjectionStore;
@@ -14,8 +14,13 @@ describe('ProjectionStore', () => {
     TestBed.configureTestingModule({
       providers: [
         {
-          provide: RelayService,
-          useValue: { messages$: messages$.asObservable() },
+          provide: WebRelayClient,
+          useValue: {
+            onEnvelope: (handler: (envelope: RelayEnvelope) => void) => {
+              const subscription = messages$.asObservable().subscribe(handler);
+              return () => subscription.unsubscribe();
+            },
+          },
         },
       ],
     });
@@ -31,7 +36,201 @@ describe('ProjectionStore', () => {
     type: string,
     payload: Record<string, unknown> = {},
   ): void {
-    messages$.next({ type, sessionId: null, timestamp: Date.now(), payload });
+    const normalizedPayload =
+      type === 'snapshot_chunk' ? normalizeSnapshotPayload(payload) : payload;
+
+    messages$.next({
+      protocolVersion: 2,
+      type,
+      sessionId: null,
+      timestamp: Date.now(),
+      sequence: 1,
+      payload: normalizedPayload,
+    });
+  }
+
+  function emitRaw(
+    type: string,
+    payload: Record<string, unknown> = {},
+  ): void {
+    messages$.next({
+      protocolVersion: 2,
+      type,
+      sessionId: null,
+      timestamp: Date.now(),
+      sequence: 1,
+      payload,
+    });
+  }
+
+  function normalizeSnapshotPayload(payload: Record<string, unknown>): Record<string, unknown> {
+    if ('data' in payload) {
+      return payload;
+    }
+
+    return {
+      data: JSON.stringify({
+        folders: normalizeSnapshotEntities('folder', payload['folders']),
+        threads: normalizeSnapshotEntities('thread', payload['threads']),
+        records: normalizeSnapshotEntities('record', payload['records']),
+      }),
+    };
+  }
+
+  function normalizeSnapshotEntities(
+    entityType: 'folder' | 'thread' | 'record',
+    raw: unknown,
+  ): unknown[] {
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+
+    return raw.map((entry) => {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+        return entry;
+      }
+
+      const entity = entry as Record<string, unknown>;
+      if ('entityType' in entity) {
+        return entity;
+      }
+
+      switch (entityType) {
+        case 'folder':
+          return {
+            entityType: 'folder',
+            entityUuid: entity['uuid'] ?? entity['id'],
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: entity['uuid'] ?? entity['id'],
+              name: entity['name'],
+              parentFolderUuid:
+                (entity['parentFolderUuid'] ?? entity['parentUuid'] ?? entity['parentId']) === 'root'
+                  ? null
+                  : (entity['parentFolderUuid'] ?? entity['parentUuid'] ?? entity['parentId'] ?? null),
+            },
+          };
+        case 'thread':
+          return {
+            entityType: 'thread',
+            entityUuid: entity['uuid'] ?? entity['id'],
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: entity['uuid'] ?? entity['id'],
+              folderUuid:
+                (entity['folderUuid'] ?? entity['folderId']) === 'root'
+                  ? null
+                  : (entity['folderUuid'] ?? entity['folderId'] ?? null),
+              title: entity['title'],
+            },
+          };
+        case 'record':
+          return {
+            entityType: 'record',
+            entityUuid: entity['uuid'] ?? entity['id'],
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: entity['uuid'] ?? entity['id'],
+              threadUuid: entity['threadUuid'] ?? entity['threadId'],
+              type: entity['type'],
+              body: entity['body'] ?? entity['name'] ?? '',
+              createdAt: entity['createdAt'] ?? 0,
+              editedAt: entity['editedAt'] ?? entity['createdAt'] ?? 0,
+              orderIndex: entity['orderIndex'] ?? 0,
+              isStarred: entity['isStarred'] ?? false,
+              imageGroupId: entity['imageGroupId'] ?? null,
+            },
+          };
+      }
+    });
+  }
+
+  function normalizeEventData(
+    entity: string,
+    data: Record<string, unknown>,
+    operation: string,
+  ): Record<string, unknown> {
+    if ('uuid' in data) {
+      return data;
+    }
+
+    switch (entity) {
+      case 'folder':
+      case 'imageGroup':
+        switch (operation) {
+          case 'delete':
+            return { uuid: data['id'] ?? data['uuid'] };
+          case 'rename':
+            return { uuid: data['id'] ?? data['uuid'], name: data['name'] };
+          case 'move':
+            return {
+              uuid: data['id'] ?? data['uuid'],
+              parentFolderUuid:
+                (data['parentFolderUuid'] ?? data['parentId']) === 'root'
+                  ? null
+                  : (data['parentFolderUuid'] ?? data['parentId'] ?? null),
+            };
+          default:
+            return {
+              uuid: data['id'] ?? data['uuid'],
+              name: data['name'],
+              parentFolderUuid:
+                (data['parentFolderUuid'] ?? data['parentId']) === 'root'
+                  ? null
+                  : (data['parentFolderUuid'] ?? data['parentId'] ?? null),
+            };
+        }
+      case 'thread':
+        switch (operation) {
+          case 'delete':
+            return { uuid: data['id'] ?? data['uuid'] };
+          case 'rename':
+            return { uuid: data['id'] ?? data['uuid'], title: data['title'] };
+          case 'move':
+            return {
+              uuid: data['id'] ?? data['uuid'],
+              folderUuid:
+                (data['folderUuid'] ?? data['folderId']) === 'root'
+                  ? null
+                  : (data['folderUuid'] ?? data['folderId'] ?? null),
+            };
+          default:
+            return {
+              uuid: data['id'] ?? data['uuid'],
+              folderUuid:
+                (data['folderUuid'] ?? data['folderId']) === 'root'
+                  ? null
+                  : (data['folderUuid'] ?? data['folderId'] ?? null),
+              title: data['title'],
+            };
+        }
+      case 'record':
+        switch (operation) {
+          case 'delete':
+            return { uuid: data['id'] ?? data['uuid'] };
+          case 'rename':
+            return { uuid: data['id'] ?? data['uuid'], body: data['body'] ?? data['name'] };
+          case 'move':
+            return { uuid: data['id'] ?? data['uuid'], threadUuid: data['threadUuid'] ?? data['threadId'] };
+          default:
+            return {
+              uuid: data['id'] ?? data['uuid'],
+              threadUuid: data['threadUuid'] ?? data['threadId'],
+              type: data['type'],
+              body: data['body'] ?? data['name'],
+              createdAt: data['createdAt'],
+              editedAt: data['editedAt'] ?? data['createdAt'] ?? 0,
+              orderIndex: data['orderIndex'] ?? 0,
+              isStarred: data['isStarred'] ?? false,
+              imageGroupId: data['imageGroupId'] ?? null,
+            };
+        }
+      default:
+        return data;
+    }
   }
 
   // ── Phase lifecycle ──────────────────────────────────────
@@ -204,7 +403,9 @@ describe('ProjectionStore', () => {
       expect(store.records().length).toBe(1);
     });
 
-    it('should default record name and type for incomplete records', () => {
+    it('should reject incomplete records that do not match canonical schema', () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
       emit('snapshot_chunk', {
         folders: [],
         threads: [],
@@ -213,10 +414,9 @@ describe('ProjectionStore', () => {
         ],
       });
 
-      const record = store.records()[0];
-      expect(record.type).toBe('unknown');
-      expect(record.name).toBe('');
-      expect(record.createdAt).toBe(0);
+      expect(store.records().length).toBe(0);
+      expect(errorSpy).toHaveBeenCalledWith('SCHEMA_VALIDATION_ERROR entity field mismatch');
+      errorSpy.mockRestore();
     });
   });
 
@@ -500,157 +700,186 @@ describe('ProjectionStore', () => {
     });
   });
 
-  // ── Mobile field naming (uuid / folderUuid / threadUuid) ──
-
-  describe('Mobile field naming compatibility', () => {
-    it('should parse folders with uuid instead of id', () => {
+  describe('Schema enforcement', () => {
+    it('schema_snapshot_entity_validation', () => {
       emit('snapshot_start');
-      emit('snapshot_chunk', {
+      emitRaw('snapshot_chunk', {
         data: JSON.stringify({
-          folders: [{ uuid: 'f1', name: 'Work', parentUuid: null }],
+          folders: [
+            {
+              entityType: 'folder',
+              entityUuid: 'folder-uuid',
+              entityVersion: 1,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'folder-uuid',
+                name: 'Projects',
+                parentFolderUuid: null,
+              },
+            },
+          ],
+          threads: [
+            {
+              entityType: 'thread',
+              entityUuid: 'thread-uuid',
+              entityVersion: 1,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'thread-uuid',
+                folderUuid: 'folder-uuid',
+                title: 'Sprint',
+              },
+            },
+          ],
+          records: [
+            {
+              entityType: 'record',
+              entityUuid: 'record-uuid',
+              entityVersion: 1,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'record-uuid',
+                threadUuid: 'thread-uuid',
+                type: 'text',
+                body: 'Task A',
+                createdAt: 1,
+                editedAt: 1,
+                orderIndex: 0,
+                isStarred: false,
+                imageGroupId: null,
+              },
+            },
+          ],
+        }),
+      });
+      emit('snapshot_complete');
+
+      expect(store.folders()[0]).toEqual({ id: 'folder-uuid', name: 'Projects', parentId: null });
+      expect(store.threads()[0]).toEqual({ id: 'thread-uuid', folderId: 'folder-uuid', title: 'Sprint' });
+      expect(store.records()[0]).toEqual({
+        id: 'record-uuid',
+        threadId: 'thread-uuid',
+        type: 'text',
+        name: 'Task A',
+        createdAt: 1,
+      });
+    });
+
+    it('schema_event_entity_validation', () => {
+      seedVault(
+        [{ id: 'f1', name: 'F' }],
+        [{ id: 't1', folderId: 'f1', title: 'T' }],
+      );
+
+      emitRaw('event_stream', {
+        operation: 'create',
+        entity: 'record',
+        data: {
+          uuid: 'r1',
+          threadUuid: 't1',
+          type: 'text',
+          body: 'Canonical body',
+          createdAt: 1,
+          editedAt: 1,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
+        },
+      });
+
+      expect(store.records().length).toBe(1);
+      expect(store.records()[0].name).toBe('Canonical body');
+    });
+
+    it('schema_reject_noncanonical_fields', () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      emit('snapshot_start');
+      emitRaw('snapshot_chunk', {
+        data: JSON.stringify({
+          folders: [
+            {
+              entityType: 'folder',
+              entityUuid: 'folder-uuid',
+              entityVersion: 1,
+              ownerUserId: 'owner-1',
+              data: {
+                id: 'folder-uuid',
+                name: 'Legacy',
+                parentFolderUuid: null,
+              },
+            },
+          ],
           threads: [],
           records: [],
         }),
       });
-      emit('snapshot_complete');
-
-      expect(store.folders().length).toBe(1);
-      expect(store.folders()[0]).toEqual({ id: 'f1', name: 'Work', parentId: null });
-    });
-
-    it('should parse threads with uuid and folderUuid', () => {
-      emit('snapshot_start');
-      emit('snapshot_chunk', {
-        data: JSON.stringify({
-          folders: [{ uuid: 'f1', name: 'F' }],
-          threads: [{ uuid: 't1', folderUuid: 'f1', title: 'Notes' }],
-          records: [],
-        }),
-      });
-      emit('snapshot_complete');
-
-      expect(store.threads().length).toBe(1);
-      expect(store.threads()[0]).toEqual({ id: 't1', folderId: 'f1', title: 'Notes' });
-    });
-
-    it('should default folderId to root when folderUuid is null', () => {
-      emit('snapshot_start');
-      emit('snapshot_chunk', {
-        data: JSON.stringify({
-          folders: [],
-          threads: [{ uuid: 't1', folderUuid: null, title: 'Loose Note' }],
-          records: [],
-        }),
-      });
-      emit('snapshot_complete');
-
-      expect(store.threads()[0].folderId).toBe('root');
-      expect(store.explorerTree().length).toBe(1);
-      expect(store.explorerTree()[0].type).toBe('thread');
-    });
-
-    it('should parse records with uuid and threadUuid', () => {
-      emit('snapshot_start');
-      emit('snapshot_chunk', {
-        data: JSON.stringify({
-          folders: [],
-          threads: [{ uuid: 't1', folderUuid: null, title: 'T' }],
-          records: [
-            { uuid: 'r1', threadUuid: 't1', type: 'text', name: 'Entry', createdAt: 1000 },
-          ],
-        }),
-      });
-      emit('snapshot_complete');
-
-      expect(store.records().length).toBe(1);
-      expect(store.records()[0]).toEqual({
-        id: 'r1', threadId: 't1', type: 'text', name: 'Entry', createdAt: 1000,
-      });
-    });
-
-    it('should build full hierarchy from mobile-format snapshot', () => {
-      emit('snapshot_start');
-      emit('snapshot_chunk', {
-        data: JSON.stringify({
-          folders: [{ uuid: 'f1', name: 'Projects', parentUuid: null }],
-          threads: [
-            { uuid: 't1', folderUuid: 'f1', title: 'Sprint 1' },
-            { uuid: 't2', folderUuid: null, title: 'Quick Note' },
-          ],
-          records: [
-            { uuid: 'r1', threadUuid: 't1', type: 'text', name: 'Task A', createdAt: 100 },
-            { uuid: 'r2', threadUuid: 't2', type: 'image', name: 'Photo', createdAt: 200 },
-          ],
-        }),
-      });
-      emit('snapshot_complete');
-
-      expect(store.phase()).toBe('ready');
-      const tree = store.explorerTree();
-      // Root has: folder "Projects" + thread "Quick Note"
-      expect(tree.length).toBe(2);
-
-      const folder = tree.find((n) => n.type === 'folder')!;
-      expect(folder.name).toBe('Projects');
-      expect(folder.children.length).toBe(1);
-      expect(folder.children[0].name).toBe('Sprint 1');
-      expect(folder.children[0].children.length).toBe(1);
-      expect(folder.children[0].children[0].name).toBe('Task A');
-
-      const rootThread = tree.find((n) => n.type === 'thread')!;
-      expect(rootThread.name).toBe('Quick Note');
-      expect(rootThread.children.length).toBe(1);
-      expect(rootThread.children[0].name).toBe('Photo');
-    });
-
-    it('should handle event_stream with uuid fields', () => {
-      seedVault(
-        [{ uuid: 'f1', name: 'F' }],
-        [{ uuid: 't1', folderUuid: 'f1', title: 'T' }],
-      );
-
-      emitEvent('create', 'record', {
-        uuid: 'r1', threadUuid: 't1', type: 'text', name: 'New', createdAt: 1,
-      });
-
-      expect(store.records().length).toBe(1);
-      expect(store.records()[0].id).toBe('r1');
-      expect(store.records()[0].threadId).toBe('t1');
-    });
-
-    it('should rename via event using uuid field', () => {
-      seedVault(
-        [{ uuid: 'f1', name: 'OldName' }],
-      );
-
-      emitEvent('rename', 'folder', { uuid: 'f1', name: 'NewName' });
-
-      expect(store.folders()[0].name).toBe('NewName');
-    });
-
-    it('should delete via event using uuid field', () => {
-      seedVault(
-        [{ uuid: 'f1', name: 'Doomed' }],
-        [{ uuid: 't1', folderUuid: 'f1', title: 'T' }],
-        [{ uuid: 'r1', threadUuid: 't1', type: 'text', name: 'R', createdAt: 1 }],
-      );
-
-      emitEvent('delete', 'folder', { uuid: 'f1' });
 
       expect(store.folders().length).toBe(0);
-      expect(store.threads().length).toBe(0);
-      expect(store.records().length).toBe(0);
+      expect(errorSpy).toHaveBeenCalledWith('SCHEMA_VALIDATION_ERROR entity field mismatch');
+      errorSpy.mockRestore();
     });
 
-    it('should move a thread using uuid and folderUuid', () => {
-      seedVault(
-        [{ uuid: 'f1', name: 'A' }, { uuid: 'f2', name: 'B' }],
-        [{ uuid: 't1', folderUuid: 'f1', title: 'T' }],
-      );
+    it('schema_projection_consistency', () => {
+      emit('snapshot_start');
+      emitRaw('snapshot_chunk', {
+        data: JSON.stringify({
+          folders: [
+            {
+              entityType: 'folder',
+              entityUuid: 'folder-uuid',
+              entityVersion: 1,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'folder-uuid',
+                name: 'Projects',
+                parentFolderUuid: null,
+              },
+            },
+          ],
+          threads: [
+            {
+              entityType: 'thread',
+              entityUuid: 'thread-uuid',
+              entityVersion: 1,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'thread-uuid',
+                folderUuid: 'folder-uuid',
+                title: 'Roadmap',
+              },
+            },
+          ],
+          records: [
+            {
+              entityType: 'record',
+              entityUuid: 'record-uuid',
+              entityVersion: 1,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'record-uuid',
+                threadUuid: 'thread-uuid',
+                type: 'text',
+                body: 'Milestone',
+                createdAt: 1,
+                editedAt: 1,
+                orderIndex: 0,
+                isStarred: true,
+                imageGroupId: null,
+              },
+            },
+          ],
+        }),
+      });
+      emit('snapshot_complete');
 
-      emitEvent('move', 'thread', { uuid: 't1', folderUuid: 'f2' });
+      emitRaw('event_stream', {
+        operation: 'rename',
+        entity: 'record',
+        data: { uuid: 'record-uuid', body: 'Milestone updated' },
+      });
 
-      expect(store.threads()[0].folderId).toBe('f2');
+      expect(store.explorerTree()[0].children[0].children[0].name).toBe('Milestone updated');
     });
   });
 
@@ -663,7 +892,7 @@ describe('ProjectionStore', () => {
     records: Record<string, unknown>[] = [],
   ): void {
     emit('snapshot_start');
-    emit('snapshot_chunk', { data: JSON.stringify({ folders, threads, records }) });
+    emit('snapshot_chunk', { folders, threads, records });
     emit('snapshot_complete');
   }
 
@@ -672,7 +901,7 @@ describe('ProjectionStore', () => {
     entity: string,
     data: Record<string, unknown>,
   ): void {
-    emit('event_stream', { operation, entity, data });
+    emitRaw('event_stream', { operation, entity, data: normalizeEventData(entity, data, operation) });
   }
 
   describe('Event stream — relay delivery', () => {

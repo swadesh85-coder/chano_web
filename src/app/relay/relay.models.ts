@@ -1,6 +1,4 @@
-export interface RelayEnvelope {
-  type: string;
-  sessionId: string | null;
-  timestamp: number;
-  payload: Record<string, unknown>;
-}
+import type { TransportEnvelope } from '../../transport/transport-envelope';
+
+export type RelayEnvelope = TransportEnvelope;
+

@@ -1,6 +1,6 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { filter } from 'rxjs';
-import { RelayService } from '../relay/relay.service';
+import { WebRelayClient } from '../../transport/web-relay-client';
+import type { TransportEnvelope } from '../../transport/transport-envelope';
 import type {
   Folder,
   Thread,
@@ -13,9 +13,43 @@ import type {
 
 export type SnapshotPhase = 'idle' | 'receiving' | 'ready';
 
+type SnapshotEntityType = EventEntity;
+
+type SnapshotEntityWrapper = {
+  readonly entityType: SnapshotEntityType;
+  readonly entityUuid: string;
+  readonly entityVersion: number;
+  readonly ownerUserId: string;
+  readonly data: Record<string, unknown>;
+};
+
+type FolderEntityData = {
+  readonly uuid: string;
+  readonly name: string;
+  readonly parentFolderUuid: string | null;
+};
+
+type ThreadEntityData = {
+  readonly uuid: string;
+  readonly folderUuid: string | null;
+  readonly title: string;
+};
+
+type RecordEntityData = {
+  readonly uuid: string;
+  readonly threadUuid: string;
+  readonly type: string;
+  readonly body: string;
+  readonly createdAt: number;
+  readonly editedAt: number;
+  readonly orderIndex: number;
+  readonly isStarred: boolean;
+  readonly imageGroupId: string | null;
+};
+
 @Injectable({ providedIn: 'root' })
 export class ProjectionStore {
-  private readonly relay = inject(RelayService);
+  private readonly relay = inject(WebRelayClient);
 
   private readonly _folders = signal<Folder[]>([]);
   private readonly _threads = signal<Thread[]>([]);
@@ -32,25 +66,28 @@ export class ProjectionStore {
   );
 
   constructor() {
-    this.relay.messages$
-      .pipe(filter((m) => m.type.startsWith('snapshot_')))
-      .subscribe((msg) => {
-        switch (msg.type) {
-          case 'snapshot_start':
-            this.onSnapshotStart();
-            break;
-          case 'snapshot_chunk':
-            this.onSnapshotChunk(msg.payload);
-            break;
-          case 'snapshot_complete':
-            this.onSnapshotComplete();
-            break;
-        }
-      });
+    this.relay.onEnvelope((msg) => this.handleEnvelope(msg));
+  }
 
-    this.relay.messages$
-      .pipe(filter((m) => m.type === 'event_stream'))
-      .subscribe((msg) => this.onEventStream(msg.payload));
+  private handleEnvelope(msg: TransportEnvelope): void {
+    if (msg.type.startsWith('snapshot_')) {
+      switch (msg.type) {
+        case 'snapshot_start':
+          this.onSnapshotStart();
+          break;
+        case 'snapshot_chunk':
+          this.onSnapshotChunk(msg.payload);
+          break;
+        case 'snapshot_complete':
+          this.onSnapshotComplete();
+          break;
+      }
+      return;
+    }
+
+    if (msg.type === 'event_stream') {
+      this.onEventStream(msg.payload);
+    }
   }
 
   // ── Snapshot lifecycle ───────────────────────────────────
@@ -65,37 +102,51 @@ export class ProjectionStore {
   private onSnapshotChunk(payload: Record<string, unknown>): void {
     if (this._phase() !== 'receiving') return;
 
-    // Mobile sends payload.data as a JSON string; parse it to extract entities.
     let chunk: Record<string, unknown>;
     const raw = payload['data'];
     if (typeof raw === 'string') {
       try {
         chunk = JSON.parse(raw) as Record<string, unknown>;
       } catch {
-        console.error('snapshot_chunk: malformed JSON in payload.data');
+        this.reportSchemaValidationError();
         return;
       }
     } else if (raw !== null && typeof raw === 'object') {
       chunk = raw as Record<string, unknown>;
     } else {
-      // Fallback: payload itself may carry entities directly
-      chunk = payload;
+      this.reportSchemaValidationError();
+      return;
     }
 
     console.log('SNAPSHOT CHUNK PARSED:', chunk);
 
-    const folders = chunk['folders'];
-    const threads = chunk['threads'];
-    const records = chunk['records'];
+    const folders = this.parseSnapshotEntities(chunk['folders'], ['folder', 'imageGroup']);
+    const threads = this.parseSnapshotEntities(chunk['threads'], ['thread']);
+    const records = this.parseSnapshotEntities(chunk['records'], ['record']);
 
-    if (Array.isArray(folders) && folders.length) {
-      this._folders.update((prev) => [...prev, ...this.parseFolders(folders)]);
+    if (folders.length) {
+      const parsed = folders
+        .map((entity) => this.parseFolderData(entity.data))
+        .filter((entity): entity is Folder => entity !== null);
+      if (parsed.length) {
+        this._folders.update((prev) => [...prev, ...parsed]);
+      }
     }
-    if (Array.isArray(threads) && threads.length) {
-      this._threads.update((prev) => [...prev, ...this.parseThreads(threads)]);
+    if (threads.length) {
+      const parsed = threads
+        .map((entity) => this.parseThreadData(entity.data))
+        .filter((entity): entity is Thread => entity !== null);
+      if (parsed.length) {
+        this._threads.update((prev) => [...prev, ...parsed]);
+      }
     }
-    if (Array.isArray(records) && records.length) {
-      this._records.update((prev) => [...prev, ...this.parseRecords(records)]);
+    if (records.length) {
+      const parsed = records
+        .map((entity) => this.parseRecordData(entity.data))
+        .filter((entity): entity is RecordEntry => entity !== null);
+      if (parsed.length) {
+        this._records.update((prev) => [...prev, ...parsed]);
+      }
     }
   }
 
@@ -132,14 +183,26 @@ export class ProjectionStore {
     if (typeof entity !== 'string' || !validEntities.includes(entity)) return null;
 
     if (typeof data === 'string') {
-      try { data = JSON.parse(data); } catch { return null; }
+      try { data = JSON.parse(data); } catch {
+        this.reportSchemaValidationError();
+        return null;
+      }
     }
-    if (data === null || typeof data !== 'object') return null;
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+
+    const canonicalData = data as Record<string, unknown>;
+    if (!this.isValidEventData(operation as EventOperation, entity as EventEntity, canonicalData)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
 
     return {
       operation: operation as EventOperation,
       entity: entity as EventEntity,
-      data: data as Record<string, unknown>,
+      data: canonicalData,
     };
   }
 
@@ -149,23 +212,23 @@ export class ProjectionStore {
     switch (entity) {
       case 'folder':
       case 'imageGroup': {
-        const parsed = this.parseFolders([data]);
-        if (parsed.length) {
-          this._folders.update((prev) => [...prev, ...parsed]);
+        const parsed = this.parseFolderData(data);
+        if (parsed !== null) {
+          this._folders.update((prev) => [...prev, parsed]);
         }
         break;
       }
       case 'thread': {
-        const parsed = this.parseThreads([data]);
-        if (parsed.length) {
-          this._threads.update((prev) => [...prev, ...parsed]);
+        const parsed = this.parseThreadData(data);
+        if (parsed !== null) {
+          this._threads.update((prev) => [...prev, parsed]);
         }
         break;
       }
       case 'record': {
-        const parsed = this.parseRecords([data]);
-        if (parsed.length) {
-          this._records.update((prev) => [...prev, ...parsed]);
+        const parsed = this.parseRecordData(data);
+        if (parsed !== null) {
+          this._records.update((prev) => [...prev, parsed]);
         }
         break;
       }
@@ -175,7 +238,7 @@ export class ProjectionStore {
   // ── Update ───────────────────────────────────────────────
 
   private applyUpdate(entity: EventEntity, data: Record<string, unknown>): void {
-    const id = this.resolveId(data);
+    const id = this.resolveUuid(data);
     if (id === undefined) return;
 
     switch (entity) {
@@ -201,7 +264,7 @@ export class ProjectionStore {
   // ── Rename ───────────────────────────────────────────────
 
   private applyRename(entity: EventEntity, data: Record<string, unknown>): void {
-    const id = this.resolveId(data);
+    const id = this.resolveUuid(data);
     if (id === undefined) return;
 
     switch (entity) {
@@ -223,10 +286,10 @@ export class ProjectionStore {
         break;
       }
       case 'record': {
-        const name = data['name'];
-        if (typeof name !== 'string') return;
+        const body = data['body'];
+        if (typeof body !== 'string') return;
         this._records.update((prev) =>
-          prev.map((r) => r.id === id ? { ...r, name } : r),
+          prev.map((r) => r.id === id ? { ...r, name: body } : r),
         );
         break;
       }
@@ -236,31 +299,32 @@ export class ProjectionStore {
   // ── Move ─────────────────────────────────────────────────
 
   private applyMove(entity: EventEntity, data: Record<string, unknown>): void {
-    const id = this.resolveId(data);
+    const id = this.resolveUuid(data);
     if (id === undefined) return;
 
     switch (entity) {
       case 'folder':
       case 'imageGroup': {
-        const resolved = this.resolveParentId(data);
+        const resolved = this.resolveParentFolderUuid(data);
+        if (resolved === undefined) return;
         this._folders.update((prev) =>
           prev.map((f) => f.id === id ? { ...f, parentId: resolved } : f),
         );
         break;
       }
       case 'thread': {
-        const folderId = this.resolveFolderId(data);
-        if (folderId === undefined) return;
+        const folderUuid = this.resolveFolderUuid(data);
+        if (folderUuid === undefined) return;
         this._threads.update((prev) =>
-          prev.map((t) => t.id === id ? { ...t, folderId } : t),
+          prev.map((t) => t.id === id ? { ...t, folderId: folderUuid ?? 'root' } : t),
         );
         break;
       }
       case 'record': {
-        const threadId = this.resolveThreadId(data);
-        if (threadId === undefined) return;
+        const threadUuid = this.resolveThreadUuid(data);
+        if (threadUuid === undefined) return;
         this._records.update((prev) =>
-          prev.map((r) => r.id === id ? { ...r, threadId } : r),
+          prev.map((r) => r.id === id ? { ...r, threadId: threadUuid } : r),
         );
         break;
       }
@@ -270,7 +334,7 @@ export class ProjectionStore {
   // ── Delete ───────────────────────────────────────────────
 
   private applyDelete(entity: EventEntity, data: Record<string, unknown>): void {
-    const id = this.resolveId(data);
+    const id = this.resolveUuid(data);
     if (id === undefined) return;
 
     switch (entity) {
@@ -321,8 +385,8 @@ export class ProjectionStore {
     return {
       id: existing.id,
       name: typeof data['name'] === 'string' ? data['name'] : existing.name,
-      parentId: ('parentId' in data || 'parentUuid' in data)
-        ? this.resolveParentId(data)
+      parentId: 'parentFolderUuid' in data
+        ? (this.resolveParentFolderUuid(data) ?? existing.parentId)
         : existing.parentId,
     };
   }
@@ -330,7 +394,9 @@ export class ProjectionStore {
   private mergeThread(existing: Thread, data: Record<string, unknown>): Thread {
     return {
       id: existing.id,
-      folderId: this.resolveFolderId(data) ?? existing.folderId,
+      folderId: 'folderUuid' in data
+        ? (this.resolveFolderUuid(data) ?? existing.folderId ?? 'root')
+        : existing.folderId,
       title: typeof data['title'] === 'string' ? data['title'] : existing.title,
     };
   }
@@ -338,92 +404,347 @@ export class ProjectionStore {
   private mergeRecord(existing: RecordEntry, data: Record<string, unknown>): RecordEntry {
     return {
       id: existing.id,
-      threadId: this.resolveThreadId(data) ?? existing.threadId,
+      threadId: 'threadUuid' in data
+        ? (this.resolveThreadUuid(data) ?? existing.threadId)
+        : existing.threadId,
       type: typeof data['type'] === 'string' ? data['type'] : existing.type,
-      name: typeof data['name'] === 'string' ? data['name'] : existing.name,
+      name: typeof data['body'] === 'string' ? data['body'] : existing.name,
       createdAt: typeof data['createdAt'] === 'number' ? data['createdAt'] : existing.createdAt,
     };
   }
 
-  // ── Field resolvers (mobile sends uuid/folderUuid/threadUuid/parentUuid) ──
-
-  private resolveId(o: Record<string, unknown>): string | undefined {
-    const v = o['id'] ?? o['uuid'];
+  private resolveUuid(o: Record<string, unknown>): string | undefined {
+    const v = o['uuid'];
     return typeof v === 'string' ? v : undefined;
   }
 
-  private resolveFolderId(o: Record<string, unknown>): string | undefined {
-    const v = o['folderId'] ?? o['folderUuid'];
+  private resolveFolderUuid(o: Record<string, unknown>): string | null | undefined {
+    const v = o['folderUuid'];
+    return typeof v === 'string' ? v : v === null ? null : undefined;
+  }
+
+  private resolveThreadUuid(o: Record<string, unknown>): string | undefined {
+    const v = o['threadUuid'];
     return typeof v === 'string' ? v : undefined;
   }
 
-  private resolveThreadId(o: Record<string, unknown>): string | undefined {
-    const v = o['threadId'] ?? o['threadUuid'];
-    return typeof v === 'string' ? v : undefined;
+  private resolveParentFolderUuid(o: Record<string, unknown>): string | null | undefined {
+    const v = o['parentFolderUuid'];
+    return typeof v === 'string' ? v : v === null ? null : undefined;
   }
 
-  private resolveParentId(o: Record<string, unknown>): string | null {
-    const v = o['parentId'] ?? o['parentUuid'];
-    return typeof v === 'string' && v !== 'root' ? v : null;
+  private parseSnapshotEntities(
+    raw: unknown,
+    allowedTypes: readonly SnapshotEntityType[],
+  ): SnapshotEntityWrapper[] {
+    if (!Array.isArray(raw)) {
+      if (raw !== undefined) {
+        this.reportSchemaValidationError();
+      }
+      return [];
+    }
+
+    return raw.flatMap((entity) => {
+      const parsed = this.parseSnapshotEntity(entity, allowedTypes);
+      return parsed === null ? [] : [parsed];
+    });
   }
 
-  // ── Parsers (trust-boundary validation) ──────────────────
+  private parseSnapshotEntity(
+    raw: unknown,
+    allowedTypes: readonly SnapshotEntityType[],
+  ): SnapshotEntityWrapper | null {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
 
-  private parseFolders(raw: unknown[]): Folder[] {
-    return raw
-      .filter(
-        (f): f is Record<string, unknown> =>
-          f !== null && typeof f === 'object',
-      )
-      .filter((f) => {
-        const id = this.resolveId(f);
-        const name = typeof f['name'] === 'string' ? f['name'] : undefined;
-        return id !== undefined && name !== undefined;
-      })
-      .map((f) => ({
-        id: this.resolveId(f)!,
-        name: f['name'] as string,
-        parentId: this.resolveParentId(f),
-      }));
+    const entity = raw as Record<string, unknown>;
+    if (!this.hasExactKeys(entity, ['entityType', 'entityUuid', 'entityVersion', 'ownerUserId', 'data'])) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+
+    const entityType = entity['entityType'];
+    const entityUuid = entity['entityUuid'];
+    const entityVersion = entity['entityVersion'];
+    const ownerUserId = entity['ownerUserId'];
+    const data = entity['data'];
+
+    if (typeof entityType !== 'string' || !allowedTypes.includes(entityType as SnapshotEntityType)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+    if (typeof entityUuid !== 'string') {
+      this.reportSchemaValidationError();
+      return null;
+    }
+    if (typeof entityVersion !== 'number' || !Number.isInteger(entityVersion)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+    if (typeof ownerUserId !== 'string') {
+      this.reportSchemaValidationError();
+      return null;
+    }
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+
+    const dataRecord = data as Record<string, unknown>;
+    const dataUuid = this.resolveUuid(dataRecord);
+    if (dataUuid !== entityUuid) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+
+    const isValid = entityType === 'record'
+      ? this.isValidRecordEntityData(dataRecord)
+      : entityType === 'thread'
+        ? this.isValidThreadEntityData(dataRecord)
+        : this.isValidFolderEntityData(dataRecord);
+
+    if (!isValid) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+
+    return {
+      entityType: entityType as SnapshotEntityType,
+      entityUuid,
+      entityVersion,
+      ownerUserId,
+      data: dataRecord,
+    };
   }
 
-  private parseThreads(raw: unknown[]): Thread[] {
-    return raw
-      .filter(
-        (t): t is Record<string, unknown> =>
-          t !== null && typeof t === 'object',
-      )
-      .filter((t) => {
-        const id = this.resolveId(t);
-        const title = typeof t['title'] === 'string' ? t['title'] : undefined;
-        return id !== undefined && title !== undefined;
-      })
-      .map((t) => ({
-        id: this.resolveId(t)!,
-        folderId: this.resolveFolderId(t) ?? 'root',
-        title: t['title'] as string,
-      }));
+  private parseFolderData(data: Record<string, unknown>): Folder | null {
+    if (!this.isValidFolderEntityData(data)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+
+    return {
+      id: data['uuid'] as string,
+      name: data['name'] as string,
+      parentId: data['parentFolderUuid'] as string | null,
+    };
   }
 
-  private parseRecords(raw: unknown[]): RecordEntry[] {
-    return raw
-      .filter(
-        (r): r is Record<string, unknown> =>
-          r !== null && typeof r === 'object',
-      )
-      .filter((r) => {
-        const id = this.resolveId(r);
-        const threadId = this.resolveThreadId(r);
-        return id !== undefined && threadId !== undefined;
-      })
-      .map((r) => ({
-        id: this.resolveId(r)!,
-        threadId: this.resolveThreadId(r)!,
-        type: typeof r['type'] === 'string' ? (r['type'] as string) : 'unknown',
-        name: typeof r['name'] === 'string' ? (r['name'] as string) : '',
-        createdAt:
-          typeof r['createdAt'] === 'number' ? (r['createdAt'] as number) : 0,
-      }));
+  private parseThreadData(data: Record<string, unknown>): Thread | null {
+    if (!this.isValidThreadEntityData(data)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+
+    return {
+      id: data['uuid'] as string,
+      folderId: (data['folderUuid'] as string | null) ?? 'root',
+      title: data['title'] as string,
+    };
+  }
+
+  private parseRecordData(data: Record<string, unknown>): RecordEntry | null {
+    if (!this.isValidRecordEntityData(data)) {
+      this.reportSchemaValidationError();
+      return null;
+    }
+
+    return {
+      id: data['uuid'] as string,
+      threadId: data['threadUuid'] as string,
+      type: data['type'] as string,
+      name: data['body'] as string,
+      createdAt: data['createdAt'] as number,
+    };
+  }
+
+  private isValidEventData(
+    operation: EventOperation,
+    entity: EventEntity,
+    data: Record<string, unknown>,
+  ): boolean {
+    switch (entity) {
+      case 'folder':
+      case 'imageGroup':
+        return this.isValidFolderEventData(operation, data);
+      case 'thread':
+        return this.isValidThreadEventData(operation, data);
+      case 'record':
+        return this.isValidRecordEventData(operation, data);
+    }
+  }
+
+  private isValidFolderEventData(
+    operation: EventOperation,
+    data: Record<string, unknown>,
+  ): boolean {
+    switch (operation) {
+      case 'create':
+        return this.isValidFolderEntityData(data);
+      case 'update':
+        return this.hasAllowedKeys(data, ['uuid', 'name', 'parentFolderUuid'])
+          && this.hasRequiredKeys(data, ['uuid'])
+          && this.isUuid(data['uuid'])
+          && this.isOptionalString(data['name'])
+          && this.isOptionalNullableString(data['parentFolderUuid']);
+      case 'rename':
+        return this.hasExactKeys(data, ['uuid', 'name'])
+          && this.isUuid(data['uuid'])
+          && typeof data['name'] === 'string';
+      case 'move':
+        return this.hasExactKeys(data, ['uuid', 'parentFolderUuid'])
+          && this.isUuid(data['uuid'])
+          && this.isNullableString(data['parentFolderUuid']);
+      case 'delete':
+        return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
+    }
+  }
+
+  private isValidThreadEventData(
+    operation: EventOperation,
+    data: Record<string, unknown>,
+  ): boolean {
+    switch (operation) {
+      case 'create':
+        return this.isValidThreadEntityData(data);
+      case 'update':
+        return this.hasAllowedKeys(data, ['uuid', 'folderUuid', 'title'])
+          && this.hasRequiredKeys(data, ['uuid'])
+          && this.isUuid(data['uuid'])
+          && this.isOptionalNullableString(data['folderUuid'])
+          && this.isOptionalString(data['title']);
+      case 'rename':
+        return this.hasExactKeys(data, ['uuid', 'title'])
+          && this.isUuid(data['uuid'])
+          && typeof data['title'] === 'string';
+      case 'move':
+        return this.hasExactKeys(data, ['uuid', 'folderUuid'])
+          && this.isUuid(data['uuid'])
+          && this.isNullableString(data['folderUuid']);
+      case 'delete':
+        return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
+    }
+  }
+
+  private isValidRecordEventData(
+    operation: EventOperation,
+    data: Record<string, unknown>,
+  ): boolean {
+    switch (operation) {
+      case 'create':
+        return this.isValidRecordEntityData(data);
+      case 'update':
+        return this.hasAllowedKeys(data, [
+          'uuid',
+          'threadUuid',
+          'type',
+          'body',
+          'createdAt',
+          'editedAt',
+          'orderIndex',
+          'isStarred',
+          'imageGroupId',
+        ])
+          && this.hasRequiredKeys(data, ['uuid'])
+          && this.isUuid(data['uuid'])
+          && this.isOptionalString(data['threadUuid'])
+          && this.isOptionalString(data['type'])
+          && this.isOptionalString(data['body'])
+          && this.isOptionalNumber(data['createdAt'])
+          && this.isOptionalNumber(data['editedAt'])
+          && this.isOptionalNumber(data['orderIndex'])
+          && this.isOptionalBoolean(data['isStarred'])
+          && this.isOptionalNullableString(data['imageGroupId']);
+      case 'rename':
+        return this.hasExactKeys(data, ['uuid', 'body'])
+          && this.isUuid(data['uuid'])
+          && typeof data['body'] === 'string';
+      case 'move':
+        return this.hasExactKeys(data, ['uuid', 'threadUuid'])
+          && this.isUuid(data['uuid'])
+          && typeof data['threadUuid'] === 'string';
+      case 'delete':
+        return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
+    }
+  }
+
+  private isValidFolderEntityData(data: Record<string, unknown>): data is FolderEntityData {
+    return this.hasExactKeys(data, ['uuid', 'name', 'parentFolderUuid'])
+      && this.isUuid(data['uuid'])
+      && typeof data['name'] === 'string'
+      && this.isNullableString(data['parentFolderUuid']);
+  }
+
+  private isValidThreadEntityData(data: Record<string, unknown>): data is ThreadEntityData {
+    return this.hasExactKeys(data, ['uuid', 'folderUuid', 'title'])
+      && this.isUuid(data['uuid'])
+      && this.isNullableString(data['folderUuid'])
+      && typeof data['title'] === 'string';
+  }
+
+  private isValidRecordEntityData(data: Record<string, unknown>): data is RecordEntityData {
+    return this.hasExactKeys(data, [
+      'uuid',
+      'threadUuid',
+      'type',
+      'body',
+      'createdAt',
+      'editedAt',
+      'orderIndex',
+      'isStarred',
+      'imageGroupId',
+    ])
+      && this.isUuid(data['uuid'])
+      && typeof data['threadUuid'] === 'string'
+      && typeof data['type'] === 'string'
+      && typeof data['body'] === 'string'
+      && typeof data['createdAt'] === 'number'
+      && typeof data['editedAt'] === 'number'
+      && typeof data['orderIndex'] === 'number'
+      && typeof data['isStarred'] === 'boolean'
+      && this.isNullableString(data['imageGroupId']);
+  }
+
+  private hasExactKeys(obj: Record<string, unknown>, keys: readonly string[]): boolean {
+    return this.hasAllowedKeys(obj, keys) && this.hasRequiredKeys(obj, keys);
+  }
+
+  private hasAllowedKeys(obj: Record<string, unknown>, keys: readonly string[]): boolean {
+    return Object.keys(obj).every((key) => keys.includes(key));
+  }
+
+  private hasRequiredKeys(obj: Record<string, unknown>, keys: readonly string[]): boolean {
+    return keys.every((key) => key in obj);
+  }
+
+  private isUuid(value: unknown): value is string {
+    return typeof value === 'string' && value.length > 0;
+  }
+
+  private isNullableString(value: unknown): value is string | null {
+    return typeof value === 'string' || value === null;
+  }
+
+  private isOptionalString(value: unknown): boolean {
+    return value === undefined || typeof value === 'string';
+  }
+
+  private isOptionalNullableString(value: unknown): boolean {
+    return value === undefined || this.isNullableString(value);
+  }
+
+  private isOptionalNumber(value: unknown): boolean {
+    return value === undefined || typeof value === 'number';
+  }
+
+  private isOptionalBoolean(value: unknown): boolean {
+    return value === undefined || typeof value === 'boolean';
+  }
+
+  private reportSchemaValidationError(): void {
+    console.error('SCHEMA_VALIDATION_ERROR entity field mismatch');
   }
 
   // ── Hierarchy builder ────────────────────────────────────

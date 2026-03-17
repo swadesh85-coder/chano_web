@@ -10,13 +10,12 @@ import {
   effect,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import QRCode from 'qrcode';
-import { RelayService } from '../relay/relay.service';
 import { ProjectionStore } from '../projection/projection.store';
-import type { RelayEnvelope } from '../relay/relay.models';
+import { WebRelayClient } from '../../transport';
+import type { TransportEnvelope } from '../../transport';
 
-const RELAY_URL = 'ws://172.20.10.3:8080';
+const RELAY_URL = 'ws://localhost:8080/relay';
 
 type PairingStatus =
   | 'connecting'
@@ -32,7 +31,7 @@ type PairingStatus =
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PairingComponent implements OnInit {
-  private readonly relay = inject(RelayService);
+  private readonly relay: WebRelayClient = inject(WebRelayClient);
   private readonly projection = inject(ProjectionStore);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -70,25 +69,26 @@ export class PairingComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.relay.connected$
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.requestNewSession());
-
-    this.relay.messages$
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((msg) => this.handleMessage(msg));
-
-    this.relay.connectionError$
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((err) => {
-        if (this.status() !== 'paired') {
-          this.status.set('error');
-          this.errorMessage.set(err);
-        }
-      });
+    const unsubscribeEnvelope = this.relay.onEnvelope((envelope: TransportEnvelope) => this.handleMessage(envelope));
+    const unsubscribeState = this.relay.onStateChange((state: 'disconnected' | 'connecting' | 'connected' | 'error') => {
+      if (state === 'connected') {
+        this.requestNewSession();
+      }
+    });
+    const unsubscribeError = this.relay.onError((error: string) => {
+      if (this.status() !== 'paired') {
+        this.status.set('error');
+        this.errorMessage.set(error);
+      }
+    });
 
     this.openConnection();
-    this.destroyRef.onDestroy(() => this.stopCountdown());
+    this.destroyRef.onDestroy(() => {
+      unsubscribeEnvelope();
+      unsubscribeState();
+      unsubscribeError();
+      this.stopCountdown();
+    });
   }
 
   retry(): void {
@@ -100,16 +100,18 @@ export class PairingComponent implements OnInit {
   private openConnection(): void {
     this.stopCountdown();
     this.status.set('connecting');
+    this.errorMessage.set('');
     this.relay.connect(RELAY_URL);
   }
 
   private requestNewSession(): void {
-    this.relay.send({ type: 'qr_session_create' });
+    const envelope = this.relay.createEnvelope('qr_session_create');
+    this.relay.sendEnvelope(envelope);
   }
 
   // ── Message handling ───────────────────────────────────────
 
-  private handleMessage(msg: RelayEnvelope): void {
+  private handleMessage(msg: TransportEnvelope): void {
     switch (msg.type) {
       case 'qr_session_ready':
         void this.onSessionReady(msg);
@@ -123,7 +125,7 @@ export class PairingComponent implements OnInit {
     }
   }
 
-  private async onSessionReady(msg: RelayEnvelope): Promise<void> {
+  private async onSessionReady(msg: TransportEnvelope): Promise<void> {
     const sessionId = msg.sessionId;
     const expiresAt = msg.payload?.['expiresAt'];
 

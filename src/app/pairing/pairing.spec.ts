@@ -19,6 +19,85 @@ function mockQrToDataURLRejected(error: Error) {
 
 // ── Minimal WebSocket mock ───────────────────────────────────
 
+function normalizeSnapshotPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if ('data' in payload) {
+    return payload;
+  }
+
+  return {
+    data: JSON.stringify({
+      folders: normalizeEntities('folder', payload['folders']),
+      threads: normalizeEntities('thread', payload['threads']),
+      records: normalizeEntities('record', payload['records']),
+    }),
+  };
+}
+
+function normalizeEntities(
+  entityType: 'folder' | 'thread' | 'record',
+  raw: unknown,
+): unknown[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw.map((entry) => {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      return entry;
+    }
+
+    const entity = entry as Record<string, unknown>;
+    if ('entityType' in entity) {
+      return entity;
+    }
+
+    switch (entityType) {
+      case 'folder':
+        return {
+          entityType: 'folder',
+          entityUuid: entity['uuid'] ?? entity['id'],
+          entityVersion: 1,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: entity['uuid'] ?? entity['id'],
+            name: entity['name'],
+            parentFolderUuid: entity['parentFolderUuid'] ?? entity['parentId'] ?? null,
+          },
+        };
+      case 'thread':
+        return {
+          entityType: 'thread',
+          entityUuid: entity['uuid'] ?? entity['id'],
+          entityVersion: 1,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: entity['uuid'] ?? entity['id'],
+            folderUuid: entity['folderUuid'] ?? entity['folderId'] ?? null,
+            title: entity['title'],
+          },
+        };
+      case 'record':
+        return {
+          entityType: 'record',
+          entityUuid: entity['uuid'] ?? entity['id'],
+          entityVersion: 1,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: entity['uuid'] ?? entity['id'],
+            threadUuid: entity['threadUuid'] ?? entity['threadId'],
+            type: entity['type'],
+            body: entity['body'] ?? entity['name'] ?? '',
+            createdAt: entity['createdAt'] ?? 0,
+            editedAt: entity['editedAt'] ?? entity['createdAt'] ?? 0,
+            orderIndex: entity['orderIndex'] ?? 0,
+            isStarred: entity['isStarred'] ?? false,
+            imageGroupId: entity['imageGroupId'] ?? null,
+          },
+        };
+    }
+  });
+}
+
 type WsHandler = ((ev: { data: string }) => void) | null;
 
 class MockWebSocket {
@@ -60,13 +139,20 @@ class MockWebSocket {
 
   /** Simulate a server message in relay envelope format. */
   simulateMessage(msg: Record<string, unknown>): void {
-    const envelope = msg['timestamp']
+    const payload =
+      msg['type'] === 'snapshot_chunk' && msg['payload'] !== null && typeof msg['payload'] === 'object'
+        ? normalizeSnapshotPayload(msg['payload'] as Record<string, unknown>)
+        : msg['payload'] ?? {};
+
+    const envelope = msg['protocolVersion']
       ? msg
       : {
+          protocolVersion: 2,
           type: msg['type'],
           sessionId: msg['sessionId'] ?? null,
           timestamp: Date.now(),
-          payload: msg['payload'] ?? {},
+          sequence: msg['sequence'] ?? 1,
+          payload,
         };
     this.onmessage?.({ data: JSON.stringify(envelope) });
   }
@@ -150,7 +236,7 @@ describe('PairingComponent', () => {
     });
   });
 
-  // ── 2. WebSocket connects to relay via RelayService ─────
+  // ── 2. WebSocket connects via WebRelayClient ───────────
 
   describe('WebSocket connection', () => {
     it('should open a WebSocket to the relay on init', () => {
@@ -174,7 +260,14 @@ describe('PairingComponent', () => {
       ws.simulateOpen();
 
       expect(ws.sent.length).toBe(1);
-      expect(JSON.parse(ws.sent[0])).toEqual({ type: 'qr_session_create' });
+      expect(JSON.parse(ws.sent[0])).toEqual({
+        protocolVersion: 2,
+        type: 'qr_session_create',
+        sessionId: null,
+        timestamp: expect.any(Number),
+        sequence: 1,
+        payload: {},
+      });
     });
   });
 
@@ -285,7 +378,14 @@ describe('PairingComponent', () => {
       vi.advanceTimersByTime(6_000);
 
       expect(ws.sent.length).toBe(2);
-      expect(JSON.parse(ws.sent[1])).toEqual({ type: 'qr_session_create' });
+      expect(JSON.parse(ws.sent[1])).toEqual({
+        protocolVersion: 2,
+        type: 'qr_session_create',
+        sessionId: null,
+        timestamp: expect.any(Number),
+        sequence: 2,
+        payload: {},
+      });
 
       vi.useRealTimers();
       qrSpy.mockRestore();
@@ -445,7 +545,7 @@ describe('PairingComponent', () => {
       const ws = MockWebSocket.last;
       ws.simulateOpen();
 
-      // Send non-JSON — RelayService catches the parse error
+      // Send non-JSON — WebRelayClient catches the parse error
       ws.onmessage?.({ data: 'not json at all {{{{' });
 
       expect(component.status()).not.toBe('error');
@@ -462,7 +562,7 @@ describe('PairingComponent', () => {
 
       fixture.destroy();
 
-      // RelayService owns the connection — it persists for explorer
+      // WebRelayClient owns the connection — it persists for explorer
       expect(ws.readyState).toBe(MockWebSocket.OPEN);
     });
   });
