@@ -2,6 +2,8 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import { WebRelayClient } from '../../transport/web-relay-client';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 import { SnapshotLoader, type SnapshotLoaderEvent } from './snapshot_loader';
+import { ProjectionEngine } from './projection_engine';
+import { validateEventEnvelope, type EventValidationFailureReason } from './projection_event_validation';
 import type {
   Folder,
   Thread,
@@ -52,18 +54,28 @@ type RecordEntityData = {
 export class ProjectionStore {
   private readonly relay = inject(WebRelayClient);
   private readonly snapshotLoader = inject(SnapshotLoader);
+  private readonly projectionEngine = new ProjectionEngine({
+    emitResyncRequired: (reason, details) => {
+      console.error(
+        `SNAPSHOT_RESYNC_REQUIRED reason=${reason} expected=${details.expectedEventVersion} received=${details.receivedEventVersion}`,
+      );
+    },
+  });
+  private authoritativeEventQueue: Promise<void> = Promise.resolve();
 
   private readonly _folders = signal<Folder[]>([]);
   private readonly _threads = signal<Thread[]>([]);
   private readonly _records = signal<RecordEntry[]>([]);
   private readonly _phase = signal<SnapshotPhase>('idle');
   private readonly _baseEventVersion = signal<number | null>(null);
+  private readonly _lastAppliedEventVersion = signal<number | null>(null);
 
   readonly phase = this._phase.asReadonly();
   readonly folders = this._folders.asReadonly();
   readonly threads = this._threads.asReadonly();
   readonly records = this._records.asReadonly();
   readonly baseEventVersion = this._baseEventVersion.asReadonly();
+  readonly lastAppliedEventVersion = this._lastAppliedEventVersion.asReadonly();
 
   readonly explorerTree = computed<ExplorerNode[]>(() =>
     this.buildHierarchy(this._folders(), this._threads(), this._records()),
@@ -91,20 +103,22 @@ export class ProjectionStore {
     }
 
     if (msg.type === 'event_stream') {
-      this.onEventStream(msg.payload);
+      this.onEventStream(msg);
     }
   }
 
   // ── Snapshot lifecycle ───────────────────────────────────
 
   private onSnapshotStart(msg: TransportEnvelope): void {
+    this.projectionEngine.reset();
+    this._folders.set([]);
+    this._threads.set([]);
+    this._records.set([]);
+    this._baseEventVersion.set(null);
+    this._lastAppliedEventVersion.set(null);
+
     if (this.isByteSnapshotStartPayload(msg.payload)) {
       this.snapshotLoader.handleSnapshotStart(msg);
-    } else {
-      this._folders.set([]);
-      this._threads.set([]);
-      this._records.set([]);
-      this._baseEventVersion.set(null);
     }
 
     this._phase.set('receiving');
@@ -186,6 +200,12 @@ export class ProjectionStore {
   private handleSnapshotLoaderEvent(event: SnapshotLoaderEvent): void {
     switch (event.type) {
       case 'SNAPSHOT_ERROR':
+        this.projectionEngine.reset();
+        this._folders.set([]);
+        this._threads.set([]);
+        this._records.set([]);
+        this._baseEventVersion.set(null);
+        this._lastAppliedEventVersion.set(null);
         this._phase.set('idle');
         return;
       case 'SNAPSHOT_LOADED':
@@ -200,12 +220,24 @@ export class ProjectionStore {
     try {
       snapshot = JSON.parse(snapshotJson);
     } catch {
+      this.projectionEngine.reset();
+      this._folders.set([]);
+      this._threads.set([]);
+      this._records.set([]);
+      this._baseEventVersion.set(null);
+      this._lastAppliedEventVersion.set(null);
       this._phase.set('idle');
       this.reportSchemaValidationError();
       return;
     }
 
     if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      this.projectionEngine.reset();
+      this._folders.set([]);
+      this._threads.set([]);
+      this._records.set([]);
+      this._baseEventVersion.set(null);
+      this._lastAppliedEventVersion.set(null);
       this._phase.set('idle');
       this.reportSchemaValidationError();
       return;
@@ -222,10 +254,26 @@ export class ProjectionStore {
       .map((entity) => this.parseRecordData(entity.data))
       .filter((entity): entity is RecordEntry => entity !== null);
 
-    this._folders.set(folders);
-    this._threads.set(threads);
-    this._records.set(records);
+    if (
+      folders.length !== (Array.isArray(snapshotRecord['folders']) ? snapshotRecord['folders'].length : 0)
+      || threads.length !== (Array.isArray(snapshotRecord['threads']) ? snapshotRecord['threads'].length : 0)
+      || records.length !== (Array.isArray(snapshotRecord['records']) ? snapshotRecord['records'].length : 0)
+    ) {
+      this.projectionEngine.reset();
+      this._folders.set([]);
+      this._threads.set([]);
+      this._records.set([]);
+      this._baseEventVersion.set(null);
+      this._lastAppliedEventVersion.set(null);
+      this._phase.set('idle');
+      return;
+    }
+
+    const result = this.projectionEngine.applySnapshot(snapshotJson, baseEventVersion);
+
+    this.syncProjectionState(result.state);
     this._baseEventVersion.set(baseEventVersion);
+    this._lastAppliedEventVersion.set(result.lastAppliedEventVersion);
     this._phase.set('ready');
   }
 
@@ -247,7 +295,56 @@ export class ProjectionStore {
 
   // ── Event stream handling ────────────────────────────────
 
-  private onEventStream(payload: Record<string, unknown>): void {
+  private onEventStream(envelope: TransportEnvelope): void {
+    if (!this.looksLikeAuthoritativeEventEnvelope(envelope.payload)) {
+      this.onLegacyEventStream(envelope.payload);
+      return;
+    }
+
+    this.authoritativeEventQueue = this.authoritativeEventQueue
+      .then(async () => this.onValidatedEventStream(envelope))
+      .catch((error: unknown) => {
+        console.error('EVENT_REJECTED reason=INVALID_SCHEMA');
+        this.emitValidationResyncRequired('INVALID_SCHEMA');
+        if (error instanceof Error) {
+          console.error(error.message);
+        }
+      });
+  }
+
+  private async onValidatedEventStream(envelope: TransportEnvelope): Promise<void> {
+    const validationResult = await validateEventEnvelope(envelope);
+    if (validationResult.status === 'INVALID') {
+      if (validationResult.reason === 'INVALID_SCHEMA') {
+        this.reportSchemaValidationError();
+      }
+
+      this.emitValidationResyncRequired(validationResult.reason);
+      return;
+    }
+
+    console.log(`EVENT_FORWARDED_TO_ENGINE eventVersion=${validationResult.eventEnvelope.eventVersion}`);
+
+    const result = this.projectionEngine.applyEvent(validationResult.eventEnvelope);
+
+    switch (result.status) {
+      case 'EVENT_APPLIED':
+      case 'EVENT_IGNORED_DUPLICATE':
+        this.syncProjectionState(result.state);
+        this._lastAppliedEventVersion.set(result.lastAppliedEventVersion);
+        break;
+      case 'EVENT_IGNORED_SNAPSHOT_NOT_APPLIED':
+      case 'SNAPSHOT_RESYNC_REQUIRED':
+        this._lastAppliedEventVersion.set(result.lastAppliedEventVersion);
+        break;
+    }
+  }
+
+  private emitValidationResyncRequired(reason: EventValidationFailureReason): void {
+    console.error(`SNAPSHOT_RESYNC_REQUIRED reason=${reason}`);
+  }
+
+  private onLegacyEventStream(payload: Record<string, unknown>): void {
     const event = this.parseEvent(payload);
     if (!event) return;
 
@@ -260,6 +357,25 @@ export class ProjectionStore {
       case 'move':   this.applyMove(event.entity, event.data);   break;
       case 'delete': this.applyDelete(event.entity, event.data); break;
     }
+  }
+
+  private syncProjectionState(state: {
+    readonly folders: readonly Folder[];
+    readonly threads: readonly Thread[];
+    readonly records: readonly RecordEntry[];
+  }): void {
+    this._folders.set([...state.folders]);
+    this._threads.set([...state.threads]);
+    this._records.set([...state.records]);
+  }
+
+  private looksLikeAuthoritativeEventEnvelope(payload: Record<string, unknown>): boolean {
+    return 'eventId' in payload
+      || 'originDeviceId' in payload
+      || 'eventVersion' in payload
+      || 'entityType' in payload
+      || 'entityId' in payload
+      || 'checksum' in payload;
   }
 
   private parseEvent(payload: Record<string, unknown>): VaultEvent | null {
