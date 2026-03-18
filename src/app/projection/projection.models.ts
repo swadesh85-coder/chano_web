@@ -27,10 +27,28 @@ export interface ExplorerNode {
   readonly children: ExplorerNode[];
 }
 
+export interface ProjectionState {
+  readonly folders: readonly Folder[];
+  readonly threads: readonly Thread[];
+  readonly records: readonly RecordEntry[];
+}
+
 // ── Event stream types ─────────────────────────────────────
 
 export type EventOperation = 'create' | 'update' | 'rename' | 'move' | 'delete';
 export type EventEntity = 'folder' | 'thread' | 'record' | 'imageGroup';
+
+export interface EventEnvelope {
+  readonly eventId: string;
+  readonly originDeviceId: string;
+  readonly eventVersion: number;
+  readonly entityType: EventEntity;
+  readonly entityId: string;
+  readonly operation: EventOperation;
+  readonly timestamp: number;
+  readonly payload: Record<string, unknown>;
+  readonly checksum: string;
+}
 
 export interface VaultEvent {
   readonly operation: EventOperation;
