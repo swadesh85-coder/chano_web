@@ -164,6 +164,8 @@ function isValidFolderEventData(
         && isUuid(data['uuid'])
         && isNullableString(data['parentFolderUuid']);
     case 'delete':
+    case 'softDelete':
+    case 'restore':
       return hasExactKeys(data, ['uuid']) && isUuid(data['uuid']);
   }
 }
@@ -190,6 +192,8 @@ function isValidThreadEventData(
         && isUuid(data['uuid'])
         && isNullableString(data['folderUuid']);
     case 'delete':
+    case 'softDelete':
+    case 'restore':
       return hasExactKeys(data, ['uuid']) && isUuid(data['uuid']);
   }
 }
@@ -200,12 +204,13 @@ function isValidRecordEventData(
 ): boolean {
   switch (operation) {
     case 'create':
-      return isValidRecordEntityData(data);
+      return isValidRecordEventEntityData(data);
     case 'update':
       return hasAllowedKeys(data, [
         'uuid',
         'threadUuid',
         'type',
+        'recordType',
         'body',
         'createdAt',
         'editedAt',
@@ -216,7 +221,7 @@ function isValidRecordEventData(
         && hasRequiredKeys(data, ['uuid'])
         && isUuid(data['uuid'])
         && isOptionalString(data['threadUuid'])
-        && isOptionalString(data['type'])
+        && isOptionalRecordType(data)
         && isOptionalString(data['body'])
         && isOptionalNumber(data['createdAt'])
         && isOptionalNumber(data['editedAt'])
@@ -232,6 +237,8 @@ function isValidRecordEventData(
         && isUuid(data['uuid'])
         && typeof data['threadUuid'] === 'string';
     case 'delete':
+    case 'softDelete':
+    case 'restore':
       return hasExactKeys(data, ['uuid']) && isUuid(data['uuid']);
   }
 }
@@ -273,6 +280,40 @@ function isValidRecordEntityData(data: Record<string, unknown>): boolean {
     && isNullableString(data['imageGroupId']);
 }
 
+function isValidRecordEventEntityData(data: Record<string, unknown>): boolean {
+  return hasAllowedKeys(data, [
+    'uuid',
+    'threadUuid',
+    'type',
+    'recordType',
+    'body',
+    'createdAt',
+    'editedAt',
+    'orderIndex',
+    'isStarred',
+    'imageGroupId',
+  ])
+    && hasRequiredKeys(data, [
+      'uuid',
+      'threadUuid',
+      'body',
+      'createdAt',
+      'editedAt',
+      'orderIndex',
+      'isStarred',
+      'imageGroupId',
+    ])
+    && isUuid(data['uuid'])
+    && typeof data['threadUuid'] === 'string'
+    && isRecordType(data)
+    && typeof data['body'] === 'string'
+    && typeof data['createdAt'] === 'number'
+    && typeof data['editedAt'] === 'number'
+    && typeof data['orderIndex'] === 'number'
+    && typeof data['isStarred'] === 'boolean'
+    && isNullableString(data['imageGroupId']);
+}
+
 function hasConsistentEntityId(entityId: string, payload: Record<string, unknown>): boolean {
   return !('uuid' in payload) || payload['uuid'] === entityId;
 }
@@ -294,7 +335,7 @@ function isEventEntity(value: string): value is EventEntity {
 }
 
 function isEventOperation(value: string): value is EventOperation {
-  return ['create', 'update', 'rename', 'move', 'delete'].includes(value);
+  return ['create', 'update', 'rename', 'move', 'delete', 'softDelete', 'restore'].includes(value);
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -311,6 +352,30 @@ function isNullableString(value: unknown): value is string | null {
 
 function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === 'string';
+}
+
+function isOptionalRecordType(data: Record<string, unknown>): boolean {
+  const hasType = 'type' in data;
+  const hasRecordType = 'recordType' in data;
+
+  if (hasType && hasRecordType) {
+    return typeof data['type'] === 'string' && typeof data['recordType'] === 'string';
+  }
+
+  if (hasType) {
+    return typeof data['type'] === 'string';
+  }
+
+  if (hasRecordType) {
+    return typeof data['recordType'] === 'string';
+  }
+
+  return true;
+}
+
+function isRecordType(data: Record<string, unknown>): boolean {
+  return ('type' in data && typeof data['type'] === 'string')
+    || ('recordType' in data && typeof data['recordType'] === 'string');
 }
 
 function isOptionalNullableString(value: unknown): boolean {

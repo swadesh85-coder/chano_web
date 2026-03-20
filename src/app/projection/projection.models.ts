@@ -35,8 +35,22 @@ export interface ProjectionState {
 
 // ── Event stream types ─────────────────────────────────────
 
-export type EventOperation = 'create' | 'update' | 'rename' | 'move' | 'delete';
+export type EventOperation = 'create' | 'update' | 'rename' | 'move' | 'delete' | 'softDelete' | 'restore';
 export type EventEntity = 'folder' | 'thread' | 'record' | 'imageGroup';
+
+export interface SnapshotEntity {
+  readonly entityType: EventEntity;
+  readonly entityUuid: string;
+  readonly entityVersion: number;
+  readonly ownerUserId: string;
+  readonly data: Record<string, unknown>;
+}
+
+export interface ProjectionSnapshotDocument {
+  readonly folders?: readonly SnapshotEntity[];
+  readonly threads?: readonly SnapshotEntity[];
+  readonly records?: readonly SnapshotEntity[];
+}
 
 export interface EventEnvelope {
   readonly eventId: string;

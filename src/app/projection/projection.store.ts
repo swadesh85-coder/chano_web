@@ -806,6 +806,9 @@ export class ProjectionStore {
           && this.isNullableString(data['parentFolderUuid']);
       case 'delete':
         return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
+      case 'softDelete':
+      case 'restore':
+        return false;
     }
   }
 
@@ -832,6 +835,9 @@ export class ProjectionStore {
           && this.isNullableString(data['folderUuid']);
       case 'delete':
         return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
+      case 'softDelete':
+      case 'restore':
+        return false;
     }
   }
 
@@ -874,6 +880,9 @@ export class ProjectionStore {
           && typeof data['threadUuid'] === 'string';
       case 'delete':
         return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
+      case 'softDelete':
+      case 'restore':
+        return false;
     }
   }
 
