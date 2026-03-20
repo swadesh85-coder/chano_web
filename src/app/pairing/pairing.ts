@@ -105,8 +105,9 @@ export class PairingComponent implements OnInit {
   }
 
   private requestNewSession(): void {
-    const envelope = this.relay.createEnvelope('qr_session_create');
-    this.relay.sendEnvelope(envelope);
+    this.relay.sendEnvelope('qr_session_create', {
+      sessionId: this.relay.sessionId() ?? '',
+    });
   }
 
   // ── Message handling ───────────────────────────────────────
@@ -126,6 +127,8 @@ export class PairingComponent implements OnInit {
   }
 
   private async onSessionReady(msg: TransportEnvelope): Promise<void> {
+    console.log('RELAY_ACCEPTED type=qr_session_create');
+
     const sessionId = msg.sessionId;
     const expiresAt = msg.payload?.['expiresAt'];
 
@@ -163,6 +166,7 @@ export class PairingComponent implements OnInit {
   private onPairApproved(): void {
     this.stopCountdown();
     this.status.set('paired');
+    console.log('PAIR_APPROVED');
   }
 
   // ── Countdown timer ────────────────────────────────────────

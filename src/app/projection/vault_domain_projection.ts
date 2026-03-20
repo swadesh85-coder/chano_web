@@ -17,6 +17,7 @@ type CanonicalFolder = {
   readonly id: string;
   readonly name: string;
   readonly parentId: string | null;
+  readonly lastMutationVersion: number;
   readonly deleted: boolean;
 };
 
@@ -24,6 +25,7 @@ type CanonicalThread = {
   readonly id: string;
   readonly folderId: string;
   readonly title: string;
+  readonly lastMutationVersion: number;
   readonly deleted: boolean;
 };
 
@@ -86,7 +88,7 @@ export class VaultDomainProjection {
     }
 
     console.log(
-      `APPLY eventVersion=${eventEnvelope.eventVersion} entity=${eventEnvelope.entityType} op=${eventEnvelope.operation}`,
+      `APPLY eventVersion=${eventEnvelope.eventVersion} entity=${eventEnvelope.entityType} id=${eventEnvelope.entityId} op=${eventEnvelope.operation}`,
     );
 
     this.appliedEventIds.add(eventEnvelope.eventId);
@@ -135,6 +137,24 @@ export class VaultDomainProjection {
     return this.imageGroupProjection.getGroupsForThread(threadId);
   }
 
+  getEntityVersion(entityType: EventEnvelope['entityType'], entityId: string): number | null {
+    switch (entityType) {
+      case 'folder':
+      case 'imageGroup':
+        return this.folders.get(entityId)?.lastMutationVersion ?? null;
+      case 'thread':
+        return this.threads.get(entityId)?.lastMutationVersion ?? null;
+      case 'record':
+        return this.records.get(entityId)?.lastMutationVersion ?? null;
+    }
+  }
+
+  hasEntityId(entityId: string): boolean {
+    return this.folders.has(entityId)
+      || this.threads.has(entityId)
+      || this.records.has(entityId);
+  }
+
   getState(): ProjectionState {
     const visibleFolderIds = this.collectVisibleFolderIds();
     const visibleFolders = this.toVisibleFolders(visibleFolderIds);
@@ -154,6 +174,7 @@ export class VaultDomainProjection {
       id: entity.entityUuid,
       name: entity.data['name'] as string,
       parentId: (entity.data['parentFolderUuid'] as string | null | undefined) ?? null,
+      lastMutationVersion: entity.entityVersion,
       deleted: false,
     });
   }
@@ -163,6 +184,7 @@ export class VaultDomainProjection {
       id: entity.entityUuid,
       folderId: ((entity.data['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID),
       title: entity.data['title'] as string,
+      lastMutationVersion: entity.entityVersion,
       deleted: false,
     });
   }
@@ -189,6 +211,7 @@ export class VaultDomainProjection {
           id: eventEnvelope.entityId,
           name: eventEnvelope.payload['name'] as string,
           parentId: (eventEnvelope.payload['parentFolderUuid'] as string | null | undefined) ?? null,
+          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: false,
         });
         break;
@@ -197,6 +220,7 @@ export class VaultDomainProjection {
           id: eventEnvelope.entityId,
           folderId: (eventEnvelope.payload['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID,
           title: eventEnvelope.payload['title'] as string,
+          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: false,
         });
         break;
@@ -233,6 +257,7 @@ export class VaultDomainProjection {
           parentId: this.hasOwn(eventEnvelope.payload, 'parentFolderUuid')
             ? (eventEnvelope.payload['parentFolderUuid'] as string | null)
             : existing.parentId,
+          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: existing.deleted,
         });
         break;
@@ -251,6 +276,7 @@ export class VaultDomainProjection {
           title: this.hasOwn(eventEnvelope.payload, 'title')
             ? eventEnvelope.payload['title'] as string
             : existing.title,
+          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: existing.deleted,
         });
         break;
@@ -301,6 +327,7 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
           name: eventEnvelope.payload['name'] as string,
+          lastMutationVersion: eventEnvelope.eventVersion,
         });
         break;
       }
@@ -313,6 +340,7 @@ export class VaultDomainProjection {
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
           title: eventEnvelope.payload['title'] as string,
+          lastMutationVersion: eventEnvelope.eventVersion,
         });
         break;
       }
@@ -344,6 +372,7 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
           parentId: (eventEnvelope.payload['parentFolderUuid'] as string | null | undefined) ?? null,
+          lastMutationVersion: eventEnvelope.eventVersion,
         });
         break;
       }
@@ -356,6 +385,7 @@ export class VaultDomainProjection {
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
           folderId: (eventEnvelope.payload['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID,
+          lastMutationVersion: eventEnvelope.eventVersion,
         });
         break;
       }
@@ -387,6 +417,7 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
           deleted: true,
+          lastMutationVersion: eventEnvelope.eventVersion,
         });
         break;
       }
@@ -399,6 +430,7 @@ export class VaultDomainProjection {
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
           deleted: true,
+          lastMutationVersion: eventEnvelope.eventVersion,
         });
         break;
       }
@@ -430,6 +462,7 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
           deleted: false,
+          lastMutationVersion: eventEnvelope.eventVersion,
         });
         break;
       }
@@ -442,6 +475,7 @@ export class VaultDomainProjection {
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
           deleted: false,
+          lastMutationVersion: eventEnvelope.eventVersion,
         });
         break;
       }

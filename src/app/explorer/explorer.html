@@ -20,36 +20,91 @@
 <ng-template #nodeList let-nodes let-depth="depth">
   @for (node of nodes; track node.id) {
     <div class="tree-node" role="treeitem">
-      <button
+      <div
         [class]="'node-row node-row--' + node.type"
         [style.padding-left.rem]="0.75 + depth * 1.25"
-        (click)="toggle(node.id)"
-        [attr.aria-expanded]="node.children.length ? isExpanded(node.id) : null"
       >
-        <span
-          class="node-chevron"
-          [class.node-chevron--open]="isExpanded(node.id)"
-          [class.node-chevron--hidden]="!node.children.length"
+        <button
+          type="button"
+          class="node-toggle"
+          (click)="toggle(node.id)"
+          [attr.aria-expanded]="node.children.length ? isExpanded(node.id) : null"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+          <span
+            class="node-chevron"
+            [class.node-chevron--open]="isExpanded(node.id)"
+            [class.node-chevron--hidden]="!node.children.length"
           >
-            <polyline points="9 18 15 12 9 6"></polyline>
-          </svg>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </span>
+          <span
+            class="node-type-icon"
+            [class]="'node-type-icon node-type-icon--' + node.type"
+          ></span>
+          <span class="node-name">{{ node.name }}</span>
+        </button>
+        <span class="node-actions">
+          @if (node.type === 'folder') {
+            <span class="node-action-wrap">
+              <button
+                type="button"
+                class="node-action-button"
+                (click)="promptCreateThread(node.id, $event)"
+                [disabled]="isCreateThreadDisabled()"
+                aria-label="Create thread"
+              >
+                New Thread
+              </button>
+            </span>
+          }
+          <span class="node-action-wrap">
+            <button
+              type="button"
+              class="node-action-button"
+              (click)="promptRenameEntity(node, $event)"
+              [disabled]="isActionDisabled(node)"
+              aria-label="Rename item"
+            >
+              Rename
+            </button>
+          </span>
+          @if (node.type === 'thread' || node.type === 'record') {
+            <span class="node-action-wrap">
+              <button
+                type="button"
+                class="node-action-button"
+                (click)="promptMoveEntity(node, $event)"
+                [disabled]="isActionDisabled(node)"
+                aria-label="Move item"
+              >
+                Move
+              </button>
+            </span>
+          }
+          <span class="node-action-wrap">
+            <button
+              type="button"
+              class="node-action-button node-action-button--danger"
+              (click)="triggerSoftDelete(node, $event)"
+              [disabled]="isActionDisabled(node)"
+              aria-label="Delete item"
+            >
+              Delete
+            </button>
+          </span>
         </span>
-        <span
-          class="node-type-icon"
-          [class]="'node-type-icon node-type-icon--' + node.type"
-        ></span>
-        <span class="node-name">{{ node.name }}</span>
-      </button>
+      </div>
 
       @if (node.children.length && isExpanded(node.id)) {
         <div class="node-children" role="group">

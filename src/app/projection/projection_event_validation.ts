@@ -7,6 +7,7 @@ export type EventValidationResult =
   | {
       readonly status: 'VALID';
       readonly eventEnvelope: EventEnvelope;
+      readonly correlationCommandId: string | null;
     }
   | {
       readonly status: 'INVALID';
@@ -78,7 +79,17 @@ export async function validateEventEnvelope(
     };
   }
 
-  const canonicalPayload = eventPayload as Record<string, unknown>;
+  const rawPayload = eventPayload as Record<string, unknown>;
+  const correlationCommandId = parseCorrelationCommandId(rawPayload);
+  if (correlationCommandId === undefined) {
+    console.error('EVENT_REJECTED reason=INVALID_SCHEMA');
+    return {
+      status: 'INVALID',
+      reason: 'INVALID_SCHEMA',
+    };
+  }
+
+  const canonicalPayload = sanitizeEventPayload(rawPayload);
   if (
     !hasConsistentEntityId(entityId, canonicalPayload)
     || !isValidEventPayload(operation, entityType, canonicalPayload)
@@ -90,7 +101,7 @@ export async function validateEventEnvelope(
     };
   }
 
-  const expectedChecksum = await sha256PayloadHex(canonicalPayload);
+  const expectedChecksum = await sha256PayloadHex(rawPayload);
   if (expectedChecksum !== checksum.toLowerCase()) {
     console.error('EVENT_VALIDATION_FAILED reason=CHECKSUM_MISMATCH');
     return {
@@ -114,7 +125,30 @@ export async function validateEventEnvelope(
       payload: canonicalPayload,
       checksum: checksum.toLowerCase(),
     },
+    correlationCommandId: correlationCommandId ?? null,
   };
+}
+
+function parseCorrelationCommandId(payload: Record<string, unknown>): string | null | undefined {
+  if (!('commandId' in payload)) {
+    return null;
+  }
+
+  const commandId = payload['commandId'];
+  if (typeof commandId !== 'string' || commandId.length === 0) {
+    return undefined;
+  }
+
+  return commandId;
+}
+
+function sanitizeEventPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (!('commandId' in payload)) {
+    return payload;
+  }
+
+  const { commandId: _correlationCommandId, ...sanitized } = payload;
+  return sanitized;
 }
 
 async function sha256PayloadHex(payload: Record<string, unknown>): Promise<string> {

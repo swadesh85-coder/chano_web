@@ -1,5 +1,4 @@
 import { Injectable, NgZone, inject, signal } from '@angular/core';
-import type { MutationCommand } from './mutation-command';
 import type { TransportEnvelope } from './transport-envelope';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -25,6 +24,7 @@ export class WebRelayClient {
     this.disconnect();
     this.lastError.set(null);
     this.state.set('connecting');
+    this.generateSessionId();
 
     this.ngZone.runOutsideAngular(() => {
       const ws = new WebSocket(relayUrl);
@@ -91,50 +91,44 @@ export class WebRelayClient {
     }
 
     this.state.set('disconnected');
+    this.outboundSequence = 1;
     this.currentSessionId.set(null);
     this.emitState('disconnected');
   }
 
-  createEnvelope(type: string, payload: Record<string, unknown> = {}, sessionId?: string | null): TransportEnvelope {
-  let resolvedSessionId = sessionId === undefined ? this.currentSessionId() : sessionId;
-
-  // 🔥 FIX
-  if (!resolvedSessionId) {
-    resolvedSessionId = crypto.randomUUID();
-    this.currentSessionId.set(resolvedSessionId);
-  }
-
-  return {
-    protocolVersion: TRANSPORT_PROTOCOL_VERSION,
-    type,
-    sessionId: resolvedSessionId,
-    timestamp: Date.now(),
-    sequence: this.outboundSequence++,
-    payload,
-  };
-}
-
-  sendMutationCommand(
-    command: MutationCommand,
-    sessionId?: string | null,
-  ): TransportEnvelope | null {
-    const envelope = this.createEnvelope('mutation_command', { ...command }, sessionId);
-    const sentEnvelope = this.sendEnvelope(envelope);
-
-    if (sentEnvelope !== null) {
-      console.log('MUTATION_COMMAND_SENT', sentEnvelope);
-    }
-
-    return sentEnvelope;
-  }
-
-  sendEnvelope(envelope: TransportEnvelope): TransportEnvelope | null {
+  sendEnvelope<TPayload extends object>(
+    type: string,
+    payload: TPayload,
+  ): TransportEnvelope<TPayload> | null {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       return null;
     }
 
+    const sessionId = this.ensureSessionId();
+    const normalizedPayload = clonePayload(payload);
+    assertOutboundPayloadShape(type, normalizedPayload as Record<string, unknown>, sessionId);
+
+    const envelope: TransportEnvelope<TPayload> = {
+      protocolVersion: TRANSPORT_PROTOCOL_VERSION,
+      type,
+      sessionId,
+      timestamp: Date.now(),
+      sequence: this.outboundSequence,
+      payload: normalizedPayload,
+    };
+
+    this.outboundSequence += 1;
+
     this.ws.send(JSON.stringify(envelope));
+    console.log(`WEB_SEND ${envelope.type} session=${envelope.sessionId} seq=${envelope.sequence}`);
     console.log(`RELAY_SEND type=${envelope.type} sequence=${envelope.sequence}`);
+    if (envelope.type === 'mutation_command') {
+      console.log(`RELAY_ROUTE web→mobile type=mutation_command session=${envelope.sessionId}`);
+    }
+    if (envelope.type === 'pair_request') {
+      console.log(`PAIR_REQUEST_SENT session=${envelope.sessionId}`);
+    }
+
     return envelope;
   }
 
@@ -210,6 +204,31 @@ export class WebRelayClient {
     console.log(`WEB_SESSION_CREATED sessionId=${envelope.sessionId}`);
   }
 
+  private generateSessionId(): string {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const sessionId = globalThis.crypto.randomUUID();
+      if (!isUuidV4(sessionId)) {
+        continue;
+      }
+
+      this.currentSessionId.set(sessionId);
+      this.outboundSequence = 1;
+      console.log(`WEB_SESSION_CREATED sessionId=${sessionId}`);
+      return sessionId;
+    }
+
+    throw new Error('SESSION_ID_GENERATION_FAILED');
+  }
+
+  private ensureSessionId(): string {
+    const sessionId = this.currentSessionId() ?? this.generateSessionId();
+    if (!isUuidV4(sessionId)) {
+      throw new Error('INVALID_SESSION_ID');
+    }
+
+    return sessionId;
+  }
+
   private emitState(state: ConnectionState): void {
     for (const handler of this.stateHandlers) {
       handler(state);
@@ -222,4 +241,45 @@ export class WebRelayClient {
       handler(message);
     }
   }
+}
+
+function assertOutboundPayloadShape(
+  type: string,
+  payload: Record<string, unknown>,
+  sessionId: string,
+): void {
+  switch (type) {
+    case 'qr_session_create':
+    case 'pair_request': {
+      if (!hasExactKeys(payload, ['sessionId']) || payload['sessionId'] !== sessionId) {
+        throw new Error('INVALID_TRANSPORT_PAYLOAD');
+      }
+      return;
+    }
+    default: {
+      if (payload === null || Array.isArray(payload)) {
+        throw new Error('INVALID_TRANSPORT_PAYLOAD');
+      }
+    }
+  }
+}
+
+function hasExactKeys(input: Record<string, unknown>, expectedKeys: readonly string[]): boolean {
+  const inputKeys = Object.keys(input).sort();
+  const normalizedExpectedKeys = [...expectedKeys].sort();
+
+  return inputKeys.length === normalizedExpectedKeys.length
+    && inputKeys.every((key, index) => key === normalizedExpectedKeys[index]);
+}
+
+function clonePayload<TPayload extends object>(payload: TPayload): TPayload {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(payload);
+  }
+
+  return JSON.parse(JSON.stringify(payload)) as TPayload;
+}
+
+function isUuidV4(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

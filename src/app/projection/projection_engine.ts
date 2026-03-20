@@ -1,4 +1,5 @@
 import type {
+  EventEntity,
   EventEnvelope,
   ProjectionSnapshotDocument,
   ProjectionState,
@@ -137,6 +138,14 @@ export class ProjectionEngine {
 
   getLastAppliedEventVersion(): number | null {
     return this.lastAppliedEventVersion;
+  }
+
+  getEntityVersion(entityType: EventEntity, entityId: string): number | null {
+    return this.vaultDomainProjection.getEntityVersion(entityType, entityId);
+  }
+
+  hasEntityId(entityId: string): boolean {
+    return this.vaultDomainProjection.hasEntityId(entityId);
   }
 
   private emitResyncRequired(

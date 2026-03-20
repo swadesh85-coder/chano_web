@@ -4,6 +4,8 @@ import { PairingComponent } from './pairing';
 import { ProjectionStore } from '../projection/projection.store';
 import QRCode from 'qrcode';
 
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // Helper to mock QRCode.toDataURL with proper typing
 function mockQrToDataURL(returnValue: string) {
   return vi.spyOn(QRCode, 'toDataURL').mockImplementation(
@@ -173,6 +175,7 @@ async function createSnapshotMessages(snapshotJson: string): Promise<{
 async function flushSnapshotAsyncWork(): Promise<void> {
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
 }
 
 type WsHandler = ((ev: { data: string }) => void) | null;
@@ -337,14 +340,19 @@ describe('PairingComponent', () => {
       ws.simulateOpen();
 
       expect(ws.sent.length).toBe(1);
-      expect(JSON.parse(ws.sent[0])).toEqual({
+      const envelope = JSON.parse(ws.sent[0]);
+
+      expect(envelope).toEqual({
         protocolVersion: 2,
         type: 'qr_session_create',
-        sessionId: null,
+        sessionId: expect.stringMatching(UUID_V4_PATTERN),
         timestamp: expect.any(Number),
         sequence: 1,
-        payload: {},
+        payload: {
+          sessionId: expect.stringMatching(UUID_V4_PATTERN),
+        },
       });
+      expect(envelope.payload.sessionId).toBe(envelope.sessionId);
     });
   });
 
@@ -362,7 +370,7 @@ describe('PairingComponent', () => {
       const expiresAtIso = new Date(expiresAtMs).toISOString();
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-abc-123',
+        sessionId: '123e4567-e89b-42d3-a456-426614174100',
         payload: { expiresAt: expiresAtMs },
       });
 
@@ -371,7 +379,7 @@ describe('PairingComponent', () => {
       expect(qrSpy).toHaveBeenCalledOnce();
       const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
       expect(payload).toEqual({
-        sessionId: 'sess-abc-123',
+        sessionId: '123e4567-e89b-42d3-a456-426614174100',
         relayUrl: 'ws://172.20.10.3:8080/relay',
         expiresAt: expiresAtIso,
       });
@@ -391,7 +399,7 @@ describe('PairingComponent', () => {
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-xyz',
+        sessionId: '123e4567-e89b-42d3-a456-426614174101',
         payload: { expiresAt: Date.now() + 60_000 },
       });
 
@@ -416,7 +424,7 @@ describe('PairingComponent', () => {
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-pair',
+        sessionId: '123e4567-e89b-42d3-a456-426614174102',
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
@@ -444,10 +452,11 @@ describe('PairingComponent', () => {
 
       expect(ws.sent.length).toBe(1);
 
+      const initialSessionEnvelope = JSON.parse(ws.sent[0]);
       const expiresAt = Date.now() + 5_000;
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-expire',
+        sessionId: initialSessionEnvelope.sessionId,
         payload: { expiresAt },
       });
       await fixture.whenStable();
@@ -458,10 +467,12 @@ describe('PairingComponent', () => {
       expect(JSON.parse(ws.sent[1])).toEqual({
         protocolVersion: 2,
         type: 'qr_session_create',
-        sessionId: 'sess-expire',
+        sessionId: initialSessionEnvelope.sessionId,
         timestamp: expect.any(Number),
         sequence: 2,
-        payload: {},
+        payload: {
+          sessionId: initialSessionEnvelope.sessionId,
+        },
       });
 
       vi.useRealTimers();
@@ -482,7 +493,7 @@ describe('PairingComponent', () => {
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-snap',
+        sessionId: '123e4567-e89b-42d3-a456-426614174103',
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
@@ -518,7 +529,7 @@ describe('PairingComponent', () => {
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-nav',
+        sessionId: '123e4567-e89b-42d3-a456-426614174104',
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();

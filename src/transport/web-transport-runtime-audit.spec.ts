@@ -2,8 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { PairingComponent } from '../app/pairing/pairing';
 import { ProjectionStore } from '../app/projection/projection.store';
+import { CommandResultHandler } from './command-result-handler';
+import { MutationCommandSender } from './mutation-command-sender';
 import { WebRelayClient } from './web-relay-client';
-import type { MutationCommand } from './mutation-command';
 import type { TransportEnvelope } from './transport-envelope';
 import QRCode from 'qrcode';
 
@@ -95,6 +96,8 @@ afterAll(() => {
 describe('Web transport runtime audit', () => {
   let fixture: ReturnType<typeof TestBed.createComponent<PairingComponent>>;
   let client: WebRelayClient;
+  let commandResults: CommandResultHandler;
+  let sender: MutationCommandSender;
   let projection: ProjectionStore;
   let router: Router;
   let logSpy: ReturnType<typeof vi.spyOn>;
@@ -122,6 +125,8 @@ describe('Web transport runtime audit', () => {
 
     fixture = TestBed.createComponent(PairingComponent);
     client = TestBed.inject(WebRelayClient);
+    commandResults = TestBed.inject(CommandResultHandler);
+    sender = TestBed.inject(MutationCommandSender);
     projection = TestBed.inject(ProjectionStore);
   });
 
@@ -153,10 +158,12 @@ describe('Web transport runtime audit', () => {
     const ws = MockWebSocket.last;
     ws.simulateOpen();
 
+    const outboundSessionId = JSON.parse(ws.sent[0] as string)['sessionId'] as string;
+
     const sessionReadyEnvelope: TransportEnvelope = {
       protocolVersion: 2,
       type: 'qr_session_ready',
-      sessionId: 'session-runtime-1',
+      sessionId: outboundSessionId,
       timestamp: 1_710_000_001,
       sequence: 1,
       payload: { expiresAt: Date.now() + 120_000 },
@@ -168,7 +175,7 @@ describe('Web transport runtime audit', () => {
     ws.simulateEnvelope({
       protocolVersion: 2,
       type: 'pair_approved',
-      sessionId: 'session-runtime-1',
+      sessionId: outboundSessionId,
       timestamp: 1_710_000_002,
       sequence: 2,
       payload: {},
@@ -250,13 +257,17 @@ describe('Web transport runtime audit', () => {
     expect(JSON.parse(MockWebSocket.last.sent[0] as string)).toEqual({
       protocolVersion: 2,
       type: 'qr_session_create',
-      sessionId: null,
+      sessionId,
       timestamp: expect.any(Number),
       sequence: 1,
-      payload: {},
+      payload: {
+        sessionId,
+      },
     });
 
     expect(capturedLogs).toContainEqual(['WEB_RELAY_CONNECT ws://172.20.10.3:8080/relay']);
+    expect(capturedLogs).toContainEqual([`WEB_SEND qr_session_create session=${sessionId} seq=1`]);
+    expect(capturedLogs).toContainEqual(['RELAY_ACCEPTED type=qr_session_create']);
     expect(capturedLogs).toContainEqual([`WEB_SESSION_CREATED sessionId=${sessionId}`]);
   });
 
@@ -330,46 +341,101 @@ describe('Web transport runtime audit', () => {
     });
   });
 
-  it('mutation_command_sender_runtime', async () => {
+  it('mutation_command_send', async () => {
     const sessionId = await establishRelaySession();
+    const commandId = '123e4567-e89b-42d3-a456-426614174001';
 
-    const command: MutationCommand = {
-      commandId: 'cmd-1',
-      commandType: 'create_thread',
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce(commandId);
+    vi.spyOn(Date, 'now').mockReturnValue(1_710_000_000);
+
+    const envelope = sender.sendCommand({
       entityType: 'thread',
+      operation: 'create',
       payload: {
         title: 'Draft from web',
-        folderUuid: 'folder-1',
+        kind: 'manual',
+        folderId: 'folder-1',
       },
-    };
-
-    const envelope = client.sendMutationCommand(command);
+    });
 
     expect(envelope).toEqual({
       protocolVersion: 2,
       type: 'mutation_command',
       sessionId,
-      timestamp: expect.any(Number),
+      timestamp: 1_710_000_000,
       sequence: 2,
       payload: {
-        commandId: 'cmd-1',
-        commandType: 'create_thread',
+        commandId,
+        originDeviceId: expect.stringMatching(/^web-/),
         entityType: 'thread',
+        entityId: null,
+        operation: 'create',
+        expectedVersion: 0,
+        timestamp: 1_710_000_000,
         payload: {
           title: 'Draft from web',
-          folderUuid: 'folder-1',
+          kind: 'manual',
+          folderId: 'folder-1',
         },
       },
     });
 
     expect(JSON.parse(MockWebSocket.last.sent[1] as string)).toEqual(envelope);
-    expect((envelope?.payload as Record<string, unknown>)['uuid']).toBeUndefined();
-    expect(capturedLogs).toContainEqual(['MUTATION_COMMAND_SENT', envelope]);
+    expect((envelope?.payload.payload as Record<string, unknown>)['uuid']).toBeUndefined();
+    expect(capturedLogs).toContainEqual([`MUTATION_SEND commandId=${commandId} entity=thread op=create entityId=null`]);
+    expect(capturedLogs).toContainEqual([`RELAY_ROUTE web→mobile type=mutation_command session=${sessionId}`]);
   });
 
-  it('projection_safety_runtime', async () => {
+  it('command_result_handling', async () => {
+    const sessionId = await establishRelaySession();
+    const commandId = '123e4567-e89b-42d3-a456-426614174001';
+
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce(commandId);
+    sender.sendCommand({
+      entityType: 'thread',
+      operation: 'create',
+      payload: {
+        title: 'Draft from web',
+        kind: 'manual',
+        folderId: 'folder-1',
+      },
+    });
+
+    MockWebSocket.last.simulateEnvelope({
+      protocolVersion: 2,
+      type: 'command_result',
+      sessionId,
+      timestamp: 1_710_000_006,
+      sequence: 6,
+      payload: {
+        commandId,
+        status: 'applied',
+        message: 'Applied on mobile',
+      },
+    });
+
+    expect(commandResults.getResult(commandId)).toEqual({
+      commandId,
+      status: 'applied',
+      message: 'Applied on mobile',
+    });
+    expect(capturedLogs).toContainEqual([`COMMAND_RESULT_RECEIVED commandId=${commandId} status=applied`]);
+  });
+
+  it('pairing_success', async () => {
+    const sessionId = await establishRelaySession();
+
+    expect(capturedLogs).toContainEqual([`WEB_SEND qr_session_create session=${sessionId} seq=1`]);
+    expect(capturedLogs).toContainEqual(['PAIR_APPROVED']);
+  });
+
+  it('no_optimistic_update', async () => {
     const sessionId = await establishRelaySession();
     await seedProjectionSnapshot(sessionId);
+    const generatedEntityId = 'generated-by-mobile';
+    const commandId = '123e4567-e89b-42d3-a456-426614174001';
 
     const beforeMutation = {
       folders: projection.folders().length,
@@ -377,13 +443,16 @@ describe('Web transport runtime audit', () => {
       records: projection.records().length,
     };
 
-    client.sendMutationCommand({
-      commandId: 'cmd-1',
-      commandType: 'create_thread',
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce(commandId);
+
+    sender.sendCommand({
       entityType: 'thread',
+      operation: 'create',
       payload: {
         title: 'Awaiting authority',
-        folderUuid: 'folder-1',
+        kind: 'manual',
+        folderId: 'folder-1',
       },
     });
 
@@ -413,7 +482,7 @@ describe('Web transport runtime audit', () => {
         operation: 'create',
         entity: 'thread',
         data: {
-          uuid: 'thread-authoritative-1',
+          uuid: generatedEntityId,
           folderUuid: 'folder-1',
           title: 'Awaiting authority',
         },
@@ -422,14 +491,14 @@ describe('Web transport runtime audit', () => {
 
     expect(projection.threads()).toEqual([
       {
-        id: 'thread-authoritative-1',
+        id: generatedEntityId,
         folderId: 'folder-1',
         title: 'Awaiting authority',
       },
     ]);
 
     const constitution = {
-      mobileAuthority: projection.threads()[0]?.id === 'thread-authoritative-1',
+      mobileAuthority: projection.threads()[0]?.id === generatedEntityId,
       mutationBoundary: !localStateMutation,
       eventOrdering: parsedEnvelope('event_stream').sequence === 7,
       relayNeutrality: parsedEnvelope('snapshot_chunk').protocolVersion === 2,

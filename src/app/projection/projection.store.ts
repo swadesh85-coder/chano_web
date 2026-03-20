@@ -86,6 +86,14 @@ export class ProjectionStore {
     this.relay.onEnvelope((msg) => this.handleEnvelope(msg));
   }
 
+  getEntityVersion(entityType: EventEntity, entityId: string): number | null {
+    return this.projectionEngine.getEntityVersion(entityType, entityId);
+  }
+
+  hasEntityId(entityId: string): boolean {
+    return this.projectionEngine.hasEntityId(entityId);
+  }
+
   private handleEnvelope(msg: TransportEnvelope): void {
     if (msg.type.startsWith('snapshot_')) {
       switch (msg.type) {

@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { WebRelayClient } from './web-relay-client';
 import type { TransportEnvelope } from './transport-envelope';
 
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 type WsHandler = ((ev: { data: string }) => void) | null;
 
 class MockWebSocket {
@@ -81,32 +83,72 @@ describe('WebRelayClient', () => {
     expect(client.state()).toBe('connected');
   });
 
+  it('session_id_generated', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    const sessionId = client.sessionId();
+
+    expect(sessionId).toMatch(UUID_V4_PATTERN);
+  });
+
   it('web_relay_client_send_envelope', () => {
     client.connect('wss://relay.chano.app');
     MockWebSocket.last.simulateOpen();
 
-    const firstEnvelope = client.createEnvelope('qr_session_create');
-    const secondEnvelope = client.createEnvelope('qr_session_create');
+    const sessionId = client.sessionId();
+    expect(sessionId).toMatch(UUID_V4_PATTERN);
 
-    client.sendEnvelope(firstEnvelope);
-    client.sendEnvelope(secondEnvelope);
+    client.sendEnvelope('qr_session_create', { sessionId: sessionId! });
+    client.sendEnvelope('pair_request', { sessionId: sessionId! });
 
     expect(JSON.parse(MockWebSocket.last.sent[0])).toEqual({
       protocolVersion: 2,
       type: 'qr_session_create',
-      sessionId: null,
+      sessionId,
       timestamp: expect.any(Number),
       sequence: 1,
-      payload: {},
+      payload: { sessionId },
     });
     expect(JSON.parse(MockWebSocket.last.sent[1])).toEqual({
       protocolVersion: 2,
-      type: 'qr_session_create',
-      sessionId: null,
+      type: 'pair_request',
+      sessionId,
       timestamp: expect.any(Number),
       sequence: 2,
-      payload: {},
+      payload: { sessionId },
     });
+  });
+
+  it('transport_envelope_v2_only', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    const sessionId = client.sessionId();
+    client.sendEnvelope('qr_session_create', { sessionId: sessionId! });
+
+    expect(JSON.parse(MockWebSocket.last.sent[0])['protocolVersion']).toBe(2);
+  });
+
+  it('timestamp_number_validation', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    const sessionId = client.sessionId();
+    client.sendEnvelope('qr_session_create', { sessionId: sessionId! });
+
+    expect(typeof JSON.parse(MockWebSocket.last.sent[0])['timestamp']).toBe('number');
+  });
+
+  it('payload_schema_valid', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    const sessionId = client.sessionId();
+
+    expect(() => client.sendEnvelope('qr_session_create', { sessionId: sessionId! })).not.toThrow();
+    expect(() => client.sendEnvelope('pair_request', { sessionId: sessionId! })).not.toThrow();
+    expect(() => client.sendEnvelope('pair_request', {} as { sessionId: string })).toThrowError('INVALID_TRANSPORT_PAYLOAD');
   });
 
   it('web_relay_client_receive_envelope', () => {

@@ -1,22 +1,22 @@
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { ProjectionStore } from './projection.store';
-import type { RelayEnvelope } from '../relay/relay.models';
+import type { TransportEnvelope } from '../../transport/transport-envelope';
 import { WebRelayClient } from '../../transport/web-relay-client';
 
 describe('ProjectionStore', () => {
   let store: ProjectionStore;
-  let messages$: Subject<RelayEnvelope>;
+  let messages$: Subject<TransportEnvelope>;
 
   beforeEach(() => {
-    messages$ = new Subject<RelayEnvelope>();
+    messages$ = new Subject<TransportEnvelope>();
 
     TestBed.configureTestingModule({
       providers: [
         {
           provide: WebRelayClient,
           useValue: {
-            onEnvelope: (handler: (envelope: RelayEnvelope) => void) => {
+            onEnvelope: (handler: (envelope: TransportEnvelope) => void) => {
               const subscription = messages$.asObservable().subscribe(handler);
               return () => subscription.unsubscribe();
             },
