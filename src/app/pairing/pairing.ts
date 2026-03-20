@@ -15,7 +15,7 @@ import { ProjectionStore } from '../projection/projection.store';
 import { WebRelayClient } from '../../transport';
 import type { TransportEnvelope } from '../../transport';
 
-const RELAY_URL = 'ws://localhost:8080/relay';
+const RELAY_URL = 'ws://172.20.10.3:8080/relay';
 
 type PairingStatus =
   | 'connecting'

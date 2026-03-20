@@ -246,7 +246,7 @@ describe('Web transport runtime audit', () => {
   it('web_relay_client_connection_runtime', async () => {
     const sessionId = await establishRelaySession();
 
-    expect(MockWebSocket.last.url).toBe('ws://localhost:8080/relay');
+    expect(MockWebSocket.last.url).toBe('ws://172.20.10.3:8080/relay');
     expect(JSON.parse(MockWebSocket.last.sent[0] as string)).toEqual({
       protocolVersion: 2,
       type: 'qr_session_create',
@@ -256,7 +256,7 @@ describe('Web transport runtime audit', () => {
       payload: {},
     });
 
-    expect(capturedLogs).toContainEqual(['WEB_RELAY_CONNECT ws://localhost:8080/relay']);
+    expect(capturedLogs).toContainEqual(['WEB_RELAY_CONNECT ws://172.20.10.3:8080/relay']);
     expect(capturedLogs).toContainEqual([`WEB_SESSION_CREATED sessionId=${sessionId}`]);
   });
 

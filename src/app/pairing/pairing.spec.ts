@@ -319,7 +319,7 @@ describe('PairingComponent', () => {
     it('should open a WebSocket to the relay on init', () => {
       fixture.detectChanges();
       expect(MockWebSocket.last).toBeDefined();
-      expect(MockWebSocket.last.url).toBe('ws://localhost:8080/relay');
+      expect(MockWebSocket.last.url).toBe('ws://172.20.10.3:8080/relay');
     });
 
     it('should set status to "connecting" initially', () => {
@@ -372,7 +372,7 @@ describe('PairingComponent', () => {
       const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
       expect(payload).toEqual({
         sessionId: 'sess-abc-123',
-        relayUrl: 'ws://localhost:8080/relay',
+        relayUrl: 'ws://172.20.10.3:8080/relay',
         expiresAt: expiresAtIso,
       });
 

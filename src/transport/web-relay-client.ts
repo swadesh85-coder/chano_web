@@ -95,12 +95,14 @@ export class WebRelayClient {
     this.emitState('disconnected');
   }
 
-  createEnvelope(
-  type: string,
-  payload: Record<string, unknown> = {},
-  sessionId?: string | null,
-): TransportEnvelope {
-  const resolvedSessionId = sessionId === undefined ? this.currentSessionId() : sessionId;
+  createEnvelope(type: string, payload: Record<string, unknown> = {}, sessionId?: string | null): TransportEnvelope {
+  let resolvedSessionId = sessionId === undefined ? this.currentSessionId() : sessionId;
+
+  // 🔥 FIX
+  if (!resolvedSessionId) {
+    resolvedSessionId = crypto.randomUUID();
+    this.currentSessionId.set(resolvedSessionId);
+  }
 
   return {
     protocolVersion: TRANSPORT_PROTOCOL_VERSION,
