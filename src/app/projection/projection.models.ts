@@ -16,6 +16,14 @@ export interface RecordEntry {
   readonly type: string;
   readonly name: string;
   readonly createdAt: number;
+  readonly editedAt: number;
+  readonly orderIndex: number | null;
+  readonly isStarred: boolean;
+  readonly imageGroupId: string | null;
+  readonly mediaId?: string;
+  readonly mimeType?: string;
+  readonly title?: string;
+  readonly size?: number | null;
 }
 
 export type ExplorerNodeType = 'folder' | 'thread' | 'record';
@@ -55,6 +63,11 @@ export interface RecordProjectionData {
   readonly orderIndex: number;
   readonly isStarred: boolean;
   readonly imageGroupId: string | null;
+  readonly lastEventVersion: number | null;
+  readonly mediaId?: string;
+  readonly mimeType?: string;
+  readonly title?: string;
+  readonly size?: number | null;
 }
 
 export interface ProjectionEntity<TType extends 'folder' | 'thread' | 'record', TData> {
@@ -69,9 +82,25 @@ export type ThreadProjectionEntity = ProjectionEntity<'thread', ThreadProjection
 export type RecordProjectionEntity = ProjectionEntity<'record', RecordProjectionData>;
 
 export interface ProjectionSnapshotState {
-  readonly folders: readonly FolderProjectionEntity[];
-  readonly threads: readonly ThreadProjectionEntity[];
-  readonly records: readonly RecordProjectionEntity[];
+  readonly folders: ReadonlyMap<string, FolderProjectionEntity>;
+  readonly threads: ReadonlyMap<string, ThreadProjectionEntity>;
+  readonly records: ReadonlyMap<string, RecordProjectionEntity>;
+  readonly imageGroups: ReadonlyMap<string, readonly RecordProjectionEntity[]>;
+}
+
+export interface ProjectionUpdate {
+  readonly reason: 'snapshot_loaded' | 'event_applied';
+  readonly entityType: EventEntity | null;
+  readonly eventVersion: number | null;
+}
+
+export function createEmptyProjectionSnapshotState(): ProjectionSnapshotState {
+  return {
+    folders: new Map<string, FolderProjectionEntity>(),
+    threads: new Map<string, ThreadProjectionEntity>(),
+    records: new Map<string, RecordProjectionEntity>(),
+    imageGroups: new Map<string, readonly RecordProjectionEntity[]>(),
+  };
 }
 
 // ── Event stream types ─────────────────────────────────────

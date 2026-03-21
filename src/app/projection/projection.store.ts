@@ -10,11 +10,10 @@ import type {
   RecordEntry,
   ExplorerNode,
   ProjectionSnapshotState,
+  ProjectionUpdate,
   FolderProjectionEntity,
   ThreadProjectionEntity,
   RecordProjectionEntity,
-  VaultEvent,
-  EventOperation,
   EventEntity,
 } from './projection.models';
 
@@ -52,6 +51,10 @@ type RecordEntityData = {
   readonly orderIndex: number;
   readonly isStarred: boolean;
   readonly imageGroupId: string | null;
+  readonly mediaId?: string;
+  readonly mimeType?: string;
+  readonly title?: string;
+  readonly size?: number | null;
 };
 
 const INTERNAL_ROOT_FOLDER_SENTINEL = 'root';
@@ -77,6 +80,7 @@ export class ProjectionStore {
   private readonly _phase = signal<SnapshotPhase>('idle');
   private readonly _baseEventVersion = signal<number | null>(null);
   private readonly _lastAppliedEventVersion = signal<number | null>(null);
+  private readonly _lastProjectionUpdate = signal<ProjectionUpdate | null>(null);
 
   readonly phase = this._phase.asReadonly();
   readonly folders = this._folders.asReadonly();
@@ -84,6 +88,7 @@ export class ProjectionStore {
   readonly records = this._records.asReadonly();
   readonly baseEventVersion = this._baseEventVersion.asReadonly();
   readonly lastAppliedEventVersion = this._lastAppliedEventVersion.asReadonly();
+  readonly lastProjectionUpdate = this._lastProjectionUpdate.asReadonly();
 
   /** @deprecated DO NOT USE — replaced by getProjectionState() (projection snapshot API) */
   readonly explorerTree = computed<ExplorerNode[]>(() =>
@@ -100,10 +105,29 @@ export class ProjectionStore {
   }
 
   getProjectionState(): ProjectionSnapshotState {
+    const folders = new Map<string, FolderProjectionEntity>();
+    for (const folder of this._folders()) {
+      const entity = this.deepFreeze(this.toProjectionFolderEntity(folder));
+      folders.set(entity.entityUuid, entity);
+    }
+
+    const threads = new Map<string, ThreadProjectionEntity>();
+    for (const thread of this._threads()) {
+      const entity = this.deepFreeze(this.toProjectionThreadEntity(thread));
+      threads.set(entity.entityUuid, entity);
+    }
+
+    const records = new Map<string, RecordProjectionEntity>();
+    for (const record of this._records()) {
+      const entity = this.deepFreeze(this.toProjectionRecordEntity(record));
+      records.set(entity.entityUuid, entity);
+    }
+
     return this.deepFreeze({
-      folders: this._folders().map((folder) => this.toProjectionFolderEntity(folder)),
-      threads: this._threads().map((thread) => this.toProjectionThreadEntity(thread)),
-      records: this._records().map((record) => this.toProjectionRecordEntity(record)),
+      folders,
+      threads,
+      records,
+      imageGroups: this.buildImageGroups(records),
     });
   }
 
@@ -155,16 +179,20 @@ export class ProjectionStore {
 
   private onSnapshotStart(msg: TransportEnvelope): void {
     this.snapshotSessionId = msg.sessionId;
+    if (this.isByteSnapshotStartPayload(msg.payload)) {
+      this.projectionEngine.onSnapshotStart(this.readSnapshotId(msg.payload));
+      this.snapshotLoader.handleSnapshotStart(msg);
+      this._phase.set('receiving');
+      return;
+    }
+
     this.projectionEngine.reset();
     this._folders.set([]);
     this._threads.set([]);
     this._records.set([]);
     this._baseEventVersion.set(null);
     this._lastAppliedEventVersion.set(null);
-
-    if (this.isByteSnapshotStartPayload(msg.payload)) {
-      this.snapshotLoader.handleSnapshotStart(msg);
-    }
+    this._lastProjectionUpdate.set(null);
 
     this._phase.set('receiving');
   }
@@ -247,12 +275,7 @@ export class ProjectionStore {
   private handleSnapshotLoaderEvent(event: SnapshotLoaderEvent): void {
     switch (event.type) {
       case 'SNAPSHOT_ERROR':
-        this.projectionEngine.reset();
-        this._folders.set([]);
-        this._threads.set([]);
-        this._records.set([]);
-        this._baseEventVersion.set(null);
-        this._lastAppliedEventVersion.set(null);
+        this.projectionEngine.abortSnapshot();
         this._phase.set('idle');
         return;
       case 'SNAPSHOT_LOADED':
@@ -270,24 +293,14 @@ export class ProjectionStore {
     try {
       snapshot = JSON.parse(snapshotJson);
     } catch {
-      this.projectionEngine.reset();
-      this._folders.set([]);
-      this._threads.set([]);
-      this._records.set([]);
-      this._baseEventVersion.set(null);
-      this._lastAppliedEventVersion.set(null);
+      this.projectionEngine.abortSnapshot();
       this._phase.set('idle');
       this.reportSchemaValidationError();
       return;
     }
 
     if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
-      this.projectionEngine.reset();
-      this._folders.set([]);
-      this._threads.set([]);
-      this._records.set([]);
-      this._baseEventVersion.set(null);
-      this._lastAppliedEventVersion.set(null);
+      this.projectionEngine.abortSnapshot();
       this._phase.set('idle');
       this.reportSchemaValidationError();
       return;
@@ -309,19 +322,19 @@ export class ProjectionStore {
       || threads.length !== (Array.isArray(snapshotRecord['threads']) ? snapshotRecord['threads'].length : 0)
       || records.length !== (Array.isArray(snapshotRecord['records']) ? snapshotRecord['records'].length : 0)
     ) {
-      this.projectionEngine.reset();
-      this._folders.set([]);
-      this._threads.set([]);
-      this._records.set([]);
-      this._baseEventVersion.set(null);
-      this._lastAppliedEventVersion.set(null);
+      this.projectionEngine.abortSnapshot();
       this._phase.set('idle');
       return;
     }
 
-    const result = this.projectionEngine.applySnapshot(snapshotJson, baseEventVersion);
+    const result = this.projectionEngine.onSnapshotComplete(snapshotJson, baseEventVersion);
 
     this.syncProjectionState(result.state);
+    this._lastProjectionUpdate.set({
+      reason: 'snapshot_loaded',
+      entityType: null,
+      eventVersion: result.lastAppliedEventVersion,
+    });
     console.log(
       `PROJECTION_APPLY entityCount=${folders.length + threads.length + records.length} type=snapshot_apply sessionId=${this.formatSessionId(this.snapshotSessionId)}`,
     );
@@ -349,11 +362,6 @@ export class ProjectionStore {
   // ── Event stream handling ────────────────────────────────
 
   private onEventStream(envelope: TransportEnvelope): void {
-    if (!this.looksLikeAuthoritativeEventEnvelope(envelope.payload)) {
-      this.onLegacyEventStream(envelope.payload);
-      return;
-    }
-
     this.authoritativeEventQueue = this.authoritativeEventQueue
       .then(async () => this.onValidatedEventStream(envelope))
       .catch((error: unknown) => {
@@ -378,12 +386,20 @@ export class ProjectionStore {
 
     console.log(`EVENT_FORWARDED_TO_ENGINE eventVersion=${validationResult.eventEnvelope.eventVersion}`);
 
-    const result = this.projectionEngine.applyEvent(validationResult.eventEnvelope);
+    const result = this.projectionEngine.onEvent(validationResult.eventEnvelope);
 
     switch (result.status) {
       case 'EVENT_APPLIED':
-      case 'EVENT_IGNORED_DUPLICATE':
         this.syncProjectionState(result.state);
+        this._lastProjectionUpdate.set({
+          reason: 'event_applied',
+          entityType: validationResult.eventEnvelope.entityType,
+          eventVersion: validationResult.eventEnvelope.eventVersion,
+        });
+        this._lastAppliedEventVersion.set(result.lastAppliedEventVersion);
+        break;
+      case 'EVENT_IGNORED_DUPLICATE':
+      case 'EVENT_BUFFERED':
         this._lastAppliedEventVersion.set(result.lastAppliedEventVersion);
         break;
       case 'EVENT_IGNORED_SNAPSHOT_NOT_APPLIED':
@@ -393,23 +409,16 @@ export class ProjectionStore {
     }
   }
 
-  private emitValidationResyncRequired(reason: EventValidationFailureReason): void {
-    console.error(`SNAPSHOT_RESYNC_REQUIRED reason=${reason}`);
+  private readSnapshotId(payload: Record<string, unknown>): string | null {
+    return typeof payload['snapshotId'] === 'string' ? payload['snapshotId'] : null;
   }
 
-  private onLegacyEventStream(payload: Record<string, unknown>): void {
-    const event = this.parseEvent(payload);
-    if (!event) return;
+  private formatSessionId(sessionId: string | null): string {
+    return sessionId ?? 'null';
+  }
 
-    console.log('EVENT_STREAM:', event.operation, event.entity, event.data);
-
-    switch (event.operation) {
-      case 'create': this.applyCreate(event.entity, event.data); break;
-      case 'update': this.applyUpdate(event.entity, event.data); break;
-      case 'rename': this.applyRename(event.entity, event.data); break;
-      case 'move':   this.applyMove(event.entity, event.data);   break;
-      case 'delete': this.applyDelete(event.entity, event.data); break;
-    }
+  private emitValidationResyncRequired(reason: EventValidationFailureReason): void {
+    console.error(`SNAPSHOT_RESYNC_REQUIRED reason=${reason}`);
   }
 
   private syncProjectionState(state: {
@@ -449,22 +458,69 @@ export class ProjectionStore {
   }
 
   private toProjectionRecordEntity(record: RecordEntry): RecordProjectionEntity {
+    const data: RecordProjectionEntity['data'] = {
+      uuid: record.id,
+      threadUuid: record.threadId,
+      type: record.type,
+      body: record.name,
+      createdAt: record.createdAt,
+      editedAt: record.editedAt,
+      orderIndex: record.orderIndex ?? 0,
+      isStarred: record.isStarred,
+      imageGroupId: record.imageGroupId,
+      lastEventVersion: this.projectionEngine.getRecordLastEventVersion(record.id),
+      ...(typeof record.mediaId === 'string' ? { mediaId: record.mediaId } : {}),
+      ...(typeof record.mimeType === 'string' ? { mimeType: record.mimeType } : {}),
+      ...(typeof record.title === 'string' ? { title: record.title } : {}),
+      ...(typeof record.size === 'number' || record.size === null ? { size: record.size } : {}),
+    };
+
     return {
       entityType: 'record',
       entityUuid: record.id,
       entityVersion: this.projectionEngine.getEntityVersion('record', record.id) ?? 0,
-      data: {
-        uuid: record.id,
-        threadUuid: record.threadId,
-        type: record.type,
-        body: record.name,
-        createdAt: record.createdAt,
-        editedAt: record.createdAt,
-        orderIndex: 0,
-        isStarred: false,
-        imageGroupId: null,
-      },
+      data,
     };
+  }
+
+  private buildImageGroups(
+    records: ReadonlyMap<string, RecordProjectionEntity>,
+  ): ReadonlyMap<string, readonly RecordProjectionEntity[]> {
+    const groupedRecords = new Map<string, RecordProjectionEntity[]>();
+
+    for (const record of records.values()) {
+      const imageGroupId = record.data.imageGroupId;
+      if (imageGroupId === null || record.data.type !== 'image') {
+        continue;
+      }
+
+      const group = groupedRecords.get(imageGroupId) ?? [];
+      group.push(record);
+      groupedRecords.set(imageGroupId, group);
+    }
+
+    const imageGroups = new Map<string, readonly RecordProjectionEntity[]>();
+    for (const [imageGroupId, group] of [...groupedRecords.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      const orderedRecords = this.deepFreeze([...group].sort((left, right) => {
+        if (left.data.orderIndex !== right.data.orderIndex) {
+          return left.data.orderIndex - right.data.orderIndex;
+        }
+
+        const leftEventVersion = left.data.lastEventVersion ?? Number.MAX_SAFE_INTEGER;
+        const rightEventVersion = right.data.lastEventVersion ?? Number.MAX_SAFE_INTEGER;
+        if (leftEventVersion !== rightEventVersion) {
+          return leftEventVersion - rightEventVersion;
+        }
+
+        return left.entityUuid.localeCompare(right.entityUuid);
+      }));
+
+      imageGroups.set(imageGroupId, orderedRecords);
+    }
+
+    return imageGroups;
   }
 
   private mapInternalRootFolderIdToSnapshot(folderId: string): string | null {
@@ -488,279 +544,9 @@ export class ProjectionStore {
     return Object.freeze(value);
   }
 
-  private formatSessionId(sessionId: string | null): string {
-    return sessionId ?? 'null';
-  }
-
-  private looksLikeAuthoritativeEventEnvelope(payload: Record<string, unknown>): boolean {
-    return 'eventId' in payload
-      || 'originDeviceId' in payload
-      || 'eventVersion' in payload
-      || 'entityType' in payload
-      || 'entityId' in payload
-      || 'checksum' in payload;
-  }
-
-  private parseEvent(payload: Record<string, unknown>): VaultEvent | null {
-    const validOps: readonly string[] = ['create', 'update', 'rename', 'move', 'delete'];
-    const validEntities: readonly string[] = ['folder', 'thread', 'record', 'imageGroup'];
-
-    const operation = payload['operation'];
-    const entity = payload['entity'];
-    let data = payload['data'];
-
-    if (typeof operation !== 'string' || !validOps.includes(operation)) return null;
-    if (typeof entity !== 'string' || !validEntities.includes(entity)) return null;
-
-    if (typeof data === 'string') {
-      try { data = JSON.parse(data); } catch {
-        this.reportSchemaValidationError();
-        return null;
-      }
-    }
-    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
-      this.reportSchemaValidationError();
-      return null;
-    }
-
-    const canonicalData = data as Record<string, unknown>;
-    if (!this.isValidEventData(operation as EventOperation, entity as EventEntity, canonicalData)) {
-      this.reportSchemaValidationError();
-      return null;
-    }
-
-    return {
-      operation: operation as EventOperation,
-      entity: entity as EventEntity,
-      data: canonicalData,
-    };
-  }
-
-  // ── Create ───────────────────────────────────────────────
-
-  private applyCreate(entity: EventEntity, data: Record<string, unknown>): void {
-    switch (entity) {
-      case 'folder':
-      case 'imageGroup': {
-        const parsed = this.parseFolderData(data);
-        if (parsed !== null) {
-          this._folders.update((prev) => [...prev, parsed]);
-        }
-        break;
-      }
-      case 'thread': {
-        const parsed = this.parseThreadData(data);
-        if (parsed !== null) {
-          this._threads.update((prev) => [...prev, parsed]);
-        }
-        break;
-      }
-      case 'record': {
-        const parsed = this.parseRecordData(data);
-        if (parsed !== null) {
-          this._records.update((prev) => [...prev, parsed]);
-        }
-        break;
-      }
-    }
-  }
-
-  // ── Update ───────────────────────────────────────────────
-
-  private applyUpdate(entity: EventEntity, data: Record<string, unknown>): void {
-    const id = this.resolveUuid(data);
-    if (id === undefined) return;
-
-    switch (entity) {
-      case 'folder':
-      case 'imageGroup':
-        this._folders.update((prev) =>
-          prev.map((f) => f.id === id ? this.mergeFolder(f, data) : f),
-        );
-        break;
-      case 'thread':
-        this._threads.update((prev) =>
-          prev.map((t) => t.id === id ? this.mergeThread(t, data) : t),
-        );
-        break;
-      case 'record':
-        this._records.update((prev) =>
-          prev.map((r) => r.id === id ? this.mergeRecord(r, data) : r),
-        );
-        break;
-    }
-  }
-
-  // ── Rename ───────────────────────────────────────────────
-
-  private applyRename(entity: EventEntity, data: Record<string, unknown>): void {
-    const id = this.resolveUuid(data);
-    if (id === undefined) return;
-
-    switch (entity) {
-      case 'folder':
-      case 'imageGroup': {
-        const name = data['name'];
-        if (typeof name !== 'string') return;
-        this._folders.update((prev) =>
-          prev.map((f) => f.id === id ? { ...f, name } : f),
-        );
-        break;
-      }
-      case 'thread': {
-        const title = data['title'];
-        if (typeof title !== 'string') return;
-        this._threads.update((prev) =>
-          prev.map((t) => t.id === id ? { ...t, title } : t),
-        );
-        break;
-      }
-      case 'record': {
-        const body = data['body'];
-        if (typeof body !== 'string') return;
-        this._records.update((prev) =>
-          prev.map((r) => r.id === id ? { ...r, name: body } : r),
-        );
-        break;
-      }
-    }
-  }
-
-  // ── Move ─────────────────────────────────────────────────
-
-  private applyMove(entity: EventEntity, data: Record<string, unknown>): void {
-    const id = this.resolveUuid(data);
-    if (id === undefined) return;
-
-    switch (entity) {
-      case 'folder':
-      case 'imageGroup': {
-        const resolved = this.resolveParentFolderUuid(data);
-        if (resolved === undefined) return;
-        this._folders.update((prev) =>
-          prev.map((f) => f.id === id ? { ...f, parentId: resolved } : f),
-        );
-        break;
-      }
-      case 'thread': {
-        const folderUuid = this.resolveFolderUuid(data);
-        if (folderUuid === undefined) return;
-        this._threads.update((prev) =>
-          prev.map((t) => t.id === id ? { ...t, folderId: folderUuid ?? 'root' } : t),
-        );
-        break;
-      }
-      case 'record': {
-        const threadUuid = this.resolveThreadUuid(data);
-        if (threadUuid === undefined) return;
-        this._records.update((prev) =>
-          prev.map((r) => r.id === id ? { ...r, threadId: threadUuid } : r),
-        );
-        break;
-      }
-    }
-  }
-
-  // ── Delete ───────────────────────────────────────────────
-
-  private applyDelete(entity: EventEntity, data: Record<string, unknown>): void {
-    const id = this.resolveUuid(data);
-    if (id === undefined) return;
-
-    switch (entity) {
-      case 'folder':
-      case 'imageGroup':
-        this.cascadeDeleteFolder(id);
-        break;
-      case 'thread':
-        this.cascadeDeleteThread(id);
-        break;
-      case 'record':
-        this._records.update((prev) => prev.filter((r) => r.id !== id));
-        break;
-    }
-  }
-
-  private cascadeDeleteFolder(folderId: string): void {
-    // Collect all descendant folder IDs
-    const doomed = new Set<string>([folderId]);
-    let size = 0;
-    while (doomed.size !== size) {
-      size = doomed.size;
-      for (const f of this._folders()) {
-        if (f.parentId !== null && doomed.has(f.parentId)) doomed.add(f.id);
-      }
-    }
-
-    // Remove folders
-    this._folders.update((prev) => prev.filter((f) => !doomed.has(f.id)));
-
-    // Remove threads under deleted folders and their records
-    const doomedThreads = new Set<string>();
-    for (const t of this._threads()) {
-      if (doomed.has(t.folderId)) doomedThreads.add(t.id);
-    }
-    this._threads.update((prev) => prev.filter((t) => !doomedThreads.has(t.id)));
-    this._records.update((prev) => prev.filter((r) => !doomedThreads.has(r.threadId)));
-  }
-
-  private cascadeDeleteThread(threadId: string): void {
-    this._threads.update((prev) => prev.filter((t) => t.id !== threadId));
-    this._records.update((prev) => prev.filter((r) => r.threadId !== threadId));
-  }
-
-  // ── Entity mergers ───────────────────────────────────────
-
-  private mergeFolder(existing: Folder, data: Record<string, unknown>): Folder {
-    return {
-      id: existing.id,
-      name: typeof data['name'] === 'string' ? data['name'] : existing.name,
-      parentId: 'parentFolderUuid' in data
-        ? (this.resolveParentFolderUuid(data) ?? existing.parentId)
-        : existing.parentId,
-    };
-  }
-
-  private mergeThread(existing: Thread, data: Record<string, unknown>): Thread {
-    return {
-      id: existing.id,
-      folderId: 'folderUuid' in data
-        ? (this.resolveFolderUuid(data) ?? existing.folderId ?? 'root')
-        : existing.folderId,
-      title: typeof data['title'] === 'string' ? data['title'] : existing.title,
-    };
-  }
-
-  private mergeRecord(existing: RecordEntry, data: Record<string, unknown>): RecordEntry {
-    return {
-      id: existing.id,
-      threadId: 'threadUuid' in data
-        ? (this.resolveThreadUuid(data) ?? existing.threadId)
-        : existing.threadId,
-      type: typeof data['type'] === 'string' ? data['type'] : existing.type,
-      name: typeof data['body'] === 'string' ? data['body'] : existing.name,
-      createdAt: typeof data['createdAt'] === 'number' ? data['createdAt'] : existing.createdAt,
-    };
-  }
-
   private resolveUuid(o: Record<string, unknown>): string | undefined {
     const v = o['uuid'];
     return typeof v === 'string' ? v : undefined;
-  }
-
-  private resolveFolderUuid(o: Record<string, unknown>): string | null | undefined {
-    const v = o['folderUuid'];
-    return typeof v === 'string' ? v : v === null ? null : undefined;
-  }
-
-  private resolveThreadUuid(o: Record<string, unknown>): string | undefined {
-    const v = o['threadUuid'];
-    return typeof v === 'string' ? v : undefined;
-  }
-
-  private resolveParentFolderUuid(o: Record<string, unknown>): string | null | undefined {
-    const v = o['parentFolderUuid'];
-    return typeof v === 'string' ? v : v === null ? null : undefined;
   }
 
   private parseSnapshotEntities(
@@ -887,126 +673,15 @@ export class ProjectionStore {
       type: data['type'] as string,
       name: data['body'] as string,
       createdAt: data['createdAt'] as number,
+      editedAt: data['editedAt'] as number,
+      orderIndex: data['orderIndex'] as number,
+      isStarred: data['isStarred'] as boolean,
+      imageGroupId: data['imageGroupId'] as string | null,
+      mediaId: typeof data['mediaId'] === 'string' ? data['mediaId'] : undefined,
+      mimeType: typeof data['mimeType'] === 'string' ? data['mimeType'] : undefined,
+      title: typeof data['title'] === 'string' ? data['title'] : undefined,
+      size: this.resolveOptionalNullableNumber(data, 'size'),
     };
-  }
-
-  private isValidEventData(
-    operation: EventOperation,
-    entity: EventEntity,
-    data: Record<string, unknown>,
-  ): boolean {
-    switch (entity) {
-      case 'folder':
-      case 'imageGroup':
-        return this.isValidFolderEventData(operation, data);
-      case 'thread':
-        return this.isValidThreadEventData(operation, data);
-      case 'record':
-        return this.isValidRecordEventData(operation, data);
-    }
-  }
-
-  private isValidFolderEventData(
-    operation: EventOperation,
-    data: Record<string, unknown>,
-  ): boolean {
-    switch (operation) {
-      case 'create':
-        return this.isValidFolderEntityData(data);
-      case 'update':
-        return this.hasAllowedKeys(data, ['uuid', 'name', 'parentFolderUuid'])
-          && this.hasRequiredKeys(data, ['uuid'])
-          && this.isUuid(data['uuid'])
-          && this.isOptionalString(data['name'])
-          && this.isOptionalNullableString(data['parentFolderUuid']);
-      case 'rename':
-        return this.hasExactKeys(data, ['uuid', 'name'])
-          && this.isUuid(data['uuid'])
-          && typeof data['name'] === 'string';
-      case 'move':
-        return this.hasExactKeys(data, ['uuid', 'parentFolderUuid'])
-          && this.isUuid(data['uuid'])
-          && this.isNullableString(data['parentFolderUuid']);
-      case 'delete':
-        return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
-      case 'softDelete':
-      case 'restore':
-        return false;
-    }
-  }
-
-  private isValidThreadEventData(
-    operation: EventOperation,
-    data: Record<string, unknown>,
-  ): boolean {
-    switch (operation) {
-      case 'create':
-        return this.isValidThreadEntityData(data);
-      case 'update':
-        return this.hasAllowedKeys(data, ['uuid', 'folderUuid', 'title'])
-          && this.hasRequiredKeys(data, ['uuid'])
-          && this.isUuid(data['uuid'])
-          && this.isOptionalNullableString(data['folderUuid'])
-          && this.isOptionalString(data['title']);
-      case 'rename':
-        return this.hasExactKeys(data, ['uuid', 'title'])
-          && this.isUuid(data['uuid'])
-          && typeof data['title'] === 'string';
-      case 'move':
-        return this.hasExactKeys(data, ['uuid', 'folderUuid'])
-          && this.isUuid(data['uuid'])
-          && this.isNullableString(data['folderUuid']);
-      case 'delete':
-        return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
-      case 'softDelete':
-      case 'restore':
-        return false;
-    }
-  }
-
-  private isValidRecordEventData(
-    operation: EventOperation,
-    data: Record<string, unknown>,
-  ): boolean {
-    switch (operation) {
-      case 'create':
-        return this.isValidRecordEntityData(data);
-      case 'update':
-        return this.hasAllowedKeys(data, [
-          'uuid',
-          'threadUuid',
-          'type',
-          'body',
-          'createdAt',
-          'editedAt',
-          'orderIndex',
-          'isStarred',
-          'imageGroupId',
-        ])
-          && this.hasRequiredKeys(data, ['uuid'])
-          && this.isUuid(data['uuid'])
-          && this.isOptionalString(data['threadUuid'])
-          && this.isOptionalString(data['type'])
-          && this.isOptionalString(data['body'])
-          && this.isOptionalNumber(data['createdAt'])
-          && this.isOptionalNumber(data['editedAt'])
-          && this.isOptionalNumber(data['orderIndex'])
-          && this.isOptionalBoolean(data['isStarred'])
-          && this.isOptionalNullableString(data['imageGroupId']);
-      case 'rename':
-        return this.hasExactKeys(data, ['uuid', 'body'])
-          && this.isUuid(data['uuid'])
-          && typeof data['body'] === 'string';
-      case 'move':
-        return this.hasExactKeys(data, ['uuid', 'threadUuid'])
-          && this.isUuid(data['uuid'])
-          && typeof data['threadUuid'] === 'string';
-      case 'delete':
-        return this.hasExactKeys(data, ['uuid']) && this.isUuid(data['uuid']);
-      case 'softDelete':
-      case 'restore':
-        return false;
-    }
   }
 
   private isValidFolderEntityData(data: Record<string, unknown>): data is FolderEntityData {
@@ -1024,7 +699,7 @@ export class ProjectionStore {
   }
 
   private isValidRecordEntityData(data: Record<string, unknown>): data is RecordEntityData {
-    return this.hasExactKeys(data, [
+    return this.hasAllowedKeys(data, [
       'uuid',
       'threadUuid',
       'type',
@@ -1034,7 +709,22 @@ export class ProjectionStore {
       'orderIndex',
       'isStarred',
       'imageGroupId',
+      'mediaId',
+      'mimeType',
+      'title',
+      'size',
     ])
+      && this.hasRequiredKeys(data, [
+        'uuid',
+        'threadUuid',
+        'type',
+        'body',
+        'createdAt',
+        'editedAt',
+        'orderIndex',
+        'isStarred',
+        'imageGroupId',
+      ])
       && this.isUuid(data['uuid'])
       && typeof data['threadUuid'] === 'string'
       && typeof data['type'] === 'string'
@@ -1043,7 +733,11 @@ export class ProjectionStore {
       && typeof data['editedAt'] === 'number'
       && typeof data['orderIndex'] === 'number'
       && typeof data['isStarred'] === 'boolean'
-      && this.isNullableString(data['imageGroupId']);
+      && this.isNullableString(data['imageGroupId'])
+      && this.isOptionalString(data['mediaId'])
+      && this.isOptionalString(data['mimeType'])
+      && this.isOptionalString(data['title'])
+      && this.isOptionalNullableNumber(data['size']);
   }
 
   private hasExactKeys(obj: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -1066,20 +760,32 @@ export class ProjectionStore {
     return typeof value === 'string' || value === null;
   }
 
+  private isNullableNumber(value: unknown): value is number | null {
+    return typeof value === 'number' || value === null;
+  }
+
+  private isOptionalNullableNumber(value: unknown): value is number | null | undefined {
+    return value === undefined || this.isNullableNumber(value);
+  }
+
+  private resolveOptionalNullableNumber(
+    payload: Record<string, unknown>,
+    key: string,
+  ): number | null | undefined {
+    if (!(key in payload)) {
+      return undefined;
+    }
+
+    const value = payload[key];
+    if (typeof value === 'number' || value === null) {
+      return value;
+    }
+
+    return undefined;
+  }
+
   private isOptionalString(value: unknown): boolean {
     return value === undefined || typeof value === 'string';
-  }
-
-  private isOptionalNullableString(value: unknown): boolean {
-    return value === undefined || this.isNullableString(value);
-  }
-
-  private isOptionalNumber(value: unknown): boolean {
-    return value === undefined || typeof value === 'number';
-  }
-
-  private isOptionalBoolean(value: unknown): boolean {
-    return value === undefined || typeof value === 'boolean';
   }
 
   private reportSchemaValidationError(): void {

@@ -1,33 +1,41 @@
 import { Injectable } from '@angular/core';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
+import type { ProjectionSnapshotDocument } from './projection.models';
 
 type SnapshotLoaderEventHandler = (event: SnapshotLoaderEvent) => void;
 
 type SnapshotAssembly = {
-  readonly snapshotId: string;
+  readonly snapshotId: string | null;
   readonly totalChunks: number;
   readonly totalBytes: number;
   readonly snapshotVersion: number;
-  readonly protocolVersion: number;
-  readonly schemaVersion: number;
+  readonly protocolVersion: number | null;
+  readonly schemaVersion: number | null;
   readonly baseEventVersion: number;
-  readonly entityCount: number;
-  readonly checksum: string;
+  readonly entityCount: number | null;
+  readonly checksum: string | null;
+  readonly startedAt: number;
   readonly chunkBytes: Uint8Array[];
   readonly nextChunkIndex: number;
   readonly receivedBytes: number;
 };
 
 type SnapshotStartPayload = {
-  readonly snapshotId: string;
+  readonly snapshotId: string | null;
   readonly totalChunks: number;
   readonly totalBytes: number;
   readonly snapshotVersion: number;
-  readonly protocolVersion: number;
-  readonly schemaVersion: number;
+  readonly protocolVersion: number | null;
+  readonly schemaVersion: number | null;
   readonly baseEventVersion: number;
-  readonly entityCount: number;
-  readonly checksum: string;
+  readonly entityCount: number | null;
+  readonly checksum: string | null;
+};
+
+type MinimalSnapshotStartPayload = Record<string, unknown> & {
+  readonly totalChunks: number;
+  readonly totalBytes: number;
+  readonly snapshotVersion: number;
 };
 
 type SnapshotChunkPayload = {
@@ -51,10 +59,26 @@ export type SnapshotLoaderEvent =
       readonly reason: string;
     };
 
+export type SnapshotTestProtocol = {
+  readonly start: TransportEnvelope;
+  readonly chunks: readonly TransportEnvelope[];
+  readonly complete: TransportEnvelope;
+};
+
+export type SnapshotReconstructionResult = {
+  readonly snapshotJson: string;
+  readonly parsedSnapshot: ProjectionSnapshotDocument;
+  readonly baseEventVersion: number;
+  readonly reconstructedChecksum: string;
+  readonly mobileChecksum: string | null;
+  readonly byteLength: number;
+};
+
 @Injectable({ providedIn: 'root' })
 export class SnapshotLoader {
   private readonly eventHandlers = new Set<SnapshotLoaderEventHandler>();
   private assembly: SnapshotAssembly | null = null;
+  private lastReconstruction: SnapshotReconstructionResult | null = null;
 
   onEvent(handler: SnapshotLoaderEventHandler): () => void {
     this.eventHandlers.add(handler);
@@ -80,14 +104,15 @@ export class SnapshotLoader {
       schemaVersion: payload.schemaVersion,
       baseEventVersion: payload.baseEventVersion,
       entityCount: payload.entityCount,
-      checksum: payload.checksum.toLowerCase(),
+      checksum: payload.checksum,
+      startedAt: Date.now(),
       chunkBytes: [],
       nextChunkIndex: 0,
       receivedBytes: 0,
     };
 
     console.log(
-      `SNAPSHOT_RECEIVE_START snapshotId=${payload.snapshotId} totalChunks=${payload.totalChunks} type=${envelope.type} sessionId=${this.formatSessionId(envelope.sessionId)}`,
+      `SNAPSHOT_RECEIVE_START snapshotId=${payload.snapshotId ?? 'unknown'} totalChunks=${payload.totalChunks} type=${envelope.type} sessionId=${this.formatSessionId(envelope.sessionId)}`,
     );
   }
 
@@ -160,101 +185,77 @@ export class SnapshotLoader {
       return;
     }
 
-    const snapshotBytes = this.concatBytes(this.assembly.chunkBytes);
-    if (snapshotBytes.byteLength !== this.assembly.totalBytes) {
-      this.fail(
-        `snapshot byte mismatch expected=${this.assembly.totalBytes} actual=${snapshotBytes.byteLength}`,
-      );
-      return;
-    }
-
     console.log(
       `SNAPSHOT_RECEIVE_COMPLETE totalChunks=${payload.totalChunks} type=${envelope.type} sessionId=${this.formatSessionId(envelope.sessionId)}`,
     );
 
-    const snapshotJson = this.decodeUtf8(snapshotBytes);
-    if (snapshotJson === null) {
-      this.fail('invalid utf8 snapshot payload');
+    const reconstruction = await this.reconstructAssembly(this.assembly);
+    if (reconstruction === null) {
       return;
     }
 
-    try {
-      JSON.parse(snapshotJson);
-    } catch {
-      this.fail('invalid snapshot json');
-      return;
-    }
-
-    const checksum = await this.sha256Hex(snapshotBytes);
-    if (checksum !== this.assembly.checksum) {
-      this.fail('checksum mismatch');
-      return;
-    }
-
-    const baseEventVersion = this.assembly.baseEventVersion;
+    this.lastReconstruction = reconstruction;
     this.assembly = null;
-
-    console.log('SNAPSHOT_CHECKSUM_VALID');
     this.emitEvent({
       type: 'SNAPSHOT_LOADED',
-      snapshotJson,
-      baseEventVersion,
+      snapshotJson: reconstruction.snapshotJson,
+      baseEventVersion: reconstruction.baseEventVersion,
     });
   }
 
+  async loadSnapshotForTest(snapshotProtocol: SnapshotTestProtocol): Promise<SnapshotReconstructionResult> {
+    let snapshotLoaded = false;
+    let snapshotError: string | null = null;
+    const unsubscribe = this.onEvent((event) => {
+      if (event.type === 'SNAPSHOT_LOADED') {
+        snapshotLoaded = true;
+        return;
+      }
+
+      snapshotError = event.reason;
+    });
+
+    try {
+      this.handleSnapshotStart(snapshotProtocol.start);
+      for (const chunk of snapshotProtocol.chunks) {
+        this.handleSnapshotChunk(chunk);
+      }
+      await this.handleSnapshotComplete(snapshotProtocol.complete);
+
+      if (snapshotError !== null) {
+        throw new Error(snapshotError);
+      }
+
+      if (!snapshotLoaded || this.lastReconstruction === null) {
+        throw new Error('SNAPSHOT_RECONSTRUCTION_UNAVAILABLE');
+      }
+
+      return this.lastReconstruction;
+    } finally {
+      unsubscribe();
+    }
+  }
+
   private parseSnapshotStartPayload(payload: Record<string, unknown>): SnapshotStartPayload | null {
-    if (!this.hasExactKeys(payload, [
-      'snapshotId',
-      'totalChunks',
-      'totalBytes',
-      'snapshotVersion',
-      'protocolVersion',
-      'schemaVersion',
-      'baseEventVersion',
-      'entityCount',
-      'checksum',
-    ])) {
+    if (!this.isValidSnapshotStart(payload)) {
       return null;
     }
 
-    const snapshotId = payload['snapshotId'];
-    const totalChunks = payload['totalChunks'];
-    const totalBytes = payload['totalBytes'];
-    const snapshotVersion = payload['snapshotVersion'];
-    const protocolVersion = payload['protocolVersion'];
-    const schemaVersion = payload['schemaVersion'];
-    const baseEventVersion = payload['baseEventVersion'];
-    const entityCount = payload['entityCount'];
-    const checksum = payload['checksum'];
-
-    if (typeof snapshotId !== 'string' || snapshotId.length === 0) {
-      return null;
-    }
-
-    if (
-      !this.isNonNegativeInteger(totalChunks)
-      || !this.isNonNegativeInteger(totalBytes)
-      || !this.isNonNegativeInteger(snapshotVersion)
-      || !this.isNonNegativeInteger(protocolVersion)
-      || !this.isNonNegativeInteger(schemaVersion)
-      || !this.isNonNegativeInteger(baseEventVersion)
-      || !this.isNonNegativeInteger(entityCount)
-      || typeof checksum !== 'string'
-      || checksum.length === 0
-    ) {
-      return null;
-    }
+    const snapshotStartPayload = payload;
+    const totalChunks = snapshotStartPayload['totalChunks'];
+    const totalBytes = snapshotStartPayload['totalBytes'];
+    const snapshotVersion = snapshotStartPayload['snapshotVersion'];
 
     return {
-      snapshotId,
       totalChunks,
       totalBytes,
       snapshotVersion,
-      protocolVersion,
-      schemaVersion,
-      baseEventVersion,
-      entityCount,
-      checksum,
+      snapshotId: this.readOptionalString(snapshotStartPayload['snapshotId']),
+      protocolVersion: this.readOptionalNumber(snapshotStartPayload['protocolVersion']),
+      schemaVersion: this.readOptionalNumber(snapshotStartPayload['schemaVersion']),
+      baseEventVersion: this.readOptionalNumber(snapshotStartPayload['baseEventVersion']) ?? snapshotVersion,
+      entityCount: this.readOptionalNumber(snapshotStartPayload['entityCount']),
+      checksum: this.readOptionalString(snapshotStartPayload['checksum'])?.toLowerCase() ?? null,
     };
   }
 
@@ -349,8 +350,54 @@ export class SnapshotLoader {
     return copy.buffer;
   }
 
+  private async reconstructAssembly(assembly: SnapshotAssembly): Promise<SnapshotReconstructionResult | null> {
+    const snapshotBytes = this.concatBytes(assembly.chunkBytes);
+    if (snapshotBytes.byteLength !== assembly.totalBytes) {
+      this.fail(
+        `snapshot byte mismatch expected=${assembly.totalBytes} actual=${snapshotBytes.byteLength}`,
+      );
+      return null;
+    }
+
+    const snapshotJson = this.decodeUtf8(snapshotBytes);
+    if (snapshotJson === null) {
+      this.fail('invalid utf8 snapshot payload');
+      return null;
+    }
+
+    let parsedSnapshot: ProjectionSnapshotDocument;
+    try {
+      parsedSnapshot = JSON.parse(snapshotJson) as ProjectionSnapshotDocument;
+    } catch {
+      this.fail('invalid snapshot json');
+      return null;
+    }
+
+    const reconstructedChecksum = await this.sha256Hex(snapshotBytes);
+    if (assembly.checksum !== null && reconstructedChecksum !== assembly.checksum) {
+      this.fail('checksum mismatch');
+      return null;
+    }
+
+    if (assembly.checksum !== null) {
+      console.log('SNAPSHOT_CHECKSUM_VALID');
+    }
+
+    console.log(`SNAPSHOT_RECONSTRUCTED checksum=${reconstructedChecksum}`);
+
+    return {
+      snapshotJson,
+      parsedSnapshot,
+      baseEventVersion: assembly.baseEventVersion,
+      reconstructedChecksum,
+      mobileChecksum: assembly.checksum,
+      byteLength: snapshotBytes.byteLength,
+    };
+  }
+
   private fail(reason: string): void {
     this.assembly = null;
+    this.lastReconstruction = null;
     console.error(`SNAPSHOT_ERROR ${reason}`);
     this.emitEvent({ type: 'SNAPSHOT_ERROR', reason });
   }
@@ -359,6 +406,28 @@ export class SnapshotLoader {
     for (const handler of this.eventHandlers) {
       handler(event);
     }
+  }
+
+  private isValidSnapshotStart(payload: unknown): payload is MinimalSnapshotStartPayload {
+    if (payload === null || typeof payload !== 'object') {
+      return false;
+    }
+
+    const snapshotStartPayload = payload as Record<string, unknown>;
+
+    return (
+      typeof snapshotStartPayload['totalChunks'] === 'number'
+      && typeof snapshotStartPayload['totalBytes'] === 'number'
+      && typeof snapshotStartPayload['snapshotVersion'] === 'number'
+    );
+  }
+
+  private readOptionalNumber(value: unknown): number | null {
+    return typeof value === 'number' ? value : null;
+  }
+
+  private readOptionalString(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null;
   }
 
   private hasExactKeys(obj: Record<string, unknown>, keys: readonly string[]): boolean {

@@ -1,9 +1,10 @@
+import { describe, expect, it, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 import { WebRelayClient } from '../../transport/web-relay-client';
 import { ProjectionEngine } from './projection_engine';
-import { validateEventEnvelope } from './projection_event_validation';
+import { validateEventEnvelope, validateStartBoundary } from './projection_event_validation';
 import { ProjectionStore } from './projection.store';
 
 function createEventPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -119,7 +120,7 @@ describe('EventValidation', () => {
 
   it('event_validation_forward_only_valid_events', async () => {
     const messages$ = new Subject<TransportEnvelope>();
-    const applyEventSpy = vi.spyOn(ProjectionEngine.prototype, 'applyEvent');
+    const onEventSpy = vi.spyOn(ProjectionEngine.prototype, 'onEvent');
 
     TestBed.configureTestingModule({
       providers: [
@@ -143,10 +144,28 @@ describe('EventValidation', () => {
 
     await flushAsyncEvents();
 
-    expect(applyEventSpy).toHaveBeenCalledTimes(1);
-    expect(applyEventSpy).toHaveBeenCalledWith(expect.objectContaining({ eventVersion: 300 }));
+    expect(onEventSpy).toHaveBeenCalledTimes(1);
+    expect(onEventSpy).toHaveBeenCalledWith(expect.objectContaining({ eventVersion: 300 }));
 
-    applyEventSpy.mockRestore();
+    onEventSpy.mockRestore();
     messages$.complete();
+  });
+
+  it('validate_start_boundary_returns_expected_versions', async () => {
+    const envelope = await createEnvelope({ eventVersion: 101 });
+    const validationResult = await validateEventEnvelope(envelope);
+
+    expect(validationResult.status).toBe('VALID');
+    if (validationResult.status !== 'VALID') {
+      return;
+    }
+
+    const boundaryResult = validateStartBoundary(100, validationResult.eventEnvelope);
+
+    expect(boundaryResult).toEqual({
+      status: 'VALID',
+      expectedEventVersion: 101,
+      receivedEventVersion: 101,
+    });
   });
 });

@@ -119,6 +119,10 @@ export class WebRelayClient {
     type: string,
     payload: TPayload,
   ): TransportEnvelope<TPayload> | null {
+    if (type === 'protocol_handshake') {
+      console.log(`WEB_SEND_ATTEMPT type=protocol_handshake sessionId=${formatSessionId(this.currentSessionId())}`);
+    }
+
     if (this.ws?.readyState !== WebSocket.OPEN) {
       return null;
     }
@@ -139,6 +143,10 @@ export class WebRelayClient {
     this.outboundSequence += 1;
 
     this.ws.send(JSON.stringify(envelope));
+    if (envelope.type === 'protocol_handshake') {
+      console.log(`WEB_WS_SEND protocol_handshake sessionId=${formatSessionId(envelope.sessionId)}`);
+      console.log(`WEB_WS_SEND type=protocol_handshake sessionId=${formatSessionId(envelope.sessionId)}`);
+    }
     console.log(`WEB_SEND ${envelope.type} session=${envelope.sessionId} seq=${envelope.sequence}`);
     console.log(`RELAY_SEND type=${envelope.type} sequence=${envelope.sequence}`);
     if (envelope.type === 'mutation_command') {

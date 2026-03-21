@@ -180,4 +180,30 @@ describe('MutationCommandSender', () => {
       }),
     }));
   });
+
+  it('record_create_command_accepts_minimal_ui_payload', () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce('123e4567-e89b-42d3-a456-426614174041');
+
+    sender.sendCommand({
+      entityType: 'record',
+      operation: 'create',
+      payload: {
+        threadId: 'thread:0001',
+        body: 'New record',
+        recordType: 'text',
+      },
+    });
+
+    expect(sendEnvelope).toHaveBeenCalledWith('mutation_command', expect.objectContaining({
+      entityType: 'record',
+      entityId: null,
+      expectedVersion: 0,
+      payload: {
+        threadId: 'thread:0001',
+        body: 'New record',
+        recordType: 'text',
+      },
+    }));
+  });
 });

@@ -273,12 +273,26 @@ describe('Web transport runtime audit', () => {
         sessionId,
       },
     });
+    expect(JSON.parse(MockWebSocket.last.sent[1] as string)).toEqual({
+      protocolVersion: 2,
+      type: 'protocol_handshake',
+      sessionId,
+      timestamp: expect.any(Number),
+      sequence: 2,
+      payload: {
+        supportedProtocolVersions: [2],
+        minProtocolVersion: 2,
+      },
+    });
 
     expect(capturedLogs).toContainEqual(['WEB_RELAY_CONNECT ws://172.20.10.3:8080/relay']);
     expect(capturedLogs).toContainEqual([`WEB_SEND qr_session_create session=${sessionId} seq=1`]);
     expect(capturedLogs).toContainEqual(['RELAY_ACCEPTED type=qr_session_create']);
     expect(capturedLogs).toContainEqual([`WEB_SESSION_CREATED sessionId=${sessionId}`]);
     expect(capturedLogs).toContainEqual(['MESSAGE_ROUTED type=protocol_handshake target=pairing']);
+    expect(capturedLogs).toContainEqual([`PROTOCOL_HANDSHAKE_RECEIVED sessionId=${sessionId}`]);
+    expect(capturedLogs).toContainEqual([`WEB_SEND protocol_handshake sessionId=${sessionId}`]);
+    expect(capturedLogs).toContainEqual([`WEB_WS_SEND protocol_handshake sessionId=${sessionId}`]);
   });
 
   it('transport_envelope_parser_runtime', async () => {
@@ -375,7 +389,7 @@ describe('Web transport runtime audit', () => {
       type: 'mutation_command',
       sessionId,
       timestamp: 1_710_000_000,
-      sequence: 2,
+      sequence: 3,
       payload: {
         commandId,
         originDeviceId: expect.stringMatching(/^web-/),
@@ -392,7 +406,7 @@ describe('Web transport runtime audit', () => {
       },
     });
 
-    expect(JSON.parse(MockWebSocket.last.sent[1] as string)).toEqual(envelope);
+    expect(JSON.parse(MockWebSocket.last.sent[2] as string)).toEqual(envelope);
     expect((envelope?.payload.payload as Record<string, unknown>)['uuid']).toBeUndefined();
     expect(capturedLogs).toContainEqual([`MUTATION_SEND commandId=${commandId} entity=thread op=create entityId=null`]);
     expect(capturedLogs).toContainEqual([`RELAY_ROUTE web→mobile type=mutation_command session=${sessionId}`]);
@@ -439,7 +453,9 @@ describe('Web transport runtime audit', () => {
     const sessionId = await establishRelaySession();
 
     expect(capturedLogs).toContainEqual([`WEB_SEND qr_session_create session=${sessionId} seq=1`]);
-    expect(capturedLogs).toContainEqual(['PAIR_APPROVED']);
+    expect(capturedLogs).toContainEqual([`WEB_SEND protocol_handshake sessionId=${sessionId}`]);
+    expect(capturedLogs).toContainEqual([`WEB_WS_SEND protocol_handshake sessionId=${sessionId}`]);
+    expect(capturedLogs).toContainEqual(['PAIR_APPROVED received']);
   });
 
   it('no_optimistic_update', async () => {

@@ -178,4 +178,52 @@ describe('PendingCommandStore', () => {
 
     expect(store.pendingByCommandId()['cmd-401']).toBeDefined();
   });
+
+  it('record_create_pending_resolves_with_minimal_payload', async () => {
+    store.setPending({
+      commandId: 'cmd-701',
+      originDeviceId: 'web-device-1',
+      entityType: 'record',
+      entityId: null,
+      operation: 'create',
+      expectedVersion: 0,
+      timestamp: 1_710_000_010,
+      payload: {
+        threadId: 'thread:0001',
+        body: 'Created body',
+        recordType: 'text',
+      },
+    });
+
+    const eventPayload = {
+      uuid: 'record:text-2',
+      threadUuid: 'thread:0001',
+      body: 'Created body',
+      type: 'text',
+      createdAt: 1_710_000_010,
+      editedAt: 1_710_000_010,
+      orderIndex: 2,
+      isStarred: false,
+      imageGroupId: null,
+    };
+
+    relayHandler?.({
+      type: 'event_stream',
+      payload: {
+        eventId: 'evt-701',
+        originDeviceId: 'mobile-1',
+        eventVersion: 701,
+        entityType: 'record',
+        entityId: 'record:text-2',
+        operation: 'create',
+        timestamp: 1_710_000_011,
+        payload: eventPayload,
+        checksum: await checksumFor(eventPayload),
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(store.pendingByCommandId()['cmd-701']).toBeUndefined();
+    });
+  });
 });

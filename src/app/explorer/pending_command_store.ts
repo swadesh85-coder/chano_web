@@ -190,35 +190,18 @@ export class PendingCommandStore {
         return null;
       }
       case 'record': {
-        const threadUuid = command.payload['threadUuid'];
+        const threadUuid = resolveRecordThreadId(command.payload);
         const body = command.payload['body'];
-        const createdAt = command.payload['createdAt'];
-        const editedAt = command.payload['editedAt'];
-        const orderIndex = command.payload['orderIndex'];
-        const isStarred = command.payload['isStarred'];
-        const imageGroupId = command.payload['imageGroupId'];
-        const recordType = typeof command.payload['recordType'] === 'string'
-          ? command.payload['recordType']
-          : command.payload['type'];
+        const recordType = resolveRecordType(command.payload);
 
         if (
           typeof threadUuid === 'string'
           && typeof body === 'string'
-          && typeof createdAt === 'number'
-          && typeof editedAt === 'number'
-          && typeof orderIndex === 'number'
-          && typeof isStarred === 'boolean'
-          && (typeof imageGroupId === 'string' || imageGroupId === null)
           && typeof recordType === 'string'
         ) {
           return `create:${command.entityType}:${JSON.stringify({
             threadUuid,
             body,
-            createdAt,
-            editedAt,
-            orderIndex,
-            isStarred,
-            imageGroupId,
             type: recordType,
           })}`;
         }
@@ -254,35 +237,18 @@ export class PendingCommandStore {
         return null;
       }
       case 'record': {
-        const threadUuid = eventEnvelope.payload['threadUuid'];
+        const threadUuid = resolveRecordThreadId(eventEnvelope.payload);
         const body = eventEnvelope.payload['body'];
-        const createdAt = eventEnvelope.payload['createdAt'];
-        const editedAt = eventEnvelope.payload['editedAt'];
-        const orderIndex = eventEnvelope.payload['orderIndex'];
-        const isStarred = eventEnvelope.payload['isStarred'];
-        const imageGroupId = eventEnvelope.payload['imageGroupId'];
-        const recordType = typeof eventEnvelope.payload['recordType'] === 'string'
-          ? eventEnvelope.payload['recordType']
-          : eventEnvelope.payload['type'];
+        const recordType = resolveRecordType(eventEnvelope.payload);
 
         if (
           typeof threadUuid === 'string'
           && typeof body === 'string'
-          && typeof createdAt === 'number'
-          && typeof editedAt === 'number'
-          && typeof orderIndex === 'number'
-          && typeof isStarred === 'boolean'
-          && (typeof imageGroupId === 'string' || imageGroupId === null)
           && typeof recordType === 'string'
         ) {
           return `create:${eventEnvelope.entityType}:${JSON.stringify({
             threadUuid,
             body,
-            createdAt,
-            editedAt,
-            orderIndex,
-            isStarred,
-            imageGroupId,
             type: recordType,
           })}`;
         }
@@ -291,6 +257,22 @@ export class PendingCommandStore {
       }
     }
   }
+}
+
+function resolveRecordThreadId(payload: Record<string, unknown>): string | null {
+  if (typeof payload['threadId'] === 'string') {
+    return payload['threadId'];
+  }
+
+  return typeof payload['threadUuid'] === 'string' ? payload['threadUuid'] : null;
+}
+
+function resolveRecordType(payload: Record<string, unknown>): string | null {
+  if (typeof payload['recordType'] === 'string') {
+    return payload['recordType'];
+  }
+
+  return typeof payload['type'] === 'string' ? payload['type'] : null;
 }
 
 function omitKey<TValue>(input: Record<string, TValue>, key: string): Record<string, TValue> {

@@ -81,6 +81,31 @@ async function createSnapshotProtocol(snapshotJson: string, baseEventVersion = 4
   };
 }
 
+async function createMobileSnapshotProtocol(snapshotJson: string, snapshotVersion = 1): Promise<{
+  readonly start: TransportEnvelope;
+  readonly chunks: readonly TransportEnvelope[];
+  readonly complete: TransportEnvelope;
+}> {
+  const bytes = encodeUtf8(snapshotJson);
+  const midpoint = Math.max(1, Math.floor(bytes.length / 2));
+  const chunkBytes = [bytes.slice(0, midpoint), bytes.slice(midpoint)].filter((chunk) => chunk.byteLength > 0);
+
+  return {
+    start: createEnvelope('snapshot_start', {
+      totalChunks: chunkBytes.length,
+      totalBytes: bytes.byteLength,
+      snapshotVersion,
+    }),
+    chunks: chunkBytes.map((chunk, index) =>
+      createEnvelope('snapshot_chunk', {
+        index,
+        data: toBase64(chunk),
+      }, index + 2),
+    ),
+    complete: createEnvelope('snapshot_complete', { totalChunks: chunkBytes.length }, chunkBytes.length + 2),
+  };
+}
+
 describe('SnapshotLoader', () => {
   let loader: SnapshotLoader;
   let events: SnapshotLoaderEvent[];
@@ -133,6 +158,42 @@ describe('SnapshotLoader', () => {
     });
   });
 
+  it('snapshot_utf8_reconstruction', async () => {
+    const snapshotJson = '{"folders":[{"name":"Cafe \u2615"}],"threads":[{"title":"na\u00efve"}],"records":[{"body":"r\u00e9sum\u00e9"}]}';
+    const protocol = await createSnapshotProtocol(snapshotJson, 12);
+
+    loader.handleSnapshotStart(protocol.start);
+    for (const chunk of protocol.chunks) {
+      loader.handleSnapshotChunk(chunk);
+    }
+    await loader.handleSnapshotComplete(protocol.complete);
+
+    expect(events).toContainEqual({
+      type: 'SNAPSHOT_LOADED',
+      snapshotJson,
+      baseEventVersion: 12,
+    });
+  });
+
+  it('snapshot_start_accepts_mobile_minimal_payload', async () => {
+    const snapshotJson = '{"folders":[],"threads":[],"records":[]}';
+    const protocol = await createMobileSnapshotProtocol(snapshotJson, 9);
+
+    loader.handleSnapshotStart(protocol.start);
+    for (const chunk of protocol.chunks) {
+      loader.handleSnapshotChunk(chunk);
+    }
+    await loader.handleSnapshotComplete(protocol.complete);
+
+    expect(events).toEqual([
+      {
+        type: 'SNAPSHOT_LOADED',
+        snapshotJson,
+        baseEventVersion: 9,
+      },
+    ]);
+  });
+
   it('snapshot_complete_snapshot_rebuild', async () => {
     const snapshotJson = JSON.stringify({
       folders: [{ entityType: 'folder', entityUuid: 'f1', entityVersion: 1, ownerUserId: 'u1', data: { uuid: 'f1', name: 'Inbox', parentFolderUuid: null } }],
@@ -169,6 +230,79 @@ describe('SnapshotLoader', () => {
         reason: 'checksum mismatch',
       },
     ]);
+  });
+
+  it('snapshot_loader_reconstruction', async () => {
+    const snapshotJson = JSON.stringify({
+      folders: [
+        {
+          entityType: 'folder',
+          entityUuid: 'folder-root',
+          entityVersion: 1,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'folder-root',
+            name: 'Inbox',
+            parentFolderUuid: null,
+          },
+        },
+      ],
+      threads: [
+        {
+          entityType: 'thread',
+          entityUuid: 'thread-1',
+          entityVersion: 2,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'thread-1',
+            folderUuid: 'folder-root',
+            title: 'Roadmap',
+          },
+        },
+      ],
+      records: [
+        {
+          entityType: 'record',
+          entityUuid: 'record-1',
+          entityVersion: 3,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'record-1',
+            threadUuid: 'thread-1',
+            type: 'text',
+            body: 'Deterministic body',
+            createdAt: 1710000001,
+            editedAt: 1710000001,
+            orderIndex: 0,
+            isStarred: false,
+            imageGroupId: null,
+          },
+        },
+      ],
+    });
+    const protocol = await createSnapshotProtocol(snapshotJson, 77);
+
+    const reconstruction = await loader.loadSnapshotForTest(protocol);
+
+    expect(reconstruction.snapshotJson).toBe(snapshotJson);
+    expect(reconstruction.parsedSnapshot).toEqual(JSON.parse(snapshotJson));
+    expect(reconstruction.baseEventVersion).toBe(77);
+    expect(reconstruction.reconstructedChecksum).toBe(protocol.start.payload['checksum']);
+    expect(reconstruction.mobileChecksum).toBe(protocol.start.payload['checksum']);
+    expect(reconstruction.byteLength).toBe(encodeUtf8(snapshotJson).byteLength);
+  });
+
+  it('snapshot_checksum_verification_for_test_hook', async () => {
+    const protocol = await createSnapshotProtocol('{"folders":[],"threads":[],"records":[]}', 33);
+    const invalidProtocol = {
+      ...protocol,
+      start: createEnvelope('snapshot_start', {
+        ...protocol.start.payload,
+        checksum: 'ffffffff',
+      }),
+    };
+
+    await expect(loader.loadSnapshotForTest(invalidProtocol)).rejects.toThrow('checksum mismatch');
   });
 
   it('snapshot_reject_on_invalid_chunk_order', async () => {

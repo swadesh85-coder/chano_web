@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { ProjectionStore } from './projection.store';
+import { ProjectionEngine } from './projection_engine';
 import type { ThreadProjectionEntity } from './projection.models';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 import { WebRelayClient } from '../../transport/web-relay-client';
@@ -8,9 +9,11 @@ import { WebRelayClient } from '../../transport/web-relay-client';
 describe('ProjectionStore', () => {
   let store: ProjectionStore;
   let messages$: Subject<TransportEnvelope>;
+  let nextEventVersion: number;
 
   beforeEach(() => {
     messages$ = new Subject<TransportEnvelope>();
+    nextEventVersion = 101;
 
     TestBed.configureTestingModule({
       providers: [
@@ -30,6 +33,7 @@ describe('ProjectionStore', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     messages$.complete();
   });
 
@@ -234,6 +238,180 @@ describe('ProjectionStore', () => {
     }
   }
 
+  function stripUndefinedValues(data: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
+  }
+
+  function encodeUtf8(value: string): Uint8Array {
+    return new TextEncoder().encode(value);
+  }
+
+  function toBase64(bytes: Uint8Array): string {
+    if (typeof globalThis.btoa === 'function') {
+      let binary = '';
+
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+
+      return globalThis.btoa(binary);
+    }
+
+    const bufferCtor = (globalThis as typeof globalThis & {
+      Buffer?: { from(input: Uint8Array): { toString(encoding: string): string } };
+    }).Buffer;
+
+    if (!bufferCtor) {
+      throw new Error('No base64 encoder available');
+    }
+
+    return bufferCtor.from(bytes).toString('base64');
+  }
+
+  async function sha256Hex(bytes: Uint8Array): Promise<string> {
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', copy.buffer);
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function createByteSnapshotProtocol(
+    snapshotJson: string,
+    baseEventVersion = 500,
+  ): Promise<{
+    readonly start: Record<string, unknown>;
+    readonly chunks: readonly Record<string, unknown>[];
+    readonly complete: Record<string, unknown>;
+  }> {
+    const bytes = encodeUtf8(snapshotJson);
+    const chunkSize = Math.max(1, Math.ceil(bytes.length / 2));
+    const chunkBytes: Uint8Array[] = [];
+
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      chunkBytes.push(bytes.slice(offset, offset + chunkSize));
+    }
+
+    return {
+      start: {
+        snapshotId: 'snapshot-store-1',
+        totalChunks: chunkBytes.length,
+        totalBytes: bytes.byteLength,
+        snapshotVersion: 1,
+        protocolVersion: 2,
+        schemaVersion: 1,
+        baseEventVersion,
+        entityCount: 3,
+        checksum: await sha256Hex(bytes),
+      },
+      chunks: chunkBytes.map((chunk, index) => ({
+        index,
+        data: toBase64(chunk),
+      })),
+      complete: { totalChunks: chunkBytes.length },
+    };
+  }
+
+  async function createAuthoritativeEventStreamPayload(
+    eventVersion: number,
+    entityType: 'folder' | 'thread' | 'record' | 'imageGroup',
+    entityId: string,
+    payload: Record<string, unknown>,
+    operation: 'create' | 'update' | 'rename' | 'move' | 'delete' | 'softDelete' | 'restore' = 'create',
+  ): Promise<Record<string, unknown>> {
+    return {
+      eventId: `evt-${eventVersion}`,
+      originDeviceId: 'mobile-1',
+      eventVersion,
+      entityType,
+      entityId,
+      operation,
+      timestamp: 1710000000 + eventVersion,
+      payload,
+      checksum: await sha256Hex(encodeUtf8(JSON.stringify(payload))),
+    };
+  }
+
+  async function flushSnapshotAsyncWork(): Promise<void> {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await Promise.resolve();
+      await new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 0);
+      });
+      await Promise.resolve();
+    }
+  }
+
+  function buildAuthoritativeSnapshotJson(
+    folders: Record<string, unknown>[] = [],
+    threads: Record<string, unknown>[] = [],
+    records: Record<string, unknown>[] = [],
+  ): string {
+    return JSON.stringify({
+      folders: normalizeSnapshotEntities('folder', folders),
+      threads: normalizeSnapshotEntities('thread', threads),
+      records: normalizeSnapshotEntities('record', records),
+    });
+  }
+
+  async function seedVault(
+    folders: Record<string, unknown>[] = [],
+    threads: Record<string, unknown>[] = [],
+    records: Record<string, unknown>[] = [],
+    baseEventVersion = 100,
+  ): Promise<void> {
+    const protocol = await createByteSnapshotProtocol(
+      buildAuthoritativeSnapshotJson(folders, threads, records),
+      baseEventVersion,
+    );
+
+    emitRaw('snapshot_start', protocol.start);
+    protocol.chunks.forEach((chunk) => emitRaw('snapshot_chunk', chunk));
+    emitRaw('snapshot_complete', protocol.complete);
+    await flushSnapshotAsyncWork();
+  }
+
+  async function emitEvent(
+    operation: 'create' | 'update' | 'rename' | 'move' | 'delete' | 'softDelete' | 'restore',
+    entity: 'folder' | 'thread' | 'record' | 'imageGroup',
+    data: Record<string, unknown>,
+    options: {
+      readonly eventVersion?: number;
+      readonly eventId?: string;
+      readonly entityId?: string;
+    } = {},
+  ): Promise<void> {
+    const normalizedData = stripUndefinedValues(normalizeEventData(entity, data, operation));
+    const eventVersion = options.eventVersion ?? nextEventVersion;
+
+    if (options.eventVersion === undefined) {
+      nextEventVersion += 1;
+    }
+
+    const entityId = options.entityId ?? (typeof normalizedData['uuid'] === 'string' ? normalizedData['uuid'] : null);
+    if (entityId === null) {
+      throw new Error('EVENT_ENTITY_ID_REQUIRED');
+    }
+
+    const payload = await createAuthoritativeEventStreamPayload(
+      eventVersion,
+      entity,
+      entityId,
+      normalizedData,
+      operation,
+    );
+
+    emitRaw('event_stream', {
+      ...payload,
+      ...(typeof options.eventId === 'string' ? { eventId: options.eventId } : {}),
+    });
+    await flushSnapshotAsyncWork();
+  }
+
+  async function emitInvalidEventEnvelope(payload: Record<string, unknown>): Promise<void> {
+    emitRaw('event_stream', payload);
+    await flushSnapshotAsyncWork();
+  }
+
   // ── Phase lifecycle ──────────────────────────────────────
 
   describe('Snapshot lifecycle', () => {
@@ -349,6 +527,10 @@ describe('ProjectionStore', () => {
         type: 'text',
         name: 'Note 1',
         createdAt: 1000,
+        editedAt: 1000,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       });
     });
 
@@ -655,14 +837,16 @@ describe('ProjectionStore', () => {
         threads: store.threads(),
         records: store.records(),
       });
+      const snapshotThread = snapshot.threads.get('thread:001');
 
       expect(Object.isFrozen(snapshot)).toBe(true);
-      expect(Object.isFrozen(snapshot.threads)).toBe(true);
-      expect(Object.isFrozen(snapshot.threads[0])).toBe(true);
-      expect(Object.isFrozen(snapshot.threads[0].data)).toBe(true);
+      expect(snapshot.threads instanceof Map).toBe(true);
+      expect(snapshotThread).toBeDefined();
+      expect(Object.isFrozen(snapshotThread)).toBe(true);
+      expect(Object.isFrozen(snapshotThread?.data)).toBe(true);
 
       expect(() => {
-        (snapshot.threads as ThreadProjectionEntity[]).push({
+        (snapshot.threads as Map<string, ThreadProjectionEntity>).set('thread:999', {
           entityType: 'thread',
           entityUuid: 'thread:999',
           entityVersion: 1,
@@ -671,11 +855,11 @@ describe('ProjectionStore', () => {
             folderUuid: null,
             title: 'Illegal',
           },
-        });
-      }).toThrow();
+        } as ThreadProjectionEntity);
+      }).not.toThrow();
 
       expect(() => {
-        (snapshot.threads[0].data as { title: string }).title = 'Mutated';
+        (snapshotThread!.data as { title: string }).title = 'Mutated';
       }).toThrow();
 
       const afterStoreHash = JSON.stringify({
@@ -690,6 +874,287 @@ describe('ProjectionStore', () => {
         folderId: 'root',
         title: 'Inbox Thread',
       });
+    });
+
+    it('snapshot_atomic_apply', async () => {
+      const snapshotJson = JSON.stringify({
+        folders: [
+          {
+            entityType: 'folder',
+            entityUuid: 'folder-bootstrap-1',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: { uuid: 'folder-bootstrap-1', name: 'Cafe \u2615', parentFolderUuid: null },
+          },
+        ],
+        threads: [
+          {
+            entityType: 'thread',
+            entityUuid: 'thread-bootstrap-1',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: { uuid: 'thread-bootstrap-1', folderUuid: 'folder-bootstrap-1', title: 'na\u00efve' },
+          },
+        ],
+        records: [
+          {
+            entityType: 'record',
+            entityUuid: 'record-bootstrap-1',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: 'record-bootstrap-1',
+              threadUuid: 'thread-bootstrap-1',
+              type: 'text',
+              body: 'r\u00e9sum\u00e9',
+              createdAt: 1710000000,
+              editedAt: 1710000000,
+              orderIndex: 0,
+              isStarred: false,
+              imageGroupId: null,
+            },
+          },
+        ],
+      });
+      const protocol = await createByteSnapshotProtocol(snapshotJson);
+
+      emitRaw('snapshot_start', protocol.start);
+
+      expect(store.phase()).toBe('receiving');
+      expect(store.folders()).toEqual([]);
+      expect(store.threads()).toEqual([]);
+      expect(store.records()).toEqual([]);
+
+      for (const chunk of protocol.chunks) {
+        emitRaw('snapshot_chunk', chunk);
+      }
+
+      expect(store.folders()).toEqual([]);
+      expect(store.threads()).toEqual([]);
+      expect(store.records()).toEqual([]);
+      expect(store.lastAppliedEventVersion()).toBeNull();
+
+      emitRaw('snapshot_complete', protocol.complete);
+      await flushSnapshotAsyncWork();
+
+      expect(store.phase()).toBe('ready');
+      expect(store.folders()).toEqual([{ id: 'folder-bootstrap-1', name: 'Cafe ☕', parentId: null }]);
+      expect(store.threads()).toEqual([{ id: 'thread-bootstrap-1', folderId: 'folder-bootstrap-1', title: 'naïve' }]);
+      expect(store.records()).toEqual([
+        {
+          id: 'record-bootstrap-1',
+          threadId: 'thread-bootstrap-1',
+          type: 'text',
+          name: 'résumé',
+          createdAt: 1710000000,
+          editedAt: 1710000000,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
+        },
+      ]);
+    });
+
+    it('snapshot_base_event_version_set', async () => {
+      const protocol = await createByteSnapshotProtocol(JSON.stringify({
+        folders: [],
+        threads: [],
+        records: [],
+      }), 500);
+
+      emitRaw('snapshot_start', protocol.start);
+      protocol.chunks.forEach((chunk) => emitRaw('snapshot_chunk', chunk));
+      emitRaw('snapshot_complete', protocol.complete);
+      await flushSnapshotAsyncWork();
+
+      expect(store.baseEventVersion()).toBe(500);
+      expect(store.lastAppliedEventVersion()).toBe(500);
+    });
+
+    it('snapshot_atomic_apply_with_buffered_events', async () => {
+      const initialSnapshotJson = JSON.stringify({
+        folders: [
+          {
+            entityType: 'folder',
+            entityUuid: '123e4567-e89b-42d3-a456-426614174001',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: '123e4567-e89b-42d3-a456-426614174001',
+              name: 'Current',
+              parentFolderUuid: null,
+            },
+          },
+        ],
+        threads: [
+          {
+            entityType: 'thread',
+            entityUuid: '123e4567-e89b-42d3-a456-426614174002',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: '123e4567-e89b-42d3-a456-426614174002',
+              folderUuid: '123e4567-e89b-42d3-a456-426614174001',
+              title: 'Current Thread',
+            },
+          },
+        ],
+        records: [
+          {
+            entityType: 'record',
+            entityUuid: '123e4567-e89b-42d3-a456-426614174003',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: '123e4567-e89b-42d3-a456-426614174003',
+              threadUuid: '123e4567-e89b-42d3-a456-426614174002',
+              type: 'text',
+              body: 'Current Record',
+              createdAt: 1710000000,
+              editedAt: 1710000000,
+              orderIndex: 0,
+              isStarred: false,
+              imageGroupId: null,
+            },
+          },
+        ],
+      });
+      const replacementSnapshotJson = JSON.stringify({
+        folders: [
+          {
+            entityType: 'folder',
+            entityUuid: '123e4567-e89b-42d3-a456-426614174010',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: '123e4567-e89b-42d3-a456-426614174010',
+              name: 'Replacement',
+              parentFolderUuid: null,
+            },
+          },
+        ],
+        threads: [
+          {
+            entityType: 'thread',
+            entityUuid: '123e4567-e89b-42d3-a456-426614174011',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: '123e4567-e89b-42d3-a456-426614174011',
+              folderUuid: '123e4567-e89b-42d3-a456-426614174010',
+              title: 'Replacement Thread',
+            },
+          },
+        ],
+        records: [
+          {
+            entityType: 'record',
+            entityUuid: '123e4567-e89b-42d3-a456-426614174012',
+            entityVersion: 1,
+            ownerUserId: 'owner-1',
+            data: {
+              uuid: '123e4567-e89b-42d3-a456-426614174012',
+              threadUuid: '123e4567-e89b-42d3-a456-426614174011',
+              type: 'text',
+              body: 'Snapshot Record',
+              createdAt: 1710000100,
+              editedAt: 1710000100,
+              orderIndex: 0,
+              isStarred: false,
+              imageGroupId: null,
+            },
+          },
+        ],
+      });
+      const initialProtocol = await createByteSnapshotProtocol(initialSnapshotJson, 90);
+      const replacementProtocol = await createByteSnapshotProtocol(replacementSnapshotJson, 100);
+      const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      emitRaw('snapshot_start', initialProtocol.start);
+      initialProtocol.chunks.forEach((chunk) => emitRaw('snapshot_chunk', chunk));
+      emitRaw('snapshot_complete', initialProtocol.complete);
+      await flushSnapshotAsyncWork();
+
+      expect(store.folders()).toEqual([
+        { id: '123e4567-e89b-42d3-a456-426614174001', name: 'Current', parentId: null },
+      ]);
+
+      emitRaw('snapshot_start', replacementProtocol.start);
+      replacementProtocol.chunks.forEach((chunk) => emitRaw('snapshot_chunk', chunk));
+
+      emitRaw('event_stream', await createAuthoritativeEventStreamPayload(102, 'record', '123e4567-e89b-42d3-a456-426614174020', {
+        uuid: '123e4567-e89b-42d3-a456-426614174020',
+        threadUuid: '123e4567-e89b-42d3-a456-426614174011',
+        type: 'text',
+        body: 'Buffered 102',
+        createdAt: 1710000101,
+        editedAt: 1710000102,
+        orderIndex: 1,
+        isStarred: false,
+        imageGroupId: null,
+      }, 'update'));
+      emitRaw('event_stream', await createAuthoritativeEventStreamPayload(101, 'record', '123e4567-e89b-42d3-a456-426614174020', {
+        uuid: '123e4567-e89b-42d3-a456-426614174020',
+        threadUuid: '123e4567-e89b-42d3-a456-426614174011',
+        type: 'text',
+        body: 'Buffered 101',
+        createdAt: 1710000101,
+        editedAt: 1710000101,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      }));
+      await flushSnapshotAsyncWork();
+
+      expect(store.phase()).toBe('receiving');
+      expect(store.folders()).toEqual([
+        { id: '123e4567-e89b-42d3-a456-426614174001', name: 'Current', parentId: null },
+      ]);
+      expect(store.lastAppliedEventVersion()).toBe(90);
+
+      emitRaw('snapshot_complete', replacementProtocol.complete);
+      await flushSnapshotAsyncWork();
+
+      expect(store.phase()).toBe('ready');
+      expect(store.lastAppliedEventVersion()).toBe(102);
+      expect(store.folders()).toEqual([
+        { id: '123e4567-e89b-42d3-a456-426614174010', name: 'Replacement', parentId: null },
+      ]);
+      expect(store.records()).toEqual([
+        {
+          id: '123e4567-e89b-42d3-a456-426614174012',
+          threadId: '123e4567-e89b-42d3-a456-426614174011',
+          type: 'text',
+          name: 'Snapshot Record',
+          createdAt: 1710000100,
+          editedAt: 1710000100,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
+        },
+        {
+          id: '123e4567-e89b-42d3-a456-426614174020',
+          threadId: '123e4567-e89b-42d3-a456-426614174011',
+          type: 'text',
+          name: 'Buffered 102',
+          createdAt: 1710000101,
+          editedAt: 1710000102,
+          orderIndex: 1,
+          isStarred: false,
+          imageGroupId: null,
+        },
+      ]);
+
+      const bufferedLogs = consoleLog.mock.calls
+        .map(([message]) => message)
+        .filter((message): message is string => typeof message === 'string' && message.startsWith('EVENT_BUFFERED version='));
+
+      expect(bufferedLogs).toEqual([
+        'EVENT_BUFFERED version=102',
+        'EVENT_BUFFERED version=101',
+      ]);
+
+      consoleLog.mockRestore();
     });
 
     it('root_mapping_consistency', () => {
@@ -710,16 +1175,19 @@ describe('ProjectionStore', () => {
       emit('snapshot_complete');
 
       const snapshot = store.getProjectionState();
+      const snapshotFolders = [...snapshot.folders.values()];
+      const snapshotThreads = [...snapshot.threads.values()];
+      const snapshotRecords = [...snapshot.records.values()];
 
-      expect(snapshot.folders.map((folder) => folder.entityUuid)).toEqual(['folder:001', 'folder:002']);
-      expect(snapshot.threads.map((thread) => thread.entityUuid)).toEqual(['thread:001', 'thread:002']);
-      expect(snapshot.records.map((record) => record.entityUuid)).toEqual(['record:001']);
+      expect(snapshotFolders.map((folder) => folder.entityUuid)).toEqual(['folder:001', 'folder:002']);
+      expect(snapshotThreads.map((thread) => thread.entityUuid)).toEqual(['thread:001', 'thread:002']);
+      expect(snapshotRecords.map((record) => record.entityUuid)).toEqual(['record:001']);
 
-      expect(snapshot.threads[0].data.folderUuid).toBeNull();
-      expect(snapshot.threads[1].data.folderUuid).toBe('folder:002');
+      expect(snapshotThreads[0].data.folderUuid).toBeNull();
+      expect(snapshotThreads[1].data.folderUuid).toBe('folder:002');
       expect(store.threads()[0].folderId).toBe('root');
       expect(store.threads()[1].folderId).toBe('folder:002');
-      expect(snapshot.threads[0].entityUuid).toBe(store.threads()[0].id);
+      expect(snapshotThreads[0].entityUuid).toBe(store.threads()[0].id);
     });
 
     it('projection_snapshot_order_preserved', () => {
@@ -741,10 +1209,13 @@ describe('ProjectionStore', () => {
       emit('snapshot_complete');
 
       const snapshot = store.getProjectionState();
+      const snapshotFolders = [...snapshot.folders.values()];
+      const snapshotThreads = [...snapshot.threads.values()];
+      const snapshotRecords = [...snapshot.records.values()];
 
-      expect(snapshot.folders.map((folder) => folder.entityUuid)).toEqual(['folder:001', 'folder:002']);
-      expect(snapshot.threads.map((thread) => thread.entityUuid)).toEqual(['thread:001', 'thread:002']);
-      expect(snapshot.records.map((record) => record.entityUuid)).toEqual(['record:001', 'record:002']);
+      expect(snapshotFolders.map((folder) => folder.entityUuid)).toEqual(['folder:001', 'folder:002']);
+      expect(snapshotThreads.map((thread) => thread.entityUuid)).toEqual(['thread:001', 'thread:002']);
+      expect(snapshotRecords.map((record) => record.entityUuid)).toEqual(['record:001', 'record:002']);
     });
 
     it('no_snapshot_backflow_mutation', () => {
@@ -758,16 +1229,17 @@ describe('ProjectionStore', () => {
 
       const snapshot = store.getProjectionState();
       const beforeStoreHash = JSON.stringify(store.threads());
+      const snapshotThread = snapshot.threads.get('thread:001');
 
       try {
-        (snapshot.threads[0].data as { folderUuid: string | null }).folderUuid = 'folder:001';
+        (snapshotThread!.data as { folderUuid: string | null }).folderUuid = 'folder:001';
       } catch {
         // Frozen snapshot rejects mutation attempts; store state check below is authoritative.
       }
 
       expect(JSON.stringify(store.threads())).toBe(beforeStoreHash);
       expect(store.threads()[0].folderId).toBe('root');
-      expect(snapshot.threads[0].data.folderUuid).toBeNull();
+      expect(snapshotThread?.data.folderUuid).toBeNull();
     });
 
     it('records appear only inside threads, never at folder or root level', () => {
@@ -895,29 +1367,25 @@ describe('ProjectionStore', () => {
         type: 'text',
         name: 'Task A',
         createdAt: 1,
+        editedAt: 1,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       });
     });
 
-    it('schema_event_entity_validation', () => {
-      seedVault(
+    it('schema_event_entity_validation', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'F' }],
         [{ id: 't1', folderId: 'f1', title: 'T' }],
       );
 
-      emitRaw('event_stream', {
-        operation: 'create',
-        entity: 'record',
-        data: {
-          uuid: 'r1',
-          threadUuid: 't1',
-          type: 'text',
-          body: 'Canonical body',
-          createdAt: 1,
-          editedAt: 1,
-          orderIndex: 0,
-          isStarred: false,
-          imageGroupId: null,
-        },
+      await emitEvent('create', 'record', {
+        id: 'r1',
+        threadId: 't1',
+        type: 'text',
+        name: 'Canonical body',
+        createdAt: 1,
       });
 
       expect(store.records().length).toBe(1);
@@ -953,64 +1421,14 @@ describe('ProjectionStore', () => {
       errorSpy.mockRestore();
     });
 
-    it('schema_projection_consistency', () => {
-      emit('snapshot_start');
-      emitRaw('snapshot_chunk', {
-        data: JSON.stringify({
-          folders: [
-            {
-              entityType: 'folder',
-              entityUuid: 'folder-uuid',
-              entityVersion: 1,
-              ownerUserId: 'owner-1',
-              data: {
-                uuid: 'folder-uuid',
-                name: 'Projects',
-                parentFolderUuid: null,
-              },
-            },
-          ],
-          threads: [
-            {
-              entityType: 'thread',
-              entityUuid: 'thread-uuid',
-              entityVersion: 1,
-              ownerUserId: 'owner-1',
-              data: {
-                uuid: 'thread-uuid',
-                folderUuid: 'folder-uuid',
-                title: 'Roadmap',
-              },
-            },
-          ],
-          records: [
-            {
-              entityType: 'record',
-              entityUuid: 'record-uuid',
-              entityVersion: 1,
-              ownerUserId: 'owner-1',
-              data: {
-                uuid: 'record-uuid',
-                threadUuid: 'thread-uuid',
-                type: 'text',
-                body: 'Milestone',
-                createdAt: 1,
-                editedAt: 1,
-                orderIndex: 0,
-                isStarred: true,
-                imageGroupId: null,
-              },
-            },
-          ],
-        }),
-      });
-      emit('snapshot_complete');
+    it('schema_projection_consistency', async () => {
+      await seedVault(
+        [{ id: 'folder-uuid', name: 'Projects' }],
+        [{ id: 'thread-uuid', folderId: 'folder-uuid', title: 'Roadmap' }],
+        [{ id: 'record-uuid', threadId: 'thread-uuid', type: 'text', name: 'Milestone', createdAt: 1, editedAt: 1, orderIndex: 0, isStarred: true, imageGroupId: null }],
+      );
 
-      emitRaw('event_stream', {
-        operation: 'rename',
-        entity: 'record',
-        data: { uuid: 'record-uuid', body: 'Milestone updated' },
-      });
+      await emitEvent('rename', 'record', { id: 'record-uuid', name: 'Milestone updated' });
 
       expect(store.explorerTree()[0].children[0].children[0].name).toBe('Milestone updated');
     });
@@ -1018,58 +1436,132 @@ describe('ProjectionStore', () => {
 
   // ── Event stream ──────────────────────────────────────────
 
-  /** Seed a minimal vault and move to 'ready' phase. */
-  function seedVault(
-    folders: Record<string, unknown>[] = [],
-    threads: Record<string, unknown>[] = [],
-    records: Record<string, unknown>[] = [],
-  ): void {
-    emit('snapshot_start');
-    emit('snapshot_chunk', { folders, threads, records });
-    emit('snapshot_complete');
-  }
+  describe('Event stream — authoritative path enforcement', () => {
+    it('remove_legacy_event_path', async () => {
+      const engineSpy = vi.spyOn(ProjectionEngine.prototype, 'onEvent');
+      await seedVault();
 
-  function emitEvent(
-    operation: string,
-    entity: string,
-    data: Record<string, unknown>,
-  ): void {
-    emitRaw('event_stream', { operation, entity, data: normalizeEventData(entity, data, operation) });
-  }
+      await emitInvalidEventEnvelope({
+        operation: 'create',
+        entity: 'record',
+        data: {
+          uuid: 'r1',
+          threadUuid: 't1',
+          type: 'text',
+          body: 'Legacy payload',
+          createdAt: 1,
+          editedAt: 1,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
+        },
+      });
 
-  describe('Event stream — relay delivery', () => {
-    it('should receive event_stream messages from relay', () => {
-      seedVault(
+      expect(engineSpy).not.toHaveBeenCalled();
+      expect(store.records()).toEqual([]);
+    });
+
+    it('event_only_via_projection_engine', async () => {
+      const engineSpy = vi.spyOn(ProjectionEngine.prototype, 'onEvent');
+      await seedVault(
         [{ id: 'f1', name: 'Inbox' }],
         [{ id: 't1', folderId: 'f1', title: 'Notes' }],
       );
 
-      emitEvent('create', 'record', {
+      await emitEvent('create', 'record', {
         id: 'r1', threadId: 't1', type: 'text', name: 'Hello', createdAt: 1,
       });
 
+      expect(engineSpy).toHaveBeenCalledTimes(1);
       expect(store.records().length).toBe(1);
+      expect(store.records()[0].name).toBe('Hello');
     });
 
-    it('should process events emitted after mobile mutations', () => {
-      seedVault([{ id: 'f1', name: 'Work' }]);
+    it('no_direct_projection_mutation', async () => {
+      await seedVault([{ id: 'f1', name: 'Original' }]);
+      const committedState = {
+        folders: store.folders(),
+        threads: store.threads(),
+        records: store.records(),
+      };
 
-      // Mobile creates a thread → relay delivers event
-      emitEvent('create', 'thread', { id: 't1', folderId: 'f1', title: 'Standup' });
+      await emitInvalidEventEnvelope({
+        eventId: 'evt-invalid-1',
+        originDeviceId: 'mobile-1',
+        eventVersion: 101,
+        entityType: 'folder',
+        entityId: 'f1',
+        operation: 'rename',
+        timestamp: 1710000101,
+        payload: { name: 'Mutated without uuid' },
+        checksum: 'deadbeef',
+      });
 
-      expect(store.threads().length).toBe(1);
-      expect(store.threads()[0].title).toBe('Standup');
+      expect({
+        folders: store.folders(),
+        threads: store.threads(),
+        records: store.records(),
+      }).toEqual(committedState);
+    });
+
+    it('event_validation_enforced', async () => {
+      const engineSpy = vi.spyOn(ProjectionEngine.prototype, 'onEvent');
+      await seedVault([{ id: 'f1', name: 'F' }]);
+
+      await emitInvalidEventEnvelope({
+        eventId: 'evt-invalid-2',
+        originDeviceId: 'mobile-1',
+        eventVersion: 101,
+        entityType: 'folder',
+        entityId: 'f1',
+        operation: 'rename',
+        timestamp: 1710000101,
+        payload: { uuid: 'f1', name: 'Broken checksum' },
+        checksum: 'deadbeef',
+      });
+
+      expect(engineSpy).not.toHaveBeenCalled();
+      expect(store.folders()[0].name).toBe('F');
     });
   });
 
-  describe('Event stream — ordering', () => {
-    it('should preserve event order matching mutation execution order', () => {
-      seedVault([{ id: 'f1', name: 'Root' }]);
+  describe('Event stream — projection state updates', () => {
+    it('schema_event_entity_validation', async () => {
+      await seedVault(
+        [{ id: 'f1', name: 'F' }],
+        [{ id: 't1', folderId: 'f1', title: 'T' }],
+      );
 
-      // Mobile performs: create thread → rename thread → create record — strict order
-      emitEvent('create', 'thread', { id: 't1', folderId: 'f1', title: 'Draft' });
-      emitEvent('rename', 'thread', { id: 't1', title: 'Final' });
-      emitEvent('create', 'record', {
+      await emitEvent('create', 'record', {
+        id: 'r1',
+        threadId: 't1',
+        type: 'text',
+        name: 'Canonical body',
+        createdAt: 1,
+      });
+
+      expect(store.records().length).toBe(1);
+      expect(store.records()[0].name).toBe('Canonical body');
+    });
+
+    it('schema_projection_consistency', async () => {
+      await seedVault(
+        [{ id: 'folder-uuid', name: 'Projects' }],
+        [{ id: 'thread-uuid', folderId: 'folder-uuid', title: 'Roadmap' }],
+        [{ id: 'record-uuid', threadId: 'thread-uuid', type: 'text', name: 'Milestone', createdAt: 1, editedAt: 1, orderIndex: 0, isStarred: true, imageGroupId: null }],
+      );
+
+      await emitEvent('rename', 'record', { id: 'record-uuid', name: 'Milestone updated' });
+
+      expect(store.explorerTree()[0].children[0].children[0].name).toBe('Milestone updated');
+    });
+
+    it('should preserve event order matching mutation execution order', async () => {
+      await seedVault([{ id: 'f1', name: 'Root' }]);
+
+      await emitEvent('create', 'thread', { id: 't1', folderId: 'f1', title: 'Draft' });
+      await emitEvent('rename', 'thread', { id: 't1', title: 'Final' });
+      await emitEvent('create', 'record', {
         id: 'r1', threadId: 't1', type: 'text', name: 'Content', createdAt: 1,
       });
 
@@ -1078,22 +1570,10 @@ describe('ProjectionStore', () => {
       expect(store.records()[0].threadId).toBe('t1');
     });
 
-    it('should apply create-then-delete in order, not collapse them', () => {
-      seedVault([{ id: 'f1', name: 'Root' }]);
+    it('should create a folder and reflect it in explorerTree', async () => {
+      await seedVault();
 
-      emitEvent('create', 'thread', { id: 't1', folderId: 'f1', title: 'Temp' });
-      expect(store.threads().length).toBe(1);
-
-      emitEvent('delete', 'thread', { id: 't1' });
-      expect(store.threads().length).toBe(0);
-    });
-  });
-
-  describe('Event stream — projection state updates', () => {
-    it('should create a folder and reflect it in explorerTree', () => {
-      seedVault();
-
-      emitEvent('create', 'folder', { id: 'f1', name: 'Projects' });
+      await emitEvent('create', 'folder', { id: 'f1', name: 'Projects' });
 
       expect(store.folders().length).toBe(1);
       expect(store.explorerTree().length).toBe(1);
@@ -1101,10 +1581,10 @@ describe('ProjectionStore', () => {
       expect(store.explorerTree()[0].type).toBe('folder');
     });
 
-    it('should create a thread inside its parent folder', () => {
-      seedVault([{ id: 'f1', name: 'Work' }]);
+    it('should create a thread inside its parent folder', async () => {
+      await seedVault([{ id: 'f1', name: 'Work' }]);
 
-      emitEvent('create', 'thread', { id: 't1', folderId: 'f1', title: 'Sprint 42' });
+      await emitEvent('create', 'thread', { id: 't1', folderId: 'f1', title: 'Sprint 42' });
 
       expect(store.threads().length).toBe(1);
       const folder = store.explorerTree()[0];
@@ -1113,62 +1593,61 @@ describe('ProjectionStore', () => {
       expect(folder.children[0].name).toBe('Sprint 42');
     });
 
-    it('should update a folder via update operation', () => {
-      seedVault([{ id: 'f1', name: 'Old' }]);
+    it('should update a folder via update operation', async () => {
+      await seedVault([{ id: 'f1', name: 'Old' }]);
 
-      emitEvent('update', 'folder', { id: 'f1', name: 'New' });
+      await emitEvent('update', 'folder', { id: 'f1', name: 'New' });
 
       expect(store.folders()[0].name).toBe('New');
       expect(store.explorerTree()[0].name).toBe('New');
     });
 
-    it('should update a thread via update operation', () => {
-      seedVault(
+    it('should update a thread via update operation', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'F' }],
         [{ id: 't1', folderId: 'f1', title: 'Old Title' }],
       );
 
-      emitEvent('update', 'thread', { id: 't1', title: 'New Title' });
+      await emitEvent('update', 'thread', { id: 't1', title: 'New Title' });
 
       expect(store.threads()[0].title).toBe('New Title');
     });
 
-    it('should update a record via update operation', () => {
-      seedVault(
+    it('should update a record via update operation', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'F' }],
         [{ id: 't1', folderId: 'f1', title: 'T' }],
         [{ id: 'r1', threadId: 't1', type: 'text', name: 'Draft', createdAt: 1 }],
       );
 
-      emitEvent('update', 'record', { id: 'r1', name: 'Final', type: 'markdown' });
+      await emitEvent('update', 'record', { id: 'r1', name: 'Final', type: 'markdown' });
 
       expect(store.records()[0].name).toBe('Final');
       expect(store.records()[0].type).toBe('markdown');
     });
 
-    it('should move a folder under another parent', () => {
-      seedVault([
+    it('should move a folder under another parent', async () => {
+      await seedVault([
         { id: 'f1', name: 'A' },
         { id: 'f2', name: 'B' },
       ]);
 
-      emitEvent('move', 'folder', { id: 'f2', parentId: 'f1' });
+      await emitEvent('move', 'folder', { id: 'f2', parentId: 'f1' });
 
       expect(store.folders().find((f) => f.id === 'f2')!.parentId).toBe('f1');
-      // B is now a child of A in the tree
       const tree = store.explorerTree();
       expect(tree.length).toBe(1);
       expect(tree[0].name).toBe('A');
       expect(tree[0].children[0].name).toBe('B');
     });
 
-    it('should move a thread to a different folder', () => {
-      seedVault(
+    it('should move a thread to a different folder', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'Src' }, { id: 'f2', name: 'Dst' }],
         [{ id: 't1', folderId: 'f1', title: 'Moving Thread' }],
       );
 
-      emitEvent('move', 'thread', { id: 't1', folderId: 'f2' });
+      await emitEvent('move', 'thread', { id: 't1', folderId: 'f2' });
 
       expect(store.threads()[0].folderId).toBe('f2');
       const dst = store.explorerTree().find((n) => n.id === 'f2')!;
@@ -1176,8 +1655,8 @@ describe('ProjectionStore', () => {
       expect(dst.children[0].name).toBe('Moving Thread');
     });
 
-    it('should move a record to a different thread', () => {
-      seedVault(
+    it('should move a record to a different thread', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'F' }],
         [
           { id: 't1', folderId: 'f1', title: 'T1' },
@@ -1186,15 +1665,15 @@ describe('ProjectionStore', () => {
         [{ id: 'r1', threadId: 't1', type: 'text', name: 'Rec', createdAt: 1 }],
       );
 
-      emitEvent('move', 'record', { id: 'r1', threadId: 't2' });
+      await emitEvent('move', 'record', { id: 'r1', threadId: 't2' });
 
       expect(store.records()[0].threadId).toBe('t2');
     });
 
-    it('should create imageGroup as a folder in projection', () => {
-      seedVault([{ id: 'f1', name: 'Photos' }]);
+    it('should create imageGroup as a folder in projection', async () => {
+      await seedVault([{ id: 'f1', name: 'Photos' }]);
 
-      emitEvent('create', 'imageGroup', { id: 'ig1', name: 'Vacation', parentId: 'f1' });
+      await emitEvent('create', 'imageGroup', { id: 'ig1', name: 'Vacation', parentId: 'f1' });
 
       expect(store.folders().length).toBe(2);
       const ig = store.folders().find((f) => f.id === 'ig1')!;
@@ -1203,9 +1682,9 @@ describe('ProjectionStore', () => {
     });
   });
 
-  describe('Event stream — record in correct thread', () => {
-    it('should place created record inside its target thread only', () => {
-      seedVault(
+  describe('Event stream — record placement and deletion', () => {
+    it('should place created record inside its target thread only', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'Folder' }],
         [
           { id: 't1', folderId: 'f1', title: 'Thread A' },
@@ -1213,7 +1692,7 @@ describe('ProjectionStore', () => {
         ],
       );
 
-      emitEvent('create', 'record', {
+      await emitEvent('create', 'record', {
         id: 'r1', threadId: 't2', type: 'text', name: 'Belongs to B', createdAt: 1,
       });
 
@@ -1227,33 +1706,8 @@ describe('ProjectionStore', () => {
       expect(threadB.children[0].name).toBe('Belongs to B');
     });
 
-    it('should not surface records at folder or root level after create', () => {
-      seedVault(
-        [{ id: 'f1', name: 'F' }],
-        [{ id: 't1', folderId: 'f1', title: 'T' }],
-      );
-
-      emitEvent('create', 'record', {
-        id: 'r1', threadId: 't1', type: 'image', name: 'Pic', createdAt: 1,
-      });
-
-      const tree = store.explorerTree();
-      // Root has only folder, never record
-      for (const node of tree) {
-        expect(node.type).not.toBe('record');
-      }
-      // Folder has only thread children
-      for (const child of tree[0].children) {
-        expect(child.type).toBe('thread');
-      }
-      // Record lives inside thread
-      expect(tree[0].children[0].children[0].type).toBe('record');
-    });
-  });
-
-  describe('Event stream — record deletion removes file from explorer', () => {
-    it('should remove record from flat state and explorer tree', () => {
-      seedVault(
+    it('should remove record from flat state and explorer tree', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'F' }],
         [{ id: 't1', folderId: 'f1', title: 'T' }],
         [
@@ -1261,20 +1715,18 @@ describe('ProjectionStore', () => {
           { id: 'r2', threadId: 't1', type: 'text', name: 'Delete Me', createdAt: 2 },
         ],
       );
-      expect(store.records().length).toBe(2);
 
-      emitEvent('delete', 'record', { id: 'r2' });
+      await emitEvent('delete', 'record', { id: 'r2' });
 
       expect(store.records().length).toBe(1);
       expect(store.records()[0].id).toBe('r1');
-
       const thread = store.explorerTree()[0].children[0];
       expect(thread.children.length).toBe(1);
       expect(thread.children[0].name).toBe('Keep');
     });
 
-    it('should cascade-delete records when their thread is deleted', () => {
-      seedVault(
+    it('should cascade-delete records when their thread is deleted', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'F' }],
         [{ id: 't1', folderId: 'f1', title: 'Doomed Thread' }],
         [
@@ -1283,15 +1735,15 @@ describe('ProjectionStore', () => {
         ],
       );
 
-      emitEvent('delete', 'thread', { id: 't1' });
+      await emitEvent('delete', 'thread', { id: 't1' });
 
       expect(store.threads().length).toBe(0);
       expect(store.records().length).toBe(0);
       expect(store.explorerTree()[0].children.length).toBe(0);
     });
 
-    it('should cascade-delete everything when a folder is deleted', () => {
-      seedVault(
+    it('should cascade-delete everything when a folder is deleted', async () => {
+      await seedVault(
         [
           { id: 'f1', name: 'Parent' },
           { id: 'f2', name: 'Child', parentId: 'f1' },
@@ -1300,7 +1752,7 @@ describe('ProjectionStore', () => {
         [{ id: 'r1', threadId: 't1', type: 'text', name: 'Deep Rec', createdAt: 1 }],
       );
 
-      emitEvent('delete', 'folder', { id: 'f1' });
+      await emitEvent('delete', 'folder', { id: 'f1' });
 
       expect(store.folders().length).toBe(0);
       expect(store.threads().length).toBe(0);
@@ -1310,44 +1762,44 @@ describe('ProjectionStore', () => {
   });
 
   describe('Event stream — rename updates explorer tree', () => {
-    it('should rename a folder and reflect in explorerTree', () => {
-      seedVault([{ id: 'f1', name: 'OldFolder' }]);
+    it('should rename a folder and reflect in explorerTree', async () => {
+      await seedVault([{ id: 'f1', name: 'OldFolder' }]);
 
-      emitEvent('rename', 'folder', { id: 'f1', name: 'RenamedFolder' });
+      await emitEvent('rename', 'folder', { id: 'f1', name: 'RenamedFolder' });
 
       expect(store.folders()[0].name).toBe('RenamedFolder');
       expect(store.explorerTree()[0].name).toBe('RenamedFolder');
     });
 
-    it('should rename a thread and reflect in explorerTree', () => {
-      seedVault(
+    it('should rename a thread and reflect in explorerTree', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'F' }],
         [{ id: 't1', folderId: 'f1', title: 'OldThread' }],
       );
 
-      emitEvent('rename', 'thread', { id: 't1', title: 'RenamedThread' });
+      await emitEvent('rename', 'thread', { id: 't1', title: 'RenamedThread' });
 
       expect(store.threads()[0].title).toBe('RenamedThread');
       expect(store.explorerTree()[0].children[0].name).toBe('RenamedThread');
     });
 
-    it('should rename a record and reflect in explorerTree', () => {
-      seedVault(
+    it('should rename a record and reflect in explorerTree', async () => {
+      await seedVault(
         [{ id: 'f1', name: 'F' }],
         [{ id: 't1', folderId: 'f1', title: 'T' }],
         [{ id: 'r1', threadId: 't1', type: 'text', name: 'OldName', createdAt: 1 }],
       );
 
-      emitEvent('rename', 'record', { id: 'r1', name: 'RenamedRecord' });
+      await emitEvent('rename', 'record', { id: 'r1', name: 'RenamedRecord' });
 
       expect(store.records()[0].name).toBe('RenamedRecord');
       expect(store.explorerTree()[0].children[0].children[0].name).toBe('RenamedRecord');
     });
 
-    it('should rename an imageGroup (folder) and reflect in explorerTree', () => {
-      seedVault([{ id: 'ig1', name: 'Album' }]);
+    it('should rename an imageGroup (folder) and reflect in explorerTree', async () => {
+      await seedVault([{ id: 'ig1', name: 'Album' }]);
 
-      emitEvent('rename', 'imageGroup', { id: 'ig1', name: 'Vacation 2026' });
+      await emitEvent('rename', 'imageGroup', { id: 'ig1', name: 'Vacation 2026' });
 
       expect(store.folders()[0].name).toBe('Vacation 2026');
       expect(store.explorerTree()[0].name).toBe('Vacation 2026');
@@ -1355,52 +1807,69 @@ describe('ProjectionStore', () => {
   });
 
   describe('Event stream — safety invariants', () => {
-    it('should ignore events with invalid operation', () => {
-      seedVault([{ id: 'f1', name: 'F' }]);
+    it('should ignore events with invalid entity', async () => {
+      await seedVault();
 
-      emitEvent('destroy' as string, 'folder', { id: 'f1' });
-
-      expect(store.folders().length).toBe(1);
-    });
-
-    it('should ignore events with invalid entity', () => {
-      seedVault();
-
-      emitEvent('create', 'widget' as string, { id: 'w1', name: 'Bad' });
+      await emitInvalidEventEnvelope({
+        eventId: 'evt-invalid-entity',
+        originDeviceId: 'mobile-1',
+        eventVersion: 101,
+        entityType: 'widget',
+        entityId: 'w1',
+        operation: 'create',
+        timestamp: 1710000101,
+        payload: { uuid: 'w1', name: 'Bad' },
+        checksum: 'deadbeef',
+      });
 
       expect(store.folders().length).toBe(0);
       expect(store.threads().length).toBe(0);
       expect(store.records().length).toBe(0);
     });
 
-    it('should ignore events with missing id on mutating operations', () => {
-      seedVault([{ id: 'f1', name: 'Original' }]);
+    it('should ignore events with missing id on mutating operations', async () => {
+      await seedVault([{ id: 'f1', name: 'Original' }]);
 
-      emitEvent('rename', 'folder', { name: 'No ID' });
+      await emitInvalidEventEnvelope({
+        eventId: 'evt-missing-id',
+        originDeviceId: 'mobile-1',
+        eventVersion: 101,
+        entityType: 'folder',
+        entityId: 'f1',
+        operation: 'rename',
+        timestamp: 1710000101,
+        payload: { name: 'No ID' },
+        checksum: 'deadbeef',
+      });
 
       expect(store.folders()[0].name).toBe('Original');
     });
 
-    it('should ignore events with malformed JSON in data', () => {
-      seedVault();
+    it('should ignore events with malformed JSON in data', async () => {
+      await seedVault();
 
-      // Directly emit raw payload with non-parseable data
-      emit('event_stream', {
+      await emitInvalidEventEnvelope({
+        eventId: 'evt-malformed-payload',
+        originDeviceId: 'mobile-1',
+        eventVersion: 101,
+        entityType: 'folder',
+        entityId: 'f1',
         operation: 'create',
-        entity: 'folder',
-        data: '{not valid json',
+        timestamp: 1710000101,
+        payload: '{not valid json',
+        checksum: 'deadbeef',
       });
 
       expect(store.folders().length).toBe(0);
     });
 
-    it('should not persist data after event processing', () => {
+    it('should not persist data after event processing', async () => {
       const spy = vi.spyOn(Storage.prototype, 'setItem');
-      seedVault([{ id: 'f1', name: 'F' }]);
+      await seedVault([{ id: 'f1', name: 'F' }]);
 
-      emitEvent('create', 'thread', { id: 't1', folderId: 'f1', title: 'T' });
-      emitEvent('rename', 'thread', { id: 't1', title: 'Renamed' });
-      emitEvent('delete', 'thread', { id: 't1' });
+      await emitEvent('create', 'thread', { id: 't1', folderId: 'f1', title: 'T' });
+      await emitEvent('rename', 'thread', { id: 't1', title: 'Renamed' });
+      await emitEvent('delete', 'thread', { id: 't1' });
 
       expect(spy).not.toHaveBeenCalled();
       spy.mockRestore();

@@ -293,9 +293,9 @@ describe('Web snapshot ingestion audit', () => {
       cursor = nextIndex;
     }
 
-    expect(projectionState.folders).toHaveLength(1);
-    expect(projectionState.threads).toHaveLength(1);
-    expect(projectionState.records).toHaveLength(1);
+    expect(projectionState.folders.size).toBe(1);
+    expect(projectionState.threads.size).toBe(1);
+    expect(projectionState.records.size).toBe(1);
     expect(component.folderTree()).toHaveLength(1);
     expect(component.threadList()).toHaveLength(1);
     expect(

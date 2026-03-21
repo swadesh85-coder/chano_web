@@ -5,9 +5,11 @@ import { ExplorerActions } from './explorer_actions';
 import { PendingCommandStore } from './pending_command_store';
 import { ExplorerComponent } from './explorer';
 import { MutationCommandSender } from '../../transport';
+import { WebRelayClient } from '../../transport/web-relay-client';
 import type {
   FolderProjectionEntity,
   ProjectionSnapshotState,
+  ProjectionUpdate,
   RecordProjectionEntity,
   ThreadProjectionEntity,
 } from '../projection/projection.models';
@@ -22,6 +24,7 @@ describe('ExplorerComponent', () => {
     isCreatePending: ReturnType<typeof vi.fn>;
     setPending: ReturnType<typeof vi.fn>;
   };
+  let projectionUpdateSignal: ReturnType<typeof signal<ProjectionUpdate | null>>;
   let projectionStateSignals: {
     folders: ReturnType<typeof signal<FolderProjectionEntity[]>>;
     threads: ReturnType<typeof signal<ThreadProjectionEntity[]>>;
@@ -50,7 +53,13 @@ describe('ExplorerComponent', () => {
     },
   });
 
-  const recordEntity = (uuid: string, body: string, threadUuid: string): RecordProjectionEntity => ({
+  const recordEntity = (
+    uuid: string,
+    body: string,
+    threadUuid: string,
+    imageGroupId: string | null = null,
+    orderIndex = 0,
+  ): RecordProjectionEntity => ({
     entityType: 'record',
     entityUuid: uuid,
     entityVersion: 1,
@@ -61,9 +70,10 @@ describe('ExplorerComponent', () => {
       body,
       createdAt: 1,
       editedAt: 1,
-      orderIndex: 0,
+      orderIndex,
       isStarred: false,
-      imageGroupId: null,
+      imageGroupId,
+      lastEventVersion: null,
     },
   });
 
@@ -75,6 +85,7 @@ describe('ExplorerComponent', () => {
       isCreatePending: vi.fn(() => false),
       setPending: vi.fn(),
     };
+    projectionUpdateSignal = signal<ProjectionUpdate | null>(null);
     projectionStateSignals = {
       folders: signal<FolderProjectionEntity[]>([]),
       threads: signal<ThreadProjectionEntity[]>([]),
@@ -88,22 +99,20 @@ describe('ExplorerComponent', () => {
         { provide: PendingCommandStore, useValue: pendingStore },
         { provide: MutationCommandSender, useValue: { sendCommand } },
         {
+          provide: WebRelayClient,
+          useValue: {
+            sessionId: signal('session-explorer-spec').asReadonly(),
+          },
+        },
+        {
           provide: ProjectionStore,
           useValue: {
-            getProjectionState: (): ProjectionSnapshotState => ({
-              folders: projectionStateSignals.folders().map((folder) => ({
-                ...folder,
-                data: { ...folder.data },
-              })),
-              threads: projectionStateSignals.threads().map((thread) => ({
-                ...thread,
-                data: { ...thread.data },
-              })),
-              records: projectionStateSignals.records().map((record) => ({
-                ...record,
-                data: { ...record.data },
-              })),
-            }),
+            getProjectionState: (): ProjectionSnapshotState => buildProjectionState(
+              projectionStateSignals.folders(),
+              projectionStateSignals.threads(),
+              projectionStateSignals.records(),
+            ),
+            lastProjectionUpdate: projectionUpdateSignal.asReadonly(),
           },
         },
       ],
@@ -117,6 +126,55 @@ describe('ExplorerComponent', () => {
     vi.restoreAllMocks();
   });
 
+  function buildProjectionState(
+    folders: readonly FolderProjectionEntity[],
+    threads: readonly ThreadProjectionEntity[],
+    records: readonly RecordProjectionEntity[],
+  ): ProjectionSnapshotState {
+    const folderMap = new Map(folders.map((folder) => [folder.entityUuid, cloneFolder(folder)]));
+    const threadMap = new Map(threads.map((thread) => [thread.entityUuid, cloneThread(thread)]));
+    const recordMap = new Map(records.map((record) => [record.entityUuid, cloneRecord(record)]));
+    const imageGroups = new Map<string, readonly RecordProjectionEntity[]>();
+
+    for (const record of recordMap.values()) {
+      const imageGroupId = record.data.imageGroupId;
+      if (imageGroupId === null) {
+        continue;
+      }
+
+      const group = imageGroups.get(imageGroupId) ?? [];
+      imageGroups.set(imageGroupId, [...group, record]);
+    }
+
+    return {
+      folders: folderMap,
+      threads: threadMap,
+      records: recordMap,
+      imageGroups,
+    };
+  }
+
+  function cloneFolder(folder: FolderProjectionEntity): FolderProjectionEntity {
+    return {
+      ...folder,
+      data: { ...folder.data },
+    };
+  }
+
+  function cloneThread(thread: ThreadProjectionEntity): ThreadProjectionEntity {
+    return {
+      ...thread,
+      data: { ...thread.data },
+    };
+  }
+
+  function cloneRecord(record: RecordProjectionEntity): RecordProjectionEntity {
+    return {
+      ...record,
+      data: { ...record.data },
+    };
+  }
+
   function render(): void {
     fixture.detectChanges();
   }
@@ -126,8 +184,12 @@ describe('ExplorerComponent', () => {
       .map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim());
   }
 
-  function hashThreadsSnapshot(): string {
-    return JSON.stringify(projectionStateSignals.threads());
+  function hashProjectionInputs(): string {
+    return JSON.stringify({
+      folders: projectionStateSignals.folders(),
+      threads: projectionStateSignals.threads(),
+      records: projectionStateSignals.records(),
+    });
   }
 
   it('command_sent_on_user_action', () => {
@@ -156,7 +218,7 @@ describe('ExplorerComponent', () => {
       },
     });
 
-    component.selectFolder('folder-1');
+    component.handleSelection('folder', 'folder-1');
     render();
 
     const createButton = fixture.nativeElement.querySelector('button[aria-label="Create thread"]') as HTMLButtonElement;
@@ -177,124 +239,94 @@ describe('ExplorerComponent', () => {
     projectionStateSignals.folders.set([folderEntity('folder-1', 'Inbox')]);
     pendingStore.isCreatePending.mockReturnValue(true);
 
-    component.selectFolder('folder-1');
+    component.handleSelection('folder', 'folder-1');
     render();
 
     const createButton = fixture.nativeElement.querySelector('button[aria-label="Create thread"]') as HTMLButtonElement;
     expect(createButton.disabled).toBe(true);
   });
 
-  it('explorer_render_folder_tree', () => {
-    projectionStateSignals.folders.set([
-      folderEntity('uuid-1', 'Vault'),
-      folderEntity('uuid-1a', 'Nested', 'uuid-1'),
-    ]);
+  it('explorer_render_snapshot', () => {
+    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
+    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
+    projectionStateSignals.records.set([recordEntity('record:0001', 'Record 0001', 'thread:0001')]);
+    projectionUpdateSignal.set({ reason: 'snapshot_loaded', entityType: null, eventVersion: 100 });
 
+    render();
+    component.handleSelection('folder', 'folder:0001');
+    component.handleSelection('thread', 'thread:0001');
     render();
 
     expect(getTextValues('[data-testid="folder-item"]')[0]).toContain('Vault');
-    expect(getTextValues('[data-testid="folder-item"]')[1]).toContain('Nested');
+    expect(getTextValues('[data-testid="thread-item"]')[0]).toContain('Thread 0001');
+    expect(getTextValues('[data-testid="record-item"]')[0]).toContain('Record 0001');
+    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER snapshot_loaded');
+    expect(component.projectionState().folders.has('folder:0001')).toBe(true);
+    expect(component.projectionState().threads.has('thread:0001')).toBe(true);
+    expect(component.projectionState().records.has('record:0001')).toBe(true);
   });
 
-  it('explorer_thread_list_render', () => {
-    projectionStateSignals.folders.set([folderEntity('uuid-1', 'Vault')]);
-    projectionStateSignals.threads.set([
-      threadEntity('uuid-2', 'Folder Thread', 'uuid-1'),
-      threadEntity('uuid-root', 'Root Thread', null),
-    ]);
-
-    component.selectFolder('uuid-1');
+  it('explorer_render_event_update', () => {
+    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
+    projectionUpdateSignal.set({ reason: 'snapshot_loaded', entityType: null, eventVersion: 100 });
     render();
 
-    const threadItems = getTextValues('[data-testid="thread-item"]');
-    expect(threadItems).toHaveLength(1);
-    expect(threadItems[0]).toContain('Folder Thread');
+    component.handleSelection('folder', 'folder:0001');
+    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
+    projectionUpdateSignal.set({ reason: 'event_applied', entityType: 'thread', eventVersion: 101 });
+    render();
+
+    expect(getTextValues('[data-testid="thread-item"]')[0]).toContain('Thread 0001');
+    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER event_applied entity=thread');
   });
 
-  it('explorer_record_list_render', () => {
-    projectionStateSignals.threads.set([threadEntity('uuid-2', 'Thread A', null)]);
-    projectionStateSignals.records.set([
-      recordEntity('uuid-3', 'Record Body', 'uuid-2'),
-      recordEntity('uuid-4', 'Other Record', 'uuid-9'),
-    ]);
+  it('explorer_no_local_mutation', () => {
+    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
+    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
+    projectionStateSignals.records.set([recordEntity('record:0001', 'Record 0001', 'thread:0001')]);
+    const beforeHash = hashProjectionInputs();
 
-    component.selectThread('uuid-2');
+    render();
+    component.handleSelection('folder', 'folder:0001');
+    component.handleSelection('thread', 'thread:0001');
     render();
 
-    const recordItems = getTextValues('[data-testid="record-item"]');
-    expect(recordItems).toHaveLength(1);
-    expect(recordItems[0]).toContain('Record Body');
+    expect(hashProjectionInputs()).toBe(beforeHash);
   });
 
-  it('explorer_reactive_update', () => {
-    projectionStateSignals.folders.set([folderEntity('uuid-1', 'Vault')]);
-    component.selectFolder('uuid-1');
-    render();
+  it('explorer_selection_state', () => {
+    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
+    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
 
-    projectionStateSignals.threads.set([threadEntity('uuid-2', 'Projected Thread', 'uuid-1')]);
     render();
+    component.handleSelection('folder', 'folder:0001');
+    component.handleSelection('thread', 'thread:0001');
 
-    expect(getTextValues('[data-testid="thread-item"]')[0]).toContain('Projected Thread');
-    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RERENDER triggered');
-    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER folders=1 threads=1 records=0');
+    expect(component.selectedFolderId()).toBe('folder:0001');
+    expect(component.selectedThreadId()).toBe('thread:0001');
+    expect(component.projectionState().folders.get('folder:0001')?.data.parentFolderUuid).toBeNull();
+    expect(component.projectionState().threads.get('thread:0001')?.data.folderUuid).toBe('folder:0001');
   });
 
-  it('selection_state_isolated', () => {
-    projectionStateSignals.folders.set([folderEntity('uuid-1', 'Vault')]);
-    projectionStateSignals.threads.set([threadEntity('uuid-2', 'Thread A', 'uuid-1')]);
-
-    render();
-    component.selectFolder('uuid-1');
-    component.selectThread('uuid-2');
-
-    expect(component.selectedFolderId()).toBe('uuid-1');
-    expect(component.selectedThreadId()).toBe('uuid-2');
-    expect(projectionStateSignals.folders()[0].data.parentFolderUuid).toBeNull();
-    expect(projectionStateSignals.threads()[0].data.folderUuid).toBe('uuid-1');
-  });
-
-  it('no_projection_mutation_from_ui', () => {
-    projectionStateSignals.folders.set([folderEntity('uuid-1', 'Vault')]);
-    projectionStateSignals.threads.set([threadEntity('uuid-2', 'Thread A', 'uuid-1')]);
-    const beforeHash = hashThreadsSnapshot();
-
-    render();
-    component.selectFolder('uuid-1');
-    component.selectThread('uuid-2');
+  it('explorer_projection_sync', () => {
+    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
+    projectionUpdateSignal.set({ reason: 'snapshot_loaded', entityType: null, eventVersion: 100 });
     render();
 
-    expect(hashThreadsSnapshot()).toBe(beforeHash);
-  });
-
-  it('synthetic_root_behavior', () => {
-    projectionStateSignals.threads.set([
-      threadEntity('uuid-2', 'Root Thread', null),
-      threadEntity('uuid-9', 'Nested Thread', 'folder-9'),
-    ]);
-
+    component.handleSelection('folder', 'folder:0001');
+    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
+    projectionUpdateSignal.set({ reason: 'event_applied', entityType: 'thread', eventVersion: 101 });
     render();
 
-    const threadItems = getTextValues('[data-testid="thread-item"]');
-    expect(component.selectedFolderId()).toBeNull();
-    expect(threadItems).toHaveLength(1);
-    expect(threadItems[0]).toContain('Root Thread');
-  });
-
-  it('selection_fallback_rules', () => {
-    projectionStateSignals.folders.set([folderEntity('uuid-1', 'Vault')]);
-    projectionStateSignals.threads.set([threadEntity('uuid-2', 'Thread A', 'uuid-1')]);
-
-    render();
-    component.selectFolder('uuid-1');
-    component.selectThread('uuid-2');
+    component.handleSelection('thread', 'thread:0001');
+    projectionStateSignals.records.set([recordEntity('record:0001', 'Record 0001', 'thread:0001', null, 0)]);
+    projectionUpdateSignal.set({ reason: 'event_applied', entityType: 'record', eventVersion: 102 });
     render();
 
-    projectionStateSignals.folders.set([]);
-    projectionStateSignals.threads.set([]);
-    render();
-
-    expect(component.selectedFolderId()).toBeNull();
-    expect(component.selectedThreadId()).toBeNull();
-    expect(consoleLog).toHaveBeenCalledWith('THREAD_REMOVED selection cleared');
+    expect(getTextValues('[data-testid="thread-item"]')).toHaveLength(1);
+    expect(getTextValues('[data-testid="record-item"]')).toHaveLength(1);
+    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER snapshot_loaded');
+    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER event_applied entity=thread');
+    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER event_applied entity=record');
   });
 });

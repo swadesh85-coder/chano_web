@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { SnapshotLoader, type SnapshotLoaderEvent } from './snapshot_loader';
 import { ProjectionEngine } from './projection_engine';
 import { validateEventEnvelope } from './projection_event_validation';
+import {
+  auditEventStream,
+} from './projection_event_stream_audit';
 import type { EventEnvelope, ProjectionState } from './projection.models';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 
@@ -24,13 +27,6 @@ type SnapshotAuditResult = {
   readonly stateAppliedBeforeComplete: boolean;
   readonly snapshotJson: string;
   readonly baseEventVersion: number;
-  readonly state: ProjectionState;
-};
-
-type EventAuditResult = {
-  readonly eventLog: readonly string[];
-  readonly lastAppliedEventVersion: number | null;
-  readonly resyncRequired: boolean;
   readonly state: ProjectionState;
 };
 
@@ -349,48 +345,6 @@ async function auditSnapshotFlow(
   };
 }
 
-async function auditEventFlow(
-  engine: ProjectionEngine,
-  envelopes: readonly TransportEnvelope[],
-): Promise<EventAuditResult> {
-  const eventLog: string[] = [];
-  let resyncRequired = false;
-
-  for (const envelope of envelopes) {
-    const validationResult = await validateEventEnvelope(envelope);
-    expect(validationResult.status).toBe('VALID');
-    if (validationResult.status !== 'VALID') {
-      continue;
-    }
-
-    const result = engine.applyEvent(validationResult.eventEnvelope);
-    switch (result.status) {
-      case 'EVENT_APPLIED':
-        eventLog.push(`APPLY eventVersion=${validationResult.eventEnvelope.eventVersion}`);
-        break;
-      case 'EVENT_IGNORED_DUPLICATE':
-        eventLog.push(`IGNORE duplicate eventVersion=${validationResult.eventEnvelope.eventVersion}`);
-        break;
-      case 'SNAPSHOT_RESYNC_REQUIRED':
-        resyncRequired = true;
-        eventLog.push(`RESYNC_REQUIRED gap detected at ${validationResult.eventEnvelope.eventVersion}`);
-        break;
-      case 'EVENT_IGNORED_SNAPSHOT_NOT_APPLIED':
-        eventLog.push('IGNORE snapshot not applied');
-        break;
-      case 'SNAPSHOT_APPLIED':
-        break;
-    }
-  }
-
-  return {
-    eventLog,
-    lastAppliedEventVersion: engine.getLastAppliedEventVersion(),
-    resyncRequired,
-    state: engine.getProjectionState(),
-  };
-}
-
 function auditProjectionBuild(
   engine: ProjectionEngine,
   state: ProjectionState,
@@ -544,12 +498,13 @@ describe('Projection pipeline audit', () => {
       }),
     });
 
-    const eventAudit = await auditEventFlow(engine, [event101, event102]);
+    const eventAudit = await auditEventStream(engine, [event101, event102]);
 
     expect(eventAudit.eventLog).toEqual([
       'APPLY eventVersion=101',
       'APPLY eventVersion=102',
     ]);
+    expect(eventAudit.orderingEvidence).toEqual([101, 102]);
     expect(eventAudit.lastAppliedEventVersion).toBe(102);
     expect(eventAudit.state.records.find((record) => record.id === EXTRA_RECORD_ID)?.name).toBe('Record 102');
   });
@@ -558,15 +513,40 @@ describe('Projection pipeline audit', () => {
     const engine = new ProjectionEngine();
     engine.applySnapshot(createSnapshotJson(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
-    const duplicate101 = await createEventStreamEnvelope(101);
+    const event102 = await createEventStreamEnvelope(102, {
+      uuid: EXTRA_RECORD_ID,
+      body: 'Record 102',
+    }, {
+      eventId: 'evt-102',
+      entityId: EXTRA_RECORD_ID,
+      operation: 'update',
+      payload: createEventPayload(102, {
+        uuid: EXTRA_RECORD_ID,
+        body: 'Record 102',
+      }),
+    });
+    const duplicate102 = await createEventStreamEnvelope(102, {
+      uuid: EXTRA_RECORD_ID,
+      body: 'Record 102 duplicate',
+    }, {
+      eventId: 'evt-102-duplicate',
+      entityId: EXTRA_RECORD_ID,
+      operation: 'update',
+      payload: createEventPayload(102, {
+        uuid: EXTRA_RECORD_ID,
+        body: 'Record 102 duplicate',
+      }),
+    });
 
-    const eventAudit = await auditEventFlow(engine, [event101, duplicate101]);
+    const eventAudit = await auditEventStream(engine, [event101, event102, duplicate102]);
 
     expect(eventAudit.eventLog).toEqual([
       'APPLY eventVersion=101',
-      'IGNORE duplicate eventVersion=101',
+      'APPLY eventVersion=102',
+      'IGNORE duplicate eventVersion=102',
     ]);
-    expect(eventAudit.lastAppliedEventVersion).toBe(101);
+    expect(eventAudit.orderingEvidence).toEqual([101, 102]);
+    expect(eventAudit.lastAppliedEventVersion).toBe(102);
     expect(eventAudit.state.records.filter((record) => record.id === EXTRA_RECORD_ID)).toHaveLength(1);
   });
 
@@ -574,6 +554,18 @@ describe('Projection pipeline audit', () => {
     const engine = new ProjectionEngine();
     engine.applySnapshot(createSnapshotJson(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
+    const event102 = await createEventStreamEnvelope(102, {
+      uuid: EXTRA_RECORD_ID,
+      body: 'Record 102',
+    }, {
+      eventId: 'evt-102',
+      entityId: EXTRA_RECORD_ID,
+      operation: 'update',
+      payload: createEventPayload(102, {
+        uuid: EXTRA_RECORD_ID,
+        body: 'Record 102',
+      }),
+    });
     const gap105 = await createEventStreamEnvelope(105, {
       uuid: EXTRA_RECORD_ID,
       body: 'Gap Event 105',
@@ -581,17 +573,47 @@ describe('Projection pipeline audit', () => {
       eventId: 'evt-105',
     });
 
-    const eventAudit = await auditEventFlow(engine, [event101, gap105]);
+    const eventAudit = await auditEventStream(engine, [event101, event102, gap105]);
 
     expect(eventAudit.eventLog).toEqual([
       'APPLY eventVersion=101',
-      'RESYNC_REQUIRED gap detected at 105',
+      'APPLY eventVersion=102',
+      'RESYNC_REQUIRED gap at 105',
     ]);
     expect(eventAudit.resyncRequired).toBe(true);
-    expect(eventAudit.lastAppliedEventVersion).toBe(101);
+    expect(eventAudit.orderingEvidence).toEqual([101, 102]);
+    expect(eventAudit.lastAppliedEventVersion).toBe(102);
   });
 
-  it('projection_determinism', async () => {
+  it('event_projection_update', async () => {
+    const engine = new ProjectionEngine();
+    engine.applySnapshot(createSnapshotJson(), BASE_EVENT_VERSION);
+    const event101 = await createEventStreamEnvelope(101);
+    const duplicate101 = await createEventStreamEnvelope(101);
+    const gap105 = await createEventStreamEnvelope(105, {
+      uuid: EXTRA_RECORD_ID,
+      body: 'Gap Event 105',
+    }, {
+      eventId: 'evt-105',
+    });
+
+    const applyAudit = await auditEventStream(engine, [event101]);
+    const committedState = applyAudit.state;
+    const replayAudit = await auditEventStream(engine, [duplicate101, gap105]);
+
+    expect(applyAudit.lastAppliedEventVersion).toBe(101);
+    expect(applyAudit.projectionEvidence).toContain(`thread:${THREAD_ID}`);
+    expect(applyAudit.projectionEvidence).toContain(`record:${RECORD_ID}`);
+    expect(applyAudit.projectionEvidence).toContain(`record:${EXTRA_RECORD_ID}`);
+    expect(replayAudit.eventLog).toEqual([
+      'IGNORE duplicate eventVersion=101',
+      'RESYNC_REQUIRED gap at 105',
+    ]);
+    expect(replayAudit.state).toEqual(committedState);
+    expect(replayAudit.lastAppliedEventVersion).toBe(101);
+  });
+
+  it('projection_deterministic_after_fix', async () => {
     const snapshotJson = createSnapshotJson();
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {

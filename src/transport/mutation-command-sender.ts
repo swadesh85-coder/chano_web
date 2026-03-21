@@ -149,34 +149,8 @@ function isValidThreadPayload(operation: MutationOperation, payload: MutationCom
 function isValidRecordPayload(operation: MutationOperation, payload: MutationCommandPayload): boolean {
   switch (operation) {
     case 'create':
-      return hasAllowedKeys(payload, [
-        'threadUuid',
-        'type',
-        'recordType',
-        'body',
-        'createdAt',
-        'editedAt',
-        'orderIndex',
-        'isStarred',
-        'imageGroupId',
-      ])
-        && hasRequiredKeys(payload, [
-          'threadUuid',
-          'body',
-          'createdAt',
-          'editedAt',
-          'orderIndex',
-          'isStarred',
-          'imageGroupId',
-        ])
-        && typeof payload['threadUuid'] === 'string'
-        && isRecordTypePayload(payload)
-        && typeof payload['body'] === 'string'
-        && typeof payload['createdAt'] === 'number'
-        && typeof payload['editedAt'] === 'number'
-        && typeof payload['orderIndex'] === 'number'
-        && typeof payload['isStarred'] === 'boolean'
-        && isNullableString(payload['imageGroupId']);
+      return isValidMinimalRecordCreatePayload(payload)
+        || isValidCanonicalRecordCreatePayload(payload);
     case 'update':
       return hasAllowedKeys(payload, [
         'threadUuid',
@@ -220,6 +194,44 @@ function isValidRecordPayload(operation: MutationOperation, payload: MutationCom
 
 function clonePayload(payload: MutationCommandPayload): MutationCommandPayload {
   return JSON.parse(JSON.stringify(payload)) as MutationCommandPayload;
+}
+
+function isValidMinimalRecordCreatePayload(payload: MutationCommandPayload): boolean {
+  return hasExactKeys(payload, ['threadId', 'body', 'recordType'])
+    && typeof payload['threadId'] === 'string'
+    && typeof payload['body'] === 'string'
+    && payload['recordType'] === 'text';
+}
+
+function isValidCanonicalRecordCreatePayload(payload: MutationCommandPayload): boolean {
+  return hasAllowedKeys(payload, [
+    'threadUuid',
+    'type',
+    'recordType',
+    'body',
+    'createdAt',
+    'editedAt',
+    'orderIndex',
+    'isStarred',
+    'imageGroupId',
+  ])
+    && hasRequiredKeys(payload, [
+      'threadUuid',
+      'body',
+      'createdAt',
+      'editedAt',
+      'orderIndex',
+      'isStarred',
+      'imageGroupId',
+    ])
+    && typeof payload['threadUuid'] === 'string'
+    && isRecordTypePayload(payload)
+    && typeof payload['body'] === 'string'
+    && typeof payload['createdAt'] === 'number'
+    && typeof payload['editedAt'] === 'number'
+    && typeof payload['orderIndex'] === 'number'
+    && typeof payload['isStarred'] === 'boolean'
+    && isNullableString(payload['imageGroupId']);
 }
 
 function hasExactKeys(obj: Record<string, unknown>, keys: readonly string[]): boolean {

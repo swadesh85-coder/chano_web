@@ -14,6 +14,35 @@ export type EventValidationResult =
       readonly reason: EventValidationFailureReason;
     };
 
+export type EventStartBoundaryValidationResult =
+  | {
+      readonly status: 'VALID';
+      readonly expectedEventVersion: number;
+      readonly receivedEventVersion: number;
+    }
+  | {
+      readonly status: 'INVALID';
+      readonly expectedEventVersion: number;
+      readonly receivedEventVersion: number;
+    };
+
+export type EventSequenceValidationResult =
+  | {
+      readonly status: 'APPLY';
+      readonly expectedEventVersion: number;
+      readonly receivedEventVersion: number;
+    }
+  | {
+      readonly status: 'IGNORE_DUPLICATE';
+      readonly expectedEventVersion: number;
+      readonly receivedEventVersion: number;
+    }
+  | {
+      readonly status: 'RESYNC_REQUIRED';
+      readonly expectedEventVersion: number;
+      readonly receivedEventVersion: number;
+    };
+
 export async function validateEventEnvelope(
   envelope: TransportEnvelope,
 ): Promise<EventValidationResult> {
@@ -126,6 +155,65 @@ export async function validateEventEnvelope(
       checksum: checksum.toLowerCase(),
     },
     correlationCommandId: correlationCommandId ?? null,
+  };
+}
+
+export function validateStartBoundary(
+  baseEventVersion: number,
+  eventEnvelope: EventEnvelope,
+): EventStartBoundaryValidationResult {
+  const expectedEventVersion = baseEventVersion + 1;
+  const receivedEventVersion = eventEnvelope.eventVersion;
+
+  console.log(
+    `BOUNDARY_CHECK expected=${expectedEventVersion} received=${receivedEventVersion}`,
+  );
+
+  const validation = validateEventSequence(baseEventVersion, eventEnvelope);
+  if (validation.status !== 'APPLY') {
+    return {
+      status: 'INVALID',
+      expectedEventVersion: validation.expectedEventVersion,
+      receivedEventVersion: validation.receivedEventVersion,
+    };
+  }
+
+  console.log(`BOUNDARY_OK start=${receivedEventVersion}`);
+
+  return {
+    status: 'VALID',
+    expectedEventVersion,
+    receivedEventVersion,
+  };
+}
+
+export function validateEventSequence(
+  lastAppliedEventVersion: number,
+  eventEnvelope: EventEnvelope,
+): EventSequenceValidationResult {
+  const expectedEventVersion = lastAppliedEventVersion + 1;
+  const receivedEventVersion = eventEnvelope.eventVersion;
+
+  if (receivedEventVersion === expectedEventVersion) {
+    return {
+      status: 'APPLY',
+      expectedEventVersion,
+      receivedEventVersion,
+    };
+  }
+
+  if (receivedEventVersion <= lastAppliedEventVersion) {
+    return {
+      status: 'IGNORE_DUPLICATE',
+      expectedEventVersion,
+      receivedEventVersion,
+    };
+  }
+
+  return {
+    status: 'RESYNC_REQUIRED',
+    expectedEventVersion,
+    receivedEventVersion,
   };
 }
 
@@ -251,6 +339,10 @@ function isValidRecordEventData(
         'orderIndex',
         'isStarred',
         'imageGroupId',
+        'mediaId',
+        'mimeType',
+        'title',
+        'size',
       ])
         && hasRequiredKeys(data, ['uuid'])
         && isUuid(data['uuid'])
@@ -261,7 +353,11 @@ function isValidRecordEventData(
         && isOptionalNumber(data['editedAt'])
         && isOptionalNumber(data['orderIndex'])
         && isOptionalBoolean(data['isStarred'])
-        && isOptionalNullableString(data['imageGroupId']);
+        && isOptionalNullableString(data['imageGroupId'])
+        && isOptionalString(data['mediaId'])
+        && isOptionalString(data['mimeType'])
+        && isOptionalString(data['title'])
+        && isOptionalNullableNumber(data['size']);
     case 'rename':
       return hasExactKeys(data, ['uuid', 'body'])
         && isUuid(data['uuid'])
@@ -292,7 +388,7 @@ function isValidThreadEntityData(data: Record<string, unknown>): boolean {
 }
 
 function isValidRecordEntityData(data: Record<string, unknown>): boolean {
-  return hasExactKeys(data, [
+  return hasAllowedKeys(data, [
     'uuid',
     'threadUuid',
     'type',
@@ -302,7 +398,22 @@ function isValidRecordEntityData(data: Record<string, unknown>): boolean {
     'orderIndex',
     'isStarred',
     'imageGroupId',
+    'mediaId',
+    'mimeType',
+    'title',
+    'size',
   ])
+    && hasRequiredKeys(data, [
+      'uuid',
+      'threadUuid',
+      'type',
+      'body',
+      'createdAt',
+      'editedAt',
+      'orderIndex',
+      'isStarred',
+      'imageGroupId',
+    ])
     && isUuid(data['uuid'])
     && typeof data['threadUuid'] === 'string'
     && typeof data['type'] === 'string'
@@ -311,7 +422,11 @@ function isValidRecordEntityData(data: Record<string, unknown>): boolean {
     && typeof data['editedAt'] === 'number'
     && typeof data['orderIndex'] === 'number'
     && typeof data['isStarred'] === 'boolean'
-    && isNullableString(data['imageGroupId']);
+    && isNullableString(data['imageGroupId'])
+    && isOptionalString(data['mediaId'])
+    && isOptionalString(data['mimeType'])
+    && isOptionalString(data['title'])
+    && isOptionalNullableNumber(data['size']);
 }
 
 function isValidRecordEventEntityData(data: Record<string, unknown>): boolean {
@@ -326,6 +441,10 @@ function isValidRecordEventEntityData(data: Record<string, unknown>): boolean {
     'orderIndex',
     'isStarred',
     'imageGroupId',
+    'mediaId',
+    'mimeType',
+    'title',
+    'size',
   ])
     && hasRequiredKeys(data, [
       'uuid',
@@ -345,7 +464,11 @@ function isValidRecordEventEntityData(data: Record<string, unknown>): boolean {
     && typeof data['editedAt'] === 'number'
     && typeof data['orderIndex'] === 'number'
     && typeof data['isStarred'] === 'boolean'
-    && isNullableString(data['imageGroupId']);
+    && isNullableString(data['imageGroupId'])
+    && isOptionalString(data['mediaId'])
+    && isOptionalString(data['mimeType'])
+    && isOptionalString(data['title'])
+    && isOptionalNullableNumber(data['size']);
 }
 
 function hasConsistentEntityId(entityId: string, payload: Record<string, unknown>): boolean {
@@ -422,4 +545,12 @@ function isOptionalNumber(value: unknown): boolean {
 
 function isOptionalBoolean(value: unknown): boolean {
   return value === undefined || typeof value === 'boolean';
+}
+
+function isNullableNumber(value: unknown): boolean {
+  return typeof value === 'number' || value === null;
+}
+
+function isOptionalNullableNumber(value: unknown): boolean {
+  return value === undefined || isNullableNumber(value);
 }

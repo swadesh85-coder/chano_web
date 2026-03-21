@@ -30,7 +30,7 @@
           class="panel-item panel-item--folder"
           data-testid="folder-root"
           [class.panel-item--selected]="selectedFolderId() === rootFolderId"
-          (click)="selectFolder(rootFolderId)"
+          (click)="handleSelection('folder', rootFolderId)"
           aria-label="Select root folder"
         >
           <span class="panel-item-title">Root</span>
@@ -74,7 +74,7 @@
               <button
                 type="button"
                 class="panel-item-button"
-                (click)="selectThread(thread.entityUuid)"
+                (click)="handleSelection('thread', thread.entityUuid)"
                 [attr.aria-label]="'Select thread ' + thread.data.title"
               >
                 <span class="panel-item-title">{{ thread.data.title }}</span>
@@ -130,49 +130,7 @@
       </div>
 
       <div class="panel-body" role="list" aria-label="Record list">
-        @if (selectedThreadId() === null) {
-          <p class="empty-text panel-empty">No thread selected</p>
-        } @else if (recordList().length === 0) {
-          <p class="empty-text panel-empty">No records visible for this thread</p>
-        } @else {
-          @for (record of recordList(); track trackRecord($index, record)) {
-            <div class="panel-item panel-item--record" data-testid="record-item">
-              <div class="panel-item-button panel-item-button--static">
-                <span class="panel-item-title">{{ record.data.body || record.data.type }}</span>
-                <span class="panel-item-meta">{{ record.entityUuid }}</span>
-              </div>
-              <span class="panel-actions">
-                <button
-                  type="button"
-                  class="panel-action-button"
-                  (click)="promptRenameEntity('record', record.entityUuid, record.data.body, $event)"
-                  [disabled]="isActionDisabled(record.entityUuid)"
-                  aria-label="Rename record"
-                >
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  class="panel-action-button"
-                  (click)="promptMoveEntity('record', record.entityUuid, record.data.body || record.data.type, $event)"
-                  [disabled]="isActionDisabled(record.entityUuid)"
-                  aria-label="Move record"
-                >
-                  Move
-                </button>
-                <button
-                  type="button"
-                  class="panel-action-button panel-action-button--danger"
-                  (click)="triggerSoftDelete('record', record.entityUuid, $event)"
-                  [disabled]="isActionDisabled(record.entityUuid)"
-                  aria-label="Delete record"
-                >
-                  Delete
-                </button>
-              </span>
-            </div>
-          }
-        }
+        <app-thread-view [threadId]="selectedThreadId()"></app-thread-view>
       </div>
     </section>
   </div>
@@ -187,7 +145,7 @@
         data-testid="folder-item"
         [class.panel-item--selected]="selectedFolderId() === node.entity.entityUuid"
         [style.padding-left.rem]="0.75 + depth * 1.1"
-        (click)="selectFolder(node.entity.entityUuid)"
+        (click)="handleSelection('folder', node.entity.entityUuid)"
         [attr.aria-label]="'Select folder ' + node.entity.data.name"
       >
         <span class="panel-item-title">{{ node.entity.data.name }}</span>

@@ -344,7 +344,19 @@ describe('PairingComponent', () => {
   // ── 3. Sends qr_session_create on open ─────────────────
 
   describe('Session creation', () => {
-    it('should send { type: "qr_session_create" } when connection opens', () => {
+    it('session_id_generated', () => {
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      const envelope = JSON.parse(ws.sent[0]);
+
+      expect(envelope.sessionId).toMatch(UUID_V4_PATTERN);
+      expect(envelope.payload.sessionId).toBe(envelope.sessionId);
+      expect(envelope.sessionId).not.toBe('');
+    });
+
+    it('qr_session_create_sent', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
@@ -363,6 +375,20 @@ describe('PairingComponent', () => {
         },
       });
       expect(envelope.payload.sessionId).toBe(envelope.sessionId);
+    });
+
+    it('transport_envelope_valid', () => {
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      const envelope = JSON.parse(ws.sent[0]);
+
+      expect(envelope.protocolVersion).toBe(2);
+      expect(envelope.type).toBe('qr_session_create');
+      expect(typeof envelope.timestamp).toBe('number');
+      expect(envelope.sequence).toBe(1);
+      expect(envelope.payload).toEqual({ sessionId: envelope.sessionId });
     });
   });
 
@@ -425,8 +451,9 @@ describe('PairingComponent', () => {
   // ── 5. pair_approved → Connected to Mobile ──────────────
 
   describe('Pair approval', () => {
-    it('should update status to "paired" when pair_approved is received', async () => {
+    it('pair_approved_received', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
       fixture.detectChanges();
       const ws = MockWebSocket.last;
@@ -443,7 +470,9 @@ describe('PairingComponent', () => {
 
       expect(component.status()).toBe('paired');
       expect(component.statusText()).toBe('Connected to Mobile');
+      expect(logSpy).toHaveBeenCalledWith('PAIR_APPROVED received');
 
+      logSpy.mockRestore();
       qrSpy.mockRestore();
     });
   });
@@ -508,10 +537,25 @@ describe('PairingComponent', () => {
       await fixture.whenStable();
 
       ws.simulateMessage({ type: 'pair_approved' });
-        ws.simulateMessage({ type: 'protocol_handshake' });
+      ws.simulateMessage({
+        type: 'protocol_handshake',
+        sessionId: '123e4567-e89b-42d3-a456-426614174103',
+      });
 
       expect(component.status()).toBe('syncing');
       expect(component.statusText()).toBe('Syncing your data\u2026');
+      expect(ws.sent.length).toBe(2);
+      expect(JSON.parse(ws.sent[1])).toEqual({
+        protocolVersion: 2,
+        type: 'protocol_handshake',
+        sessionId: '123e4567-e89b-42d3-a456-426614174103',
+        timestamp: expect.any(Number),
+        sequence: 2,
+        payload: {
+          supportedProtocolVersions: [2],
+          minProtocolVersion: 2,
+        },
+      });
 
       qrSpy.mockRestore();
     });

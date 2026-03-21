@@ -10,9 +10,11 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { ProjectionStore } from '../projection/projection.store';
 import { WebRelayClient } from '../../transport/web-relay-client';
+import { ThreadViewComponent } from './thread_view';
 import type {
   FolderProjectionEntity,
   ProjectionSnapshotState,
+  ProjectionUpdate,
   RecordProjectionEntity,
   ThreadProjectionEntity,
 } from '../projection/projection.models';
@@ -32,7 +34,7 @@ type ExplorerView = {
 
 @Component({
   selector: 'app-explorer',
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, ThreadViewComponent],
   templateUrl: './explorer.html',
   styleUrl: './explorer.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -56,15 +58,11 @@ export class ExplorerComponent {
       return null;
     }
 
-    return this.projectionState().folders.find((folder) => folder.entityUuid === selectedFolderId) ?? null;
+    return this.projectionState().folders.get(selectedFolderId) ?? null;
   });
 
   constructor() {
-    effect(() => {
-      const projectionState = this.projectionState();
-      this.reconcileSelection(projectionState);
-      console.log('EXPLORER_RERENDER triggered');
-    });
+    this.subscribeToProjection();
 
     effect(() => {
       const folderCount = this.countFolderNodes(this.folderTree());
@@ -77,6 +75,17 @@ export class ExplorerComponent {
         `EXPLORER_RENDER folders=${folderCount} threads=${threads.length} records=${records.length} type=projection_render sessionId=${this.relay.sessionId() ?? 'null'}`,
       );
     });
+  }
+
+  handleSelection(entityType: 'folder' | 'thread', entityId: string | null): void {
+    if (entityType === 'folder') {
+      this.selectFolder(entityId);
+      return;
+    }
+
+    if (entityId !== null) {
+      this.selectThread(entityId);
+    }
   }
 
   selectFolder(folderId: string | null): void {
@@ -180,8 +189,7 @@ export class ExplorerComponent {
   private reconcileSelection(projectionState: ProjectionSnapshotState): void {
     const selectedFolderId = untracked(() => this.selectedFolderId());
     const selectedThreadId = untracked(() => this.selectedThreadId());
-    const folderExists = selectedFolderId === null
-      || projectionState.folders.some((folder) => folder.entityUuid === selectedFolderId);
+    const folderExists = selectedFolderId === null || projectionState.folders.has(selectedFolderId);
 
     if (!folderExists) {
       this.selectedFolderId.set(this.rootFolderId);
@@ -201,13 +209,23 @@ export class ExplorerComponent {
     }
   }
 
+  private subscribeToProjection(): void {
+    effect(() => {
+      const projectionState = this.projectionState();
+      const projectionUpdate = this.projection.lastProjectionUpdate();
+
+      this.reconcileSelection(projectionState);
+      this.refreshOnSnapshotAndEvents(projectionUpdate);
+    });
+  }
+
   private renderExplorer(projectionState: ProjectionSnapshotState): ExplorerView {
     const folderTree = this.buildFolderTree(projectionState.folders);
     const threadList = this.getVisibleThreads(projectionState, this.selectedFolderId());
     const selectedThreadId = this.selectedThreadId();
     const recordList = selectedThreadId === null
       ? []
-      : projectionState.records.filter((record) => record.data.threadUuid === selectedThreadId);
+      : [...projectionState.records.values()].filter((record) => record.data.threadUuid === selectedThreadId);
 
     return {
       folderTree,
@@ -216,10 +234,10 @@ export class ExplorerComponent {
     };
   }
 
-  private buildFolderTree(folders: readonly FolderProjectionEntity[]): readonly FolderTreeNode[] {
+  private buildFolderTree(folders: ReadonlyMap<string, FolderProjectionEntity>): readonly FolderTreeNode[] {
     const childrenByParent = new Map<string | null, FolderProjectionEntity[]>();
 
-    for (const folder of folders) {
+    for (const folder of folders.values()) {
       const key = folder.data.parentFolderUuid;
       const siblings = childrenByParent.get(key) ?? [];
       siblings.push(folder);
@@ -238,7 +256,22 @@ export class ExplorerComponent {
     projectionState: ProjectionSnapshotState,
     selectedFolderId: string | null,
   ): readonly ThreadProjectionEntity[] {
-    return projectionState.threads.filter((thread) => thread.data.folderUuid === selectedFolderId);
+    return [...projectionState.threads.values()].filter((thread) => thread.data.folderUuid === selectedFolderId);
+  }
+
+  private refreshOnSnapshotAndEvents(projectionUpdate: ProjectionUpdate | null): void {
+    if (projectionUpdate === null) {
+      return;
+    }
+
+    if (projectionUpdate.reason === 'snapshot_loaded') {
+      console.log('EXPLORER_RENDER snapshot_loaded');
+      return;
+    }
+
+    if (projectionUpdate.entityType !== null) {
+      console.log(`EXPLORER_RENDER event_applied entity=${projectionUpdate.entityType}`);
+    }
   }
 
   private countFolderNodes(nodes: readonly FolderTreeNode[]): number {

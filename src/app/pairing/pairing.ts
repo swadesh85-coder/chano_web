@@ -16,6 +16,7 @@ import { WebRelayClient } from '../../transport';
 import type { TransportEnvelope } from '../../transport';
 
 const RELAY_URL = 'ws://172.20.10.3:8080/relay';
+const TRANSPORT_PROTOCOL_VERSION = 2;
 
 type PairingStatus =
   | 'connecting'
@@ -69,10 +70,11 @@ export class PairingComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const unsubscribeEnvelope = this.relay.onPairingMessage((envelope: TransportEnvelope) => this.handleMessage(envelope));
+    const unsubscribeEnvelope = this.listenForPairingMessages();
+    const unsubscribePairApproved = this.listenForPairApproved();
     const unsubscribeState = this.relay.onStateChange((state: 'disconnected' | 'connecting' | 'connected' | 'error') => {
       if (state === 'connected') {
-        this.requestNewSession();
+        this.initiateSession();
       }
     });
     const unsubscribeError = this.relay.onError((error: string) => {
@@ -85,6 +87,7 @@ export class PairingComponent implements OnInit {
     this.openConnection();
     this.destroyRef.onDestroy(() => {
       unsubscribeEnvelope();
+      unsubscribePairApproved();
       unsubscribeState();
       unsubscribeError();
       this.stopCountdown();
@@ -104,29 +107,43 @@ export class PairingComponent implements OnInit {
     this.relay.connect(RELAY_URL);
   }
 
-  private requestNewSession(): void {
-    this.relay.sendEnvelope('qr_session_create', {
-      sessionId: this.relay.sessionId() ?? '',
-    });
+  private initiateSession(): void {
+    this.sendQrSessionCreate();
   }
 
   // ── Message handling ───────────────────────────────────────
 
-  private handleMessage(msg: TransportEnvelope): void {
-    switch (msg.type) {
-      case 'qr_session_ready':
-        void this.onSessionReady(msg);
-        break;
-      case 'pair_approved':
-        this.onPairApproved();
-        break;
-      case 'protocol_handshake':
-        this.onProtocolHandshake(msg);
-        break;
-      case 'session_close':
-        this.onSessionClose(msg);
-        break;
+  private sendQrSessionCreate(): void {
+    const sessionId = this.relay.sessionId();
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      throw new Error('INVALID_SESSION_ID');
     }
+
+    this.relay.sendEnvelope('qr_session_create', { sessionId });
+  }
+
+  private listenForPairingMessages(): () => void {
+    return this.relay.onPairingMessage((envelope: TransportEnvelope) => {
+      switch (envelope.type) {
+        case 'qr_session_ready':
+          void this.onSessionReady(envelope);
+          break;
+        case 'protocol_handshake':
+          this.onProtocolHandshake(envelope);
+          break;
+        case 'session_close':
+          this.onSessionClose(envelope);
+          break;
+      }
+    });
+  }
+
+  private listenForPairApproved(): () => void {
+    return this.relay.onPairingMessage((envelope: TransportEnvelope) => {
+      if (envelope.type === 'pair_approved') {
+        this.onPairApproved();
+      }
+    });
   }
 
   private async onSessionReady(msg: TransportEnvelope): Promise<void> {
@@ -169,13 +186,18 @@ export class PairingComponent implements OnInit {
   private onPairApproved(): void {
     this.stopCountdown();
     this.status.set('paired');
-    console.log('PAIR_APPROVED');
+    console.log('PAIR_APPROVED received');
   }
 
   private onProtocolHandshake(msg: TransportEnvelope): void {
     this.stopCountdown();
     this.status.set('syncing');
-    console.log(`PROTOCOL_HANDSHAKE session=${msg.sessionId ?? 'null'}`);
+    console.log(`PROTOCOL_HANDSHAKE_RECEIVED sessionId=${msg.sessionId ?? 'null'}`);
+    console.log(`WEB_SEND protocol_handshake sessionId=${msg.sessionId ?? 'null'}`);
+    this.relay.sendEnvelope('protocol_handshake', {
+      supportedProtocolVersions: [TRANSPORT_PROTOCOL_VERSION],
+      minProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
+    });
   }
 
   private onSessionClose(msg: TransportEnvelope): void {
@@ -202,7 +224,7 @@ export class PairingComponent implements OnInit {
 
     if (remainingMs <= 0) {
       this.stopCountdown();
-      this.requestNewSession();
+      this.initiateSession();
       return;
     }
 

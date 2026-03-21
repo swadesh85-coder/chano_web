@@ -53,6 +53,10 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
           type: 'text',
           body: 'Body 1',
           createdAt: 1710000001,
+          editedAt: 1710000001,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
         },
       },
     ],
@@ -77,6 +81,10 @@ function createEventEnvelope(
       type: 'text',
       body: `Body ${eventVersion}`,
       createdAt: 1710000000 + eventVersion,
+      editedAt: 1710000000 + eventVersion,
+      orderIndex: 0,
+      isStarred: false,
+      imageGroupId: null,
     },
     checksum: overrides.checksum ?? 'sha256',
   };
@@ -104,6 +112,10 @@ describe('VaultDomainProjection', () => {
           type: 'text',
           name: 'Body 1',
           createdAt: 1710000001,
+          editedAt: 1710000001,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
         },
       ],
     });
@@ -133,6 +145,10 @@ describe('VaultDomainProjection', () => {
         type: 'text',
         name: 'Body 1',
         createdAt: 1710000001,
+        editedAt: 1710000001,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
       {
         id: 'record:0002',
@@ -140,6 +156,10 @@ describe('VaultDomainProjection', () => {
         type: 'text',
         name: 'Created body',
         createdAt: 1710000101,
+        editedAt: 1710000101,
+        orderIndex: null,
+        isStarred: false,
+        imageGroupId: null,
       },
     ]);
   });
@@ -165,6 +185,10 @@ describe('VaultDomainProjection', () => {
       type: 'markdown',
       name: 'Updated body',
       createdAt: 1710000101,
+      editedAt: 1710000101,
+      orderIndex: 0,
+      isStarred: false,
+      imageGroupId: null,
     });
   });
 
@@ -199,6 +223,10 @@ describe('VaultDomainProjection', () => {
             type: 'text',
             body: 'Movable',
             createdAt: 1710000002,
+            editedAt: 1710000002,
+            orderIndex: 0,
+            isStarred: false,
+            imageGroupId: null,
           },
         },
       ],
@@ -219,6 +247,10 @@ describe('VaultDomainProjection', () => {
       type: 'text',
       name: 'Movable',
       createdAt: 1710000002,
+      editedAt: 1710000002,
+      orderIndex: 0,
+      isStarred: false,
+      imageGroupId: null,
     });
   });
 
