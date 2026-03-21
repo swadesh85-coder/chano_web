@@ -9,6 +9,10 @@ import type {
   Thread,
   RecordEntry,
   ExplorerNode,
+  ProjectionSnapshotState,
+  FolderProjectionEntity,
+  ThreadProjectionEntity,
+  RecordProjectionEntity,
   VaultEvent,
   EventOperation,
   EventEntity,
@@ -50,6 +54,8 @@ type RecordEntityData = {
   readonly imageGroupId: string | null;
 };
 
+const INTERNAL_ROOT_FOLDER_SENTINEL = 'root';
+
 @Injectable({ providedIn: 'root' })
 export class ProjectionStore {
   private readonly relay = inject(WebRelayClient);
@@ -62,6 +68,8 @@ export class ProjectionStore {
     },
   });
   private authoritativeEventQueue: Promise<void> = Promise.resolve();
+  private lastInboundSessionId: string | null = null;
+  private snapshotSessionId: string | null = null;
 
   private readonly _folders = signal<Folder[]>([]);
   private readonly _threads = signal<Thread[]>([]);
@@ -77,17 +85,26 @@ export class ProjectionStore {
   readonly baseEventVersion = this._baseEventVersion.asReadonly();
   readonly lastAppliedEventVersion = this._lastAppliedEventVersion.asReadonly();
 
+  /** @deprecated DO NOT USE — replaced by getProjectionState() (projection snapshot API) */
   readonly explorerTree = computed<ExplorerNode[]>(() =>
     this.buildHierarchy(this._folders(), this._threads(), this._records()),
   );
 
   constructor() {
     this.snapshotLoader.onEvent((event) => this.handleSnapshotLoaderEvent(event));
-    this.relay.onEnvelope((msg) => this.handleEnvelope(msg));
+    this.relay.onProjectionMessage((msg) => this.handleEnvelope(msg));
   }
 
   getEntityVersion(entityType: EventEntity, entityId: string): number | null {
     return this.projectionEngine.getEntityVersion(entityType, entityId);
+  }
+
+  getProjectionState(): ProjectionSnapshotState {
+    return this.deepFreeze({
+      folders: this._folders().map((folder) => this.toProjectionFolderEntity(folder)),
+      threads: this._threads().map((thread) => this.toProjectionThreadEntity(thread)),
+      records: this._records().map((record) => this.toProjectionRecordEntity(record)),
+    });
   }
 
   hasEntityId(entityId: string): boolean {
@@ -95,7 +112,11 @@ export class ProjectionStore {
   }
 
   private handleEnvelope(msg: TransportEnvelope): void {
+    this.lastInboundSessionId = msg.sessionId;
+
+    let handled = false;
     if (msg.type.startsWith('snapshot_')) {
+      handled = true;
       switch (msg.type) {
         case 'snapshot_start':
           this.onSnapshotStart(msg);
@@ -107,17 +128,33 @@ export class ProjectionStore {
           void this.onSnapshotComplete(msg);
           break;
       }
+
+      console.log(
+        `HANDLE_MESSAGE type=${msg.type} sessionId=${this.formatSessionId(msg.sessionId)} handled=true`,
+      );
       return;
     }
 
     if (msg.type === 'event_stream') {
+      handled = true;
       this.onEventStream(msg);
+    }
+
+    console.log(
+      `HANDLE_MESSAGE type=${msg.type} sessionId=${this.formatSessionId(msg.sessionId)} handled=${String(handled)}`,
+    );
+
+    if (!handled) {
+      console.log(
+        `UNHANDLED_MESSAGE type=${msg.type} sessionId=${this.formatSessionId(msg.sessionId)}`,
+      );
     }
   }
 
   // ── Snapshot lifecycle ───────────────────────────────────
 
   private onSnapshotStart(msg: TransportEnvelope): void {
+    this.snapshotSessionId = msg.sessionId;
     this.projectionEngine.reset();
     this._folders.set([]);
     this._threads.set([]);
@@ -133,6 +170,7 @@ export class ProjectionStore {
   }
 
   private onSnapshotChunk(msg: TransportEnvelope): void {
+    this.snapshotSessionId = msg.sessionId;
     if (this._phase() !== 'receiving') {
       return;
     }
@@ -146,6 +184,7 @@ export class ProjectionStore {
   }
 
   private async onSnapshotComplete(msg: TransportEnvelope): Promise<void> {
+    this.snapshotSessionId = msg.sessionId;
     if (this.isByteSnapshotCompletePayload(msg.payload)) {
       await this.snapshotLoader.handleSnapshotComplete(msg);
       return;
@@ -217,6 +256,9 @@ export class ProjectionStore {
         this._phase.set('idle');
         return;
       case 'SNAPSHOT_LOADED':
+        console.log(
+          `PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=${this.formatSessionId(this.snapshotSessionId)}`,
+        );
         this.applyDecodedSnapshot(event.snapshotJson, event.baseEventVersion);
         return;
     }
@@ -280,6 +322,9 @@ export class ProjectionStore {
     const result = this.projectionEngine.applySnapshot(snapshotJson, baseEventVersion);
 
     this.syncProjectionState(result.state);
+    console.log(
+      `PROJECTION_APPLY entityCount=${folders.length + threads.length + records.length} type=snapshot_apply sessionId=${this.formatSessionId(this.snapshotSessionId)}`,
+    );
     this._baseEventVersion.set(baseEventVersion);
     this._lastAppliedEventVersion.set(result.lastAppliedEventVersion);
     this._phase.set('ready');
@@ -375,6 +420,76 @@ export class ProjectionStore {
     this._folders.set([...state.folders]);
     this._threads.set([...state.threads]);
     this._records.set([...state.records]);
+  }
+
+  private toProjectionFolderEntity(folder: Folder): FolderProjectionEntity {
+    return {
+      entityType: 'folder',
+      entityUuid: folder.id,
+      entityVersion: this.projectionEngine.getEntityVersion('folder', folder.id) ?? 0,
+      data: {
+        uuid: folder.id,
+        name: folder.name,
+        parentFolderUuid: folder.parentId,
+      },
+    };
+  }
+
+  private toProjectionThreadEntity(thread: Thread): ThreadProjectionEntity {
+    return {
+      entityType: 'thread',
+      entityUuid: thread.id,
+      entityVersion: this.projectionEngine.getEntityVersion('thread', thread.id) ?? 0,
+      data: {
+        uuid: thread.id,
+        folderUuid: this.mapInternalRootFolderIdToSnapshot(thread.folderId),
+        title: thread.title,
+      },
+    };
+  }
+
+  private toProjectionRecordEntity(record: RecordEntry): RecordProjectionEntity {
+    return {
+      entityType: 'record',
+      entityUuid: record.id,
+      entityVersion: this.projectionEngine.getEntityVersion('record', record.id) ?? 0,
+      data: {
+        uuid: record.id,
+        threadUuid: record.threadId,
+        type: record.type,
+        body: record.name,
+        createdAt: record.createdAt,
+        editedAt: record.createdAt,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      },
+    };
+  }
+
+  private mapInternalRootFolderIdToSnapshot(folderId: string): string | null {
+    return folderId === INTERNAL_ROOT_FOLDER_SENTINEL ? null : folderId;
+  }
+
+  private deepFreeze<T>(value: T): T {
+    if (value === null || typeof value !== 'object') {
+      return value;
+    }
+
+    if (Object.isFrozen(value)) {
+      return value;
+    }
+
+    const entries = Array.isArray(value) ? value : Object.values(value);
+    for (const entry of entries) {
+      this.deepFreeze(entry);
+    }
+
+    return Object.freeze(value);
+  }
+
+  private formatSessionId(sessionId: string | null): string {
+    return sessionId ?? 'null';
   }
 
   private looksLikeAuthoritativeEventEnvelope(payload: Record<string, unknown>): boolean {

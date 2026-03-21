@@ -87,7 +87,7 @@ export class SnapshotLoader {
     };
 
     console.log(
-      `SNAPSHOT_START snapshotId=${payload.snapshotId} totalChunks=${payload.totalChunks}`,
+      `SNAPSHOT_RECEIVE_START snapshotId=${payload.snapshotId} totalChunks=${payload.totalChunks} type=${envelope.type} sessionId=${this.formatSessionId(envelope.sessionId)}`,
     );
   }
 
@@ -129,7 +129,9 @@ export class SnapshotLoader {
       receivedBytes,
     };
 
-    console.log(`SNAPSHOT_CHUNK_RECEIVED index=${payload.index}`);
+    console.log(
+      `SNAPSHOT_RECEIVE_CHUNK index=${payload.index} type=${envelope.type} sessionId=${this.formatSessionId(envelope.sessionId)}`,
+    );
   }
 
   async handleSnapshotComplete(envelope: TransportEnvelope): Promise<void> {
@@ -166,7 +168,9 @@ export class SnapshotLoader {
       return;
     }
 
-    console.log(`SNAPSHOT_COMPLETE reconstructedBytes=${snapshotBytes.byteLength}`);
+    console.log(
+      `SNAPSHOT_RECEIVE_COMPLETE totalChunks=${payload.totalChunks} type=${envelope.type} sessionId=${this.formatSessionId(envelope.sessionId)}`,
+    );
 
     const snapshotJson = this.decodeUtf8(snapshotBytes);
     if (snapshotJson === null) {
@@ -367,5 +371,9 @@ export class SnapshotLoader {
 
   private isNonNegativeInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+  }
+
+  private formatSessionId(sessionId: string | null): string {
+    return sessionId ?? 'null';
   }
 }

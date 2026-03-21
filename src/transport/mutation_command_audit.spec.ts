@@ -289,12 +289,14 @@ async function auditCommandSend(
 ): Promise<MutationAuditSendResult> {
   vi.spyOn(globalThis, 'prompt').mockReturnValue(title);
 
+  fixture.componentInstance.selectFolder(FOLDER_ID);
+  await fixture.whenStable();
   fixture.detectChanges();
   const createButton = fixture.nativeElement.querySelector('button[aria-label="Create thread"]') as HTMLButtonElement;
   expect(createButton).toBeTruthy();
   createButton.click();
 
-  const rawEnvelope = parseSentEnvelope(0);
+  const rawEnvelope = parseSentEnvelope(MockWebSocket.last.sent.length - 1);
 
   return {
     envelope: rawEnvelope,
@@ -412,12 +414,15 @@ async function auditIdempotency(
   ));
   await flushAuthoritativeEventWork();
   MockWebSocket.last.simulateEnvelope(createCommandResultEnvelope(sessionId, COMMAND_ID, 'alreadyApplied', 14, 'Duplicate command ignored'));
+  await flushAuthoritativeEventWork();
+
+  const projectionState = captureProjectionState(projection);
 
   return {
     firstEnvelope: firstEnvelope!,
     secondEnvelope: secondEnvelope!,
     resultStatus: commandResults.getStatus(COMMAND_ID),
-    threadCount: projection.threads().filter((thread) => thread.id === GENERATED_THREAD_ID).length,
+    threadCount: projectionState.threads.filter((thread) => thread.id === GENERATED_THREAD_ID).length,
   };
 }
 

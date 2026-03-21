@@ -178,6 +178,16 @@ async function flushSnapshotAsyncWork(): Promise<void> {
   await Promise.resolve();
 }
 
+async function waitForProjectionReady(store: ProjectionStore): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (store.phase() === 'ready') {
+      return;
+    }
+
+    await flushSnapshotAsyncWork();
+  }
+}
+
 type WsHandler = ((ev: { data: string }) => void) | null;
 
 class MockWebSocket {
@@ -483,9 +493,8 @@ describe('PairingComponent', () => {
   // ── 7. Snapshot flow (syncing → navigation) ─────────────
 
   describe('Snapshot handling', () => {
-    it('should set status to syncing on snapshot_start', async () => {
+    it('handshake_routed_to_pairing', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
-      const snapshot = await createSnapshotMessages('{"folders":[],"threads":[],"records":[]}');
 
       fixture.detectChanges();
       const ws = MockWebSocket.last;
@@ -499,7 +508,7 @@ describe('PairingComponent', () => {
       await fixture.whenStable();
 
       ws.simulateMessage({ type: 'pair_approved' });
-  ws.simulateMessage(snapshot.start);
+        ws.simulateMessage({ type: 'protocol_handshake' });
 
       expect(component.status()).toBe('syncing');
       expect(component.statusText()).toBe('Syncing your data\u2026');
@@ -509,6 +518,7 @@ describe('PairingComponent', () => {
 
     it('should navigate to /explorer when snapshot completes', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+      const store = TestBed.inject(ProjectionStore);
       const snapshot = await createSnapshotMessages(JSON.stringify({
         folders: [
           {
@@ -535,14 +545,16 @@ describe('PairingComponent', () => {
       await fixture.whenStable();
 
       ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateMessage({ type: 'protocol_handshake' });
       ws.simulateMessage(snapshot.start);
       snapshot.chunks.forEach((message) => ws.simulateMessage(message));
       ws.simulateMessage(snapshot.complete);
 
-      await flushSnapshotAsyncWork();
+      await waitForProjectionReady(store);
       fixture.detectChanges();
       await flushSnapshotAsyncWork();
 
+      expect(store.phase()).toBe('ready');
       expect(router.navigate).toHaveBeenCalledWith(['/explorer']);
 
       qrSpy.mockRestore();
@@ -603,6 +615,7 @@ describe('PairingComponent', () => {
       await fixture.whenStable();
 
       ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateMessage({ type: 'protocol_handshake' });
       ws.simulateMessage(snapshot.start);
       snapshot.chunks.forEach((message) => ws.simulateMessage(message));
       ws.simulateMessage(snapshot.complete);

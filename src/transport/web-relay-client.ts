@@ -3,12 +3,28 @@ import type { TransportEnvelope } from './transport-envelope';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+const PAIRING_MESSAGE_TYPES = [
+  'qr_session_ready',
+  'pair_approved',
+  'protocol_handshake',
+  'session_close',
+] as const;
+
+const PROJECTION_MESSAGE_TYPES = [
+  'snapshot_start',
+  'snapshot_chunk',
+  'snapshot_complete',
+  'event_stream',
+] as const;
+
 const TRANSPORT_PROTOCOL_VERSION = 2;
 
 @Injectable({ providedIn: 'root' })
 export class WebRelayClient {
   private readonly ngZone = inject(NgZone);
   private readonly envelopeHandlers = new Set<(envelope: TransportEnvelope) => void>();
+  private readonly pairingHandlers = new Set<(envelope: TransportEnvelope) => void>();
+  private readonly projectionHandlers = new Set<(envelope: TransportEnvelope) => void>();
   private readonly stateHandlers = new Set<(state: ConnectionState) => void>();
   private readonly errorHandlers = new Set<(message: string) => void>();
 
@@ -39,16 +55,19 @@ export class WebRelayClient {
       ws.onmessage = (event: MessageEvent) =>
         this.ngZone.run(() => {
           try {
-            const raw = JSON.parse(String(event.data)) as unknown;
+            const rawMessage = String(event.data);
+            console.log(`WS_MESSAGE_RECEIVED raw=${truncateForAudit(rawMessage, 200)} type=unknown sessionId=unknown`);
+            const raw = JSON.parse(rawMessage) as unknown;
             const envelope = this.parseEnvelope(raw);
 
             if (envelope !== null) {
               this.captureSession(envelope);
+              console.log(
+                `WS_MESSAGE_PARSED type=${envelope.type} sessionId=${formatSessionId(envelope.sessionId)}`,
+              );
               console.log(`WEB_RELAY_ENVELOPE_RECEIVED type=${envelope.type}`);
               console.log('TRANSPORT_ENVELOPE_PARSED', envelope);
-              for (const handler of this.envelopeHandlers) {
-                handler(envelope);
-              }
+              this.routeMessage(envelope);
             }
           } catch {
             // ignore malformed frames
@@ -136,6 +155,20 @@ export class WebRelayClient {
     this.envelopeHandlers.add(handler);
     return () => {
       this.envelopeHandlers.delete(handler);
+    };
+  }
+
+  onPairingMessage(handler: (envelope: TransportEnvelope) => void): () => void {
+    this.pairingHandlers.add(handler);
+    return () => {
+      this.pairingHandlers.delete(handler);
+    };
+  }
+
+  onProjectionMessage(handler: (envelope: TransportEnvelope) => void): () => void {
+    this.projectionHandlers.add(handler);
+    return () => {
+      this.projectionHandlers.delete(handler);
     };
   }
 
@@ -241,6 +274,42 @@ export class WebRelayClient {
       handler(message);
     }
   }
+
+  private routeMessage(envelope: TransportEnvelope): void {
+    if (isPairingMessageType(envelope.type)) {
+      console.log(`MESSAGE_ROUTED type=${envelope.type} target=pairing`);
+      for (const handler of this.pairingHandlers) {
+        handler(envelope);
+      }
+    }
+
+    if (isProjectionMessageType(envelope.type)) {
+      console.log(`MESSAGE_ROUTED type=${envelope.type} target=projection`);
+      for (const handler of this.projectionHandlers) {
+        handler(envelope);
+      }
+    }
+
+    for (const handler of this.envelopeHandlers) {
+      handler(envelope);
+    }
+  }
+}
+
+function truncateForAudit(value: string, limit: number): string {
+  return value.replace(/\s+/g, ' ').slice(0, limit);
+}
+
+function formatSessionId(sessionId: string | null): string {
+  return sessionId ?? 'null';
+}
+
+function isPairingMessageType(type: string): type is (typeof PAIRING_MESSAGE_TYPES)[number] {
+  return (PAIRING_MESSAGE_TYPES as readonly string[]).includes(type);
+}
+
+function isProjectionMessageType(type: string): type is (typeof PROJECTION_MESSAGE_TYPES)[number] {
+  return (PROJECTION_MESSAGE_TYPES as readonly string[]).includes(type);
 }
 
 function assertOutboundPayloadShape(

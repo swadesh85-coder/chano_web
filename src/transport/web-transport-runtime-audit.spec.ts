@@ -181,6 +181,15 @@ describe('Web transport runtime audit', () => {
       payload: {},
     });
 
+    ws.simulateEnvelope({
+      protocolVersion: 2,
+      type: 'protocol_handshake',
+      sessionId: outboundSessionId,
+      timestamp: 1_710_000_002.5,
+      sequence: 3,
+      payload: {},
+    });
+
     return sessionReadyEnvelope.sessionId as string;
   }
 
@@ -211,7 +220,7 @@ describe('Web transport runtime audit', () => {
       type: 'snapshot_start',
       sessionId,
       timestamp: 1_710_000_003,
-      sequence: 3,
+      sequence: 4,
       payload: {
         snapshotId: 'snapshot-runtime-1',
         totalChunks: 1,
@@ -230,7 +239,7 @@ describe('Web transport runtime audit', () => {
       type: 'snapshot_chunk',
       sessionId,
       timestamp: 1_710_000_004,
-      sequence: 4,
+      sequence: 5,
       payload: {
         index: 0,
         data: toBase64(snapshotBytes),
@@ -242,7 +251,7 @@ describe('Web transport runtime audit', () => {
       type: 'snapshot_complete',
       sessionId,
       timestamp: 1_710_000_005,
-      sequence: 5,
+      sequence: 6,
       payload: { totalChunks: 1 },
     });
 
@@ -269,6 +278,7 @@ describe('Web transport runtime audit', () => {
     expect(capturedLogs).toContainEqual([`WEB_SEND qr_session_create session=${sessionId} seq=1`]);
     expect(capturedLogs).toContainEqual(['RELAY_ACCEPTED type=qr_session_create']);
     expect(capturedLogs).toContainEqual([`WEB_SESSION_CREATED sessionId=${sessionId}`]);
+    expect(capturedLogs).toContainEqual(['MESSAGE_ROUTED type=protocol_handshake target=pairing']);
   });
 
   it('transport_envelope_parser_runtime', async () => {
@@ -280,7 +290,7 @@ describe('Web transport runtime audit', () => {
       type: 'event_stream',
       sessionId,
       timestamp: 1_710_000_006,
-      sequence: 6,
+      sequence: 7,
       payload: {
         operation: 'create',
         entity: 'thread',
@@ -297,7 +307,7 @@ describe('Web transport runtime audit', () => {
       type: 'snapshot_start',
       sessionId,
       timestamp: 1_710_000_003,
-      sequence: 3,
+      sequence: 4,
       payload: {
         snapshotId: 'snapshot-runtime-1',
         totalChunks: 1,
@@ -316,7 +326,7 @@ describe('Web transport runtime audit', () => {
       type: 'snapshot_chunk',
       sessionId,
       timestamp: 1_710_000_004,
-      sequence: 4,
+      sequence: 5,
       payload: {
         index: 0,
         data: expect.any(String),
@@ -328,7 +338,7 @@ describe('Web transport runtime audit', () => {
       type: 'event_stream',
       sessionId,
       timestamp: 1_710_000_006,
-      sequence: 6,
+      sequence: 7,
       payload: {
         operation: 'create',
         entity: 'thread',
@@ -339,6 +349,7 @@ describe('Web transport runtime audit', () => {
         },
       },
     });
+    expect(capturedLogs).toContainEqual(['MESSAGE_ROUTED type=snapshot_start target=projection']);
   });
 
   it('mutation_command_send', async () => {

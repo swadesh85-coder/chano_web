@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { ProjectionStore } from './projection.store';
+import type { ThreadProjectionEntity } from './projection.models';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 import { WebRelayClient } from '../../transport/web-relay-client';
 
@@ -16,7 +17,7 @@ describe('ProjectionStore', () => {
         {
           provide: WebRelayClient,
           useValue: {
-            onEnvelope: (handler: (envelope: TransportEnvelope) => void) => {
+            onProjectionMessage: (handler: (envelope: TransportEnvelope) => void) => {
               const subscription = messages$.asObservable().subscribe(handler);
               return () => subscription.unsubscribe();
             },
@@ -635,6 +636,138 @@ describe('ProjectionStore', () => {
 
       const tree2 = JSON.stringify(store.explorerTree());
       expect(tree1).toBe(tree2);
+    });
+
+    it('projection_snapshot_immutable_deep', () => {
+      emit('snapshot_start');
+      emit('snapshot_chunk', {
+        folders: [{ id: 'folder:001', name: 'Root' }],
+        threads: [{ id: 'thread:001', folderId: 'root', title: 'Inbox Thread' }],
+        records: [
+          { id: 'record:001', threadId: 'thread:001', type: 'text', name: 'Entry', createdAt: 1 },
+        ],
+      });
+      emit('snapshot_complete');
+
+      const snapshot = store.getProjectionState();
+      const beforeStoreHash = JSON.stringify({
+        folders: store.folders(),
+        threads: store.threads(),
+        records: store.records(),
+      });
+
+      expect(Object.isFrozen(snapshot)).toBe(true);
+      expect(Object.isFrozen(snapshot.threads)).toBe(true);
+      expect(Object.isFrozen(snapshot.threads[0])).toBe(true);
+      expect(Object.isFrozen(snapshot.threads[0].data)).toBe(true);
+
+      expect(() => {
+        (snapshot.threads as ThreadProjectionEntity[]).push({
+          entityType: 'thread',
+          entityUuid: 'thread:999',
+          entityVersion: 1,
+          data: {
+            uuid: 'thread:999',
+            folderUuid: null,
+            title: 'Illegal',
+          },
+        });
+      }).toThrow();
+
+      expect(() => {
+        (snapshot.threads[0].data as { title: string }).title = 'Mutated';
+      }).toThrow();
+
+      const afterStoreHash = JSON.stringify({
+        folders: store.folders(),
+        threads: store.threads(),
+        records: store.records(),
+      });
+
+      expect(afterStoreHash).toBe(beforeStoreHash);
+      expect(store.threads()[0]).toEqual({
+        id: 'thread:001',
+        folderId: 'root',
+        title: 'Inbox Thread',
+      });
+    });
+
+    it('root_mapping_consistency', () => {
+      emit('snapshot_start');
+      emit('snapshot_chunk', {
+        folders: [
+          { id: 'folder:001', name: 'Alpha' },
+          { id: 'folder:002', name: 'Beta' },
+        ],
+        threads: [
+          { id: 'thread:001', folderId: 'root', title: 'Root Thread' },
+          { id: 'thread:002', folderId: 'folder:002', title: 'Nested Thread' },
+        ],
+        records: [
+          { id: 'record:001', threadId: 'thread:001', type: 'text', name: 'Entry', createdAt: 1 },
+        ],
+      });
+      emit('snapshot_complete');
+
+      const snapshot = store.getProjectionState();
+
+      expect(snapshot.folders.map((folder) => folder.entityUuid)).toEqual(['folder:001', 'folder:002']);
+      expect(snapshot.threads.map((thread) => thread.entityUuid)).toEqual(['thread:001', 'thread:002']);
+      expect(snapshot.records.map((record) => record.entityUuid)).toEqual(['record:001']);
+
+      expect(snapshot.threads[0].data.folderUuid).toBeNull();
+      expect(snapshot.threads[1].data.folderUuid).toBe('folder:002');
+      expect(store.threads()[0].folderId).toBe('root');
+      expect(store.threads()[1].folderId).toBe('folder:002');
+      expect(snapshot.threads[0].entityUuid).toBe(store.threads()[0].id);
+    });
+
+    it('projection_snapshot_order_preserved', () => {
+      emit('snapshot_start');
+      emit('snapshot_chunk', {
+        folders: [
+          { id: 'folder:001', name: 'Alpha' },
+          { id: 'folder:002', name: 'Beta' },
+        ],
+        threads: [
+          { id: 'thread:001', folderId: 'root', title: 'First Thread' },
+          { id: 'thread:002', folderId: 'folder:002', title: 'Second Thread' },
+        ],
+        records: [
+          { id: 'record:001', threadId: 'thread:001', type: 'text', name: 'First Record', createdAt: 1 },
+          { id: 'record:002', threadId: 'thread:002', type: 'text', name: 'Second Record', createdAt: 2 },
+        ],
+      });
+      emit('snapshot_complete');
+
+      const snapshot = store.getProjectionState();
+
+      expect(snapshot.folders.map((folder) => folder.entityUuid)).toEqual(['folder:001', 'folder:002']);
+      expect(snapshot.threads.map((thread) => thread.entityUuid)).toEqual(['thread:001', 'thread:002']);
+      expect(snapshot.records.map((record) => record.entityUuid)).toEqual(['record:001', 'record:002']);
+    });
+
+    it('no_snapshot_backflow_mutation', () => {
+      emit('snapshot_start');
+      emit('snapshot_chunk', {
+        folders: [{ id: 'folder:001', name: 'Alpha' }],
+        threads: [{ id: 'thread:001', folderId: 'root', title: 'Root Thread' }],
+        records: [],
+      });
+      emit('snapshot_complete');
+
+      const snapshot = store.getProjectionState();
+      const beforeStoreHash = JSON.stringify(store.threads());
+
+      try {
+        (snapshot.threads[0].data as { folderUuid: string | null }).folderUuid = 'folder:001';
+      } catch {
+        // Frozen snapshot rejects mutation attempts; store state check below is authoritative.
+      }
+
+      expect(JSON.stringify(store.threads())).toBe(beforeStoreHash);
+      expect(store.threads()[0].folderId).toBe('root');
+      expect(snapshot.threads[0].data.folderUuid).toBeNull();
     });
 
     it('records appear only inside threads, never at folder or root level', () => {

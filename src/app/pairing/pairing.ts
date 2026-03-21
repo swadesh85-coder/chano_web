@@ -69,7 +69,7 @@ export class PairingComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const unsubscribeEnvelope = this.relay.onEnvelope((envelope: TransportEnvelope) => this.handleMessage(envelope));
+    const unsubscribeEnvelope = this.relay.onPairingMessage((envelope: TransportEnvelope) => this.handleMessage(envelope));
     const unsubscribeState = this.relay.onStateChange((state: 'disconnected' | 'connecting' | 'connected' | 'error') => {
       if (state === 'connected') {
         this.requestNewSession();
@@ -120,8 +120,11 @@ export class PairingComponent implements OnInit {
       case 'pair_approved':
         this.onPairApproved();
         break;
-      case 'snapshot_start':
-        this.status.set('syncing');
+      case 'protocol_handshake':
+        this.onProtocolHandshake(msg);
+        break;
+      case 'session_close':
+        this.onSessionClose(msg);
         break;
     }
   }
@@ -167,6 +170,18 @@ export class PairingComponent implements OnInit {
     this.stopCountdown();
     this.status.set('paired');
     console.log('PAIR_APPROVED');
+  }
+
+  private onProtocolHandshake(msg: TransportEnvelope): void {
+    this.stopCountdown();
+    this.status.set('syncing');
+    console.log(`PROTOCOL_HANDSHAKE session=${msg.sessionId ?? 'null'}`);
+  }
+
+  private onSessionClose(msg: TransportEnvelope): void {
+    this.stopCountdown();
+    this.status.set('error');
+    this.errorMessage.set(typeof msg.payload['message'] === 'string' ? msg.payload['message'] : 'Session closed');
   }
 
   // ── Countdown timer ────────────────────────────────────────

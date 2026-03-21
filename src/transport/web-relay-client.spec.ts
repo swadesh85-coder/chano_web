@@ -302,4 +302,93 @@ describe('WebRelayClient', () => {
     expect(client.state()).toBe('disconnected');
     expect(MockWebSocket.last.readyState).toBe(MockWebSocket.CLOSED);
   });
+
+  it('message_routing_control_vs_projection', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const pairingHandler = vi.fn();
+    const projectionHandler = vi.fn();
+    const rawHandler = vi.fn();
+
+    client.onPairingMessage(pairingHandler);
+    client.onProjectionMessage(projectionHandler);
+    client.onEnvelope(rawHandler);
+
+    MockWebSocket.last.simulateRawFrame({
+      protocolVersion: 2,
+      type: 'protocol_handshake',
+      sessionId: 'session-ctl',
+      timestamp: 1710000000,
+      sequence: 1,
+      payload: {},
+    });
+
+    MockWebSocket.last.simulateRawFrame({
+      protocolVersion: 2,
+      type: 'snapshot_start',
+      sessionId: 'session-proj',
+      timestamp: 1710000001,
+      sequence: 2,
+      payload: {
+        snapshotId: 'snapshot-1',
+        totalChunks: 1,
+        totalBytes: 1,
+        snapshotVersion: 1,
+        protocolVersion: 2,
+        schemaVersion: 1,
+        baseEventVersion: 1,
+        entityCount: 0,
+        checksum: 'aa',
+      },
+    });
+
+    expect(pairingHandler).toHaveBeenCalledTimes(1);
+    expect(pairingHandler.mock.calls[0]?.[0]).toMatchObject({ type: 'protocol_handshake' });
+    expect(projectionHandler).toHaveBeenCalledTimes(1);
+    expect(projectionHandler.mock.calls[0]?.[0]).toMatchObject({ type: 'snapshot_start' });
+    expect(rawHandler).toHaveBeenCalledTimes(2);
+    expect(logSpy).toHaveBeenCalledWith('MESSAGE_ROUTED type=protocol_handshake target=pairing');
+    expect(logSpy).toHaveBeenCalledWith('MESSAGE_ROUTED type=snapshot_start target=projection');
+
+    logSpy.mockRestore();
+  });
+
+  it('snapshot_routed_to_projection', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const projectionHandler = vi.fn();
+    const pairingHandler = vi.fn();
+
+    client.onProjectionMessage(projectionHandler);
+    client.onPairingMessage(pairingHandler);
+
+    MockWebSocket.last.simulateRawFrame({
+      protocolVersion: 2,
+      type: 'snapshot_start',
+      sessionId: 'session-1',
+      timestamp: 1710000000,
+      sequence: 1,
+      payload: {
+        snapshotId: 'snapshot-1',
+        totalChunks: 1,
+        totalBytes: 10,
+        snapshotVersion: 1,
+        protocolVersion: 2,
+        schemaVersion: 1,
+        baseEventVersion: 1,
+        entityCount: 0,
+        checksum: 'deadbeef',
+      },
+    });
+
+    expect(projectionHandler).toHaveBeenCalledTimes(1);
+    expect(pairingHandler).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('MESSAGE_ROUTED type=snapshot_start target=projection');
+
+    logSpy.mockRestore();
+  });
 });

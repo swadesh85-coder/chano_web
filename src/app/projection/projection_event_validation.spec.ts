@@ -127,7 +127,7 @@ describe('EventValidation', () => {
         {
           provide: WebRelayClient,
           useValue: {
-            onEnvelope: (handler: (envelope: TransportEnvelope) => void) => {
+            onProjectionMessage: (handler: (envelope: TransportEnvelope) => void) => {
               const subscription = messages$.subscribe(handler);
               return () => subscription.unsubscribe();
             },
