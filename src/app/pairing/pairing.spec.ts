@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { PairingComponent } from './pairing';
 import { ProjectionStore } from '../projection/projection.store';
+import { WebRelayClient } from '../../transport';
 import QRCode from 'qrcode';
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -352,7 +353,9 @@ describe('PairingComponent', () => {
       const envelope = JSON.parse(ws.sent[0]);
 
       expect(envelope.sessionId).toMatch(UUID_V4_PATTERN);
+      expect(envelope.payload.token).toMatch(UUID_V4_PATTERN);
       expect(envelope.payload.sessionId).toBe(envelope.sessionId);
+      expect(envelope.payload.token).not.toBe('');
       expect(envelope.sessionId).not.toBe('');
     });
 
@@ -372,9 +375,11 @@ describe('PairingComponent', () => {
         sequence: 1,
         payload: {
           sessionId: expect.stringMatching(UUID_V4_PATTERN),
+          token: expect.stringMatching(UUID_V4_PATTERN),
         },
       });
       expect(envelope.payload.sessionId).toBe(envelope.sessionId);
+      expect(typeof envelope.payload.token).toBe('string');
     });
 
     it('transport_envelope_valid', () => {
@@ -388,19 +393,23 @@ describe('PairingComponent', () => {
       expect(envelope.type).toBe('qr_session_create');
       expect(typeof envelope.timestamp).toBe('number');
       expect(envelope.sequence).toBe(1);
-      expect(envelope.payload).toEqual({ sessionId: envelope.sessionId });
+      expect(envelope.payload).toEqual({
+        sessionId: envelope.sessionId,
+        token: expect.stringMatching(UUID_V4_PATTERN),
+      });
     });
   });
 
   // ── 4. QR code generated on qr_session_ready ───────────
 
   describe('QR code generation', () => {
-    it('should generate a QR code containing sessionId, relayUrl, expiresAt', async () => {
+    it('should generate a QR code containing sessionId, token, relayUrl, expiresAt', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,FAKE');
 
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
 
       const expiresAtMs = Date.now() + 120_000;
       const expiresAtIso = new Date(expiresAtMs).toISOString();
@@ -416,9 +425,11 @@ describe('PairingComponent', () => {
       const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
       expect(payload).toEqual({
         sessionId: '123e4567-e89b-42d3-a456-426614174100',
+        token: sessionCreateEnvelope.payload.token,
         relayUrl: 'ws://172.20.10.3:8080/relay',
         expiresAt: expiresAtIso,
       });
+      expect(payload.token).toBeTruthy();
 
       expect(component.status()).toBe('waiting_for_scan');
       expect(component.qrDataUrl()).toBe('data:image/png;base64,FAKE');
@@ -511,10 +522,38 @@ describe('PairingComponent', () => {
         sequence: 2,
         payload: {
           sessionId: initialSessionEnvelope.sessionId,
+          token: initialSessionEnvelope.payload.token,
         },
       });
 
       vi.useRealTimers();
+      qrSpy.mockRestore();
+    });
+
+    it('should fail QR generation if the pairing token is missing', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
+      const relay = TestBed.inject(WebRelayClient) as unknown as {
+        currentSessionToken: { set(value: string | null): void };
+      };
+      relay.currentSessionToken.set(null);
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: sessionCreateEnvelope.sessionId,
+        payload: { expiresAt: Date.now() + 120_000 },
+      });
+      await fixture.whenStable();
+
+      expect(qrSpy).not.toHaveBeenCalled();
+      expect(component.status()).toBe('error');
+      expect(component.errorMessage()).toBe('Missing pairing token');
+
       qrSpy.mockRestore();
     });
   });

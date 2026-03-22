@@ -115,11 +115,16 @@ export class PairingComponent implements OnInit {
 
   private sendQrSessionCreate(): void {
     const sessionId = this.relay.sessionId();
+    const token = this.relay.sessionToken();
+
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new Error('INVALID_SESSION_ID');
     }
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new Error('INVALID_SESSION_TOKEN');
+    }
 
-    this.relay.sendEnvelope('qr_session_create', { sessionId });
+    this.relay.sendEnvelope('qr_session_create', { sessionId, token });
   }
 
   private listenForPairingMessages(): () => void {
@@ -151,8 +156,17 @@ export class PairingComponent implements OnInit {
 
     const sessionId = msg.sessionId;
     const expiresAt = msg.payload?.['expiresAt'];
+    const token =
+      typeof msg.payload?.['token'] === 'string' && msg.payload['token'].length > 0
+        ? msg.payload['token']
+        : this.relay.sessionToken();
 
     if (!sessionId || !expiresAt) return;
+    if (typeof token !== 'string' || token.length === 0) {
+      this.status.set('error');
+      this.errorMessage.set('Missing pairing token');
+      return;
+    }
 
     this.expiresAtMs =
       typeof expiresAt === 'number'
@@ -161,11 +175,14 @@ export class PairingComponent implements OnInit {
 
     const expiresAtIso = new Date(this.expiresAtMs).toISOString();
 
-    const qrPayload = JSON.stringify({
+    const qrPayloadRecord = {
       sessionId,
+      token,
       relayUrl: RELAY_URL,
       expiresAt: expiresAtIso,
-    });
+    };
+    const qrPayload = JSON.stringify(qrPayloadRecord);
+    console.log('PAIRING_QR_PAYLOAD', qrPayloadRecord);
 
     try {
       const dataUrl = await QRCode.toDataURL(qrPayload, {

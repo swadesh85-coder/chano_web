@@ -31,16 +31,19 @@ export class WebRelayClient {
   private ws: WebSocket | null = null;
   private outboundSequence = 1;
   private readonly currentSessionId = signal<string | null>(null);
+  private readonly currentSessionToken = signal<string | null>(null);
 
   readonly state = signal<ConnectionState>('disconnected');
   readonly lastError = signal<string | null>(null);
   readonly sessionId = this.currentSessionId.asReadonly();
+  readonly sessionToken = this.currentSessionToken.asReadonly();
 
   connect(relayUrl: string): void {
     this.disconnect();
     this.lastError.set(null);
     this.state.set('connecting');
     this.generateSessionId();
+    this.generateSessionToken();
 
     this.ngZone.runOutsideAngular(() => {
       const ws = new WebSocket(relayUrl);
@@ -112,6 +115,7 @@ export class WebRelayClient {
     this.state.set('disconnected');
     this.outboundSequence = 1;
     this.currentSessionId.set(null);
+    this.currentSessionToken.set(null);
     this.emitState('disconnected');
   }
 
@@ -128,8 +132,9 @@ export class WebRelayClient {
     }
 
     const sessionId = this.ensureSessionId();
+    const sessionToken = this.ensureSessionToken();
     const normalizedPayload = clonePayload(payload);
-    assertOutboundPayloadShape(type, normalizedPayload as Record<string, unknown>, sessionId);
+    assertOutboundPayloadShape(type, normalizedPayload as Record<string, unknown>, sessionId, sessionToken);
 
     const envelope: TransportEnvelope<TPayload> = {
       protocolVersion: TRANSPORT_PROTOCOL_VERSION,
@@ -270,6 +275,29 @@ export class WebRelayClient {
     return sessionId;
   }
 
+  private generateSessionToken(): string {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const sessionToken = globalThis.crypto.randomUUID();
+      if (!isNonEmptyString(sessionToken)) {
+        continue;
+      }
+
+      this.currentSessionToken.set(sessionToken);
+      return sessionToken;
+    }
+
+    throw new Error('SESSION_TOKEN_GENERATION_FAILED');
+  }
+
+  private ensureSessionToken(): string {
+    const sessionToken = this.currentSessionToken() ?? this.generateSessionToken();
+    if (!isNonEmptyString(sessionToken)) {
+      throw new Error('INVALID_SESSION_TOKEN');
+    }
+
+    return sessionToken;
+  }
+
   private emitState(state: ConnectionState): void {
     for (const handler of this.stateHandlers) {
       handler(state);
@@ -324,11 +352,16 @@ function assertOutboundPayloadShape(
   type: string,
   payload: Record<string, unknown>,
   sessionId: string,
+  sessionToken: string,
 ): void {
   switch (type) {
     case 'qr_session_create':
     case 'pair_request': {
-      if (!hasExactKeys(payload, ['sessionId']) || payload['sessionId'] !== sessionId) {
+      if (
+        !hasExactKeys(payload, ['sessionId', 'token'])
+        || payload['sessionId'] !== sessionId
+        || payload['token'] !== sessionToken
+      ) {
         throw new Error('INVALID_TRANSPORT_PAYLOAD');
       }
       return;
@@ -355,6 +388,10 @@ function clonePayload<TPayload extends object>(payload: TPayload): TPayload {
   }
 
   return JSON.parse(JSON.stringify(payload)) as TPayload;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function isUuidV4(value: string): boolean {

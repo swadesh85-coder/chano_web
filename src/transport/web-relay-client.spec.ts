@@ -88,8 +88,10 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateOpen();
 
     const sessionId = client.sessionId();
+    const sessionToken = client.sessionToken();
 
     expect(sessionId).toMatch(UUID_V4_PATTERN);
+    expect(sessionToken).toMatch(UUID_V4_PATTERN);
   });
 
   it('web_relay_client_send_envelope', () => {
@@ -97,10 +99,12 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateOpen();
 
     const sessionId = client.sessionId();
+    const sessionToken = client.sessionToken();
     expect(sessionId).toMatch(UUID_V4_PATTERN);
+    expect(sessionToken).toMatch(UUID_V4_PATTERN);
 
-    client.sendEnvelope('qr_session_create', { sessionId: sessionId! });
-    client.sendEnvelope('pair_request', { sessionId: sessionId! });
+    client.sendEnvelope('qr_session_create', { sessionId: sessionId!, token: sessionToken! });
+    client.sendEnvelope('pair_request', { sessionId: sessionId!, token: sessionToken! });
 
     expect(JSON.parse(MockWebSocket.last.sent[0])).toEqual({
       protocolVersion: 2,
@@ -108,7 +112,7 @@ describe('WebRelayClient', () => {
       sessionId,
       timestamp: expect.any(Number),
       sequence: 1,
-      payload: { sessionId },
+      payload: { sessionId, token: sessionToken },
     });
     expect(JSON.parse(MockWebSocket.last.sent[1])).toEqual({
       protocolVersion: 2,
@@ -116,7 +120,7 @@ describe('WebRelayClient', () => {
       sessionId,
       timestamp: expect.any(Number),
       sequence: 2,
-      payload: { sessionId },
+      payload: { sessionId, token: sessionToken },
     });
   });
 
@@ -125,7 +129,8 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateOpen();
 
     const sessionId = client.sessionId();
-    client.sendEnvelope('qr_session_create', { sessionId: sessionId! });
+    const sessionToken = client.sessionToken();
+    client.sendEnvelope('qr_session_create', { sessionId: sessionId!, token: sessionToken! });
 
     expect(JSON.parse(MockWebSocket.last.sent[0])['protocolVersion']).toBe(2);
   });
@@ -135,7 +140,8 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateOpen();
 
     const sessionId = client.sessionId();
-    client.sendEnvelope('qr_session_create', { sessionId: sessionId! });
+    const sessionToken = client.sessionToken();
+    client.sendEnvelope('qr_session_create', { sessionId: sessionId!, token: sessionToken! });
 
     expect(typeof JSON.parse(MockWebSocket.last.sent[0])['timestamp']).toBe('number');
   });
@@ -145,10 +151,26 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateOpen();
 
     const sessionId = client.sessionId();
+    const sessionToken = client.sessionToken();
 
-    expect(() => client.sendEnvelope('qr_session_create', { sessionId: sessionId! })).not.toThrow();
-    expect(() => client.sendEnvelope('pair_request', { sessionId: sessionId! })).not.toThrow();
-    expect(() => client.sendEnvelope('pair_request', {} as { sessionId: string })).toThrowError('INVALID_TRANSPORT_PAYLOAD');
+    expect(() => client.sendEnvelope('qr_session_create', { sessionId: sessionId!, token: sessionToken! })).not.toThrow();
+    expect(() => client.sendEnvelope('pair_request', { sessionId: sessionId!, token: sessionToken! })).not.toThrow();
+    expect(() => client.sendEnvelope('pair_request', { sessionId: sessionId! } as { sessionId: string; token: string })).toThrowError('INVALID_TRANSPORT_PAYLOAD');
+  });
+
+  it('session_token_remains_stable_for_session', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    const sessionId = client.sessionId();
+    const sessionToken = client.sessionToken();
+
+    client.sendEnvelope('qr_session_create', { sessionId: sessionId!, token: sessionToken! });
+    client.sendEnvelope('pair_request', { sessionId: sessionId!, token: sessionToken! });
+
+    expect(client.sessionToken()).toBe(sessionToken);
+    expect(JSON.parse(MockWebSocket.last.sent[0]!).payload.token).toBe(sessionToken);
+    expect(JSON.parse(MockWebSocket.last.sent[1]!).payload.token).toBe(sessionToken);
   });
 
   it('web_relay_client_receive_envelope', () => {
