@@ -87,6 +87,12 @@ export type ProjectionEventSequenceResult = {
   readonly state: ProjectionState;
 };
 
+export type ProjectionTrackedState = {
+  readonly lastAppliedEventVersion: number | null;
+  readonly resyncRequired: boolean;
+  readonly state: ProjectionState;
+};
+
 const EMPTY_PROJECTION_STATE: ProjectionState = {
   folders: [],
   threads: [],
@@ -118,10 +124,14 @@ export class ProjectionEngine {
     this.bufferedEvents = [];
   }
 
-  onSnapshotStart(snapshotId: string | null): void {
+  startSnapshotAssembly(snapshotId: string | null): void {
     this.isSnapshotInProgress = true;
     this.bufferedEvents = [];
-    console.log(`SNAPSHOT_START snapshotId=${snapshotId ?? 'unknown'}`);
+    console.log(`SNAPSHOT_ASSEMBLY_STARTED snapshotId=${snapshotId ?? 'unknown'}`);
+  }
+
+  onSnapshotStart(snapshotId: string | null): void {
+    this.startSnapshotAssembly(snapshotId);
   }
 
   abortSnapshot(): void {
@@ -133,6 +143,7 @@ export class ProjectionEngine {
     console.log('SNAPSHOT_COMPLETE');
 
     this.applySnapshot(snapshotJson, baseEventVersion);
+    console.log('SNAPSHOT_APPLIED');
     const bufferedResult = this.processBufferedEvents(baseEventVersion);
     const lastAppliedEventVersion = this.getLastAppliedEventVersion();
 
@@ -184,42 +195,22 @@ export class ProjectionEngine {
 
     if (!this.hasStartedEventStream) {
       if (validationResult.status === 'IGNORE_DUPLICATE') {
-        console.log(`EVENT_IGNORED duplicate eventVersion=${eventEnvelope.eventVersion}`);
-        return {
-          status: 'EVENT_IGNORED_DUPLICATE',
-          lastAppliedEventVersion: this.lastAppliedEventVersion,
-          state: this.getProjectionState(),
-        };
+        return this.ignoreDuplicateEvent(eventEnvelope);
       }
 
       return this.onFirstEventAfterSnapshot(eventEnvelope);
     }
 
     if (validationResult.status === 'IGNORE_DUPLICATE') {
-      console.log(`EVENT_IGNORED duplicate eventVersion=${eventEnvelope.eventVersion}`);
-      return {
-        status: 'EVENT_IGNORED_DUPLICATE',
-        lastAppliedEventVersion: this.lastAppliedEventVersion,
-        state: this.getProjectionState(),
-      };
+      return this.ignoreDuplicateEvent(eventEnvelope);
     }
 
     if (validationResult.status === 'RESYNC_REQUIRED') {
-      this.resyncRequired = true;
-      this.emitResyncRequired(
-        'EVENT_GAP',
+      return this.requireResyncForGap(
+        eventEnvelope,
         validationResult.expectedEventVersion,
         validationResult.receivedEventVersion,
       );
-
-      return {
-        status: 'SNAPSHOT_RESYNC_REQUIRED',
-        lastAppliedEventVersion: this.lastAppliedEventVersion,
-        state: this.getProjectionState(),
-        reason: 'EVENT_GAP',
-        expectedEventVersion: validationResult.expectedEventVersion,
-        receivedEventVersion: validationResult.receivedEventVersion,
-      };
     }
 
     return this.applyValidatedEvent(eventEnvelope);
@@ -236,22 +227,12 @@ export class ProjectionEngine {
 
     const boundaryValidation = validateStartBoundary(this.baseEventVersion, eventEnvelope);
     if (boundaryValidation.status === 'INVALID') {
-      this.resyncRequired = true;
       console.error('RESYNC_TRIGGERED');
-      this.emitResyncRequired(
-        'EVENT_GAP',
+      return this.requireResyncForGap(
+        eventEnvelope,
         boundaryValidation.expectedEventVersion,
         boundaryValidation.receivedEventVersion,
       );
-
-      return {
-        status: 'SNAPSHOT_RESYNC_REQUIRED',
-        lastAppliedEventVersion: this.lastAppliedEventVersion,
-        state: this.getProjectionState(),
-        reason: 'EVENT_GAP',
-        expectedEventVersion: boundaryValidation.expectedEventVersion,
-        receivedEventVersion: boundaryValidation.receivedEventVersion,
-      };
     }
 
     this.hasStartedEventStream = true;
@@ -303,7 +284,7 @@ export class ProjectionEngine {
     return validateEventSequence(this.lastAppliedEventVersion, eventEnvelope);
   }
 
-  applyEventSequence(events: readonly EventEnvelope[]): ProjectionEventSequenceResult {
+  trackApplyLog(events: readonly EventEnvelope[]): ProjectionEventSequenceResult {
     const applyLog: string[] = [];
 
     for (const eventEnvelope of events) {
@@ -339,6 +320,10 @@ export class ProjectionEngine {
     };
   }
 
+  applyEventSequence(events: readonly EventEnvelope[]): ProjectionEventSequenceResult {
+    return this.trackApplyLog(events);
+  }
+
   private applyValidatedEvent(eventEnvelope: EventEnvelope): ProjectionEngineResult {
     if (this.lastAppliedEventVersion === null) {
       return {
@@ -348,9 +333,8 @@ export class ProjectionEngine {
       };
     }
 
-    console.log(
-      `EVENT_APPLY eventVersion=${eventEnvelope.eventVersion} lastApplied=${this.lastAppliedEventVersion}`,
-    );
+    console.log(`EVENT_APPLY version=${eventEnvelope.eventVersion}`);
+    console.log(`EVENT_APPLY eventVersion=${eventEnvelope.eventVersion} lastApplied=${this.lastAppliedEventVersion}`);
 
     this.state = this.vaultDomainProjection.applyEvent(eventEnvelope);
     this.lastAppliedEventVersion = eventEnvelope.eventVersion;
@@ -358,6 +342,16 @@ export class ProjectionEngine {
     return {
       status: 'EVENT_APPLIED',
       lastAppliedEventVersion: eventEnvelope.eventVersion,
+      state: this.getProjectionState(),
+    };
+  }
+
+  private ignoreDuplicateEvent(eventEnvelope: EventEnvelope): ProjectionEngineResult {
+    console.log(`EVENT_IGNORE_DUPLICATE version=${eventEnvelope.eventVersion}`);
+
+    return {
+      status: 'EVENT_IGNORED_DUPLICATE',
+      lastAppliedEventVersion: this.lastAppliedEventVersion,
       state: this.getProjectionState(),
     };
   }
@@ -391,6 +385,14 @@ export class ProjectionEngine {
 
   trackLastAppliedVersion(): number | null {
     return this.lastAppliedEventVersion;
+  }
+
+  trackState(): ProjectionTrackedState {
+    return {
+      lastAppliedEventVersion: this.lastAppliedEventVersion,
+      resyncRequired: this.resyncRequired,
+      state: this.getProjectionState(),
+    };
   }
 
   isResyncRequired(): boolean {
@@ -471,5 +473,25 @@ export class ProjectionEngine {
       expectedEventVersion,
       receivedEventVersion,
     });
+  }
+
+  private requireResyncForGap(
+    eventEnvelope: EventEnvelope,
+    expectedEventVersion: number,
+    receivedEventVersion: number,
+  ): ProjectionEngineResult {
+    this.resyncRequired = true;
+    console.log(`EVENT_GAP_DETECTED version=${eventEnvelope.eventVersion}`);
+    console.log('RESYNC_REQUIRED true');
+    this.emitResyncRequired('EVENT_GAP', expectedEventVersion, receivedEventVersion);
+
+    return {
+      status: 'SNAPSHOT_RESYNC_REQUIRED',
+      lastAppliedEventVersion: this.lastAppliedEventVersion,
+      state: this.getProjectionState(),
+      reason: 'EVENT_GAP',
+      expectedEventVersion,
+      receivedEventVersion,
+    };
   }
 }

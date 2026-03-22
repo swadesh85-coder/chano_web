@@ -95,21 +95,7 @@ export class SnapshotLoader {
       return;
     }
 
-    this.assembly = {
-      snapshotId: payload.snapshotId,
-      totalChunks: payload.totalChunks,
-      totalBytes: payload.totalBytes,
-      snapshotVersion: payload.snapshotVersion,
-      protocolVersion: payload.protocolVersion,
-      schemaVersion: payload.schemaVersion,
-      baseEventVersion: payload.baseEventVersion,
-      entityCount: payload.entityCount,
-      checksum: payload.checksum,
-      startedAt: Date.now(),
-      chunkBytes: [],
-      nextChunkIndex: 0,
-      receivedBytes: 0,
-    };
+    this.startSnapshotAssembly(payload);
 
     console.log(
       `SNAPSHOT_RECEIVE_START snapshotId=${payload.snapshotId ?? 'unknown'} totalChunks=${payload.totalChunks} type=${envelope.type} sessionId=${this.formatSessionId(envelope.sessionId)}`,
@@ -234,6 +220,24 @@ export class SnapshotLoader {
     } finally {
       unsubscribe();
     }
+  }
+
+  private startSnapshotAssembly(payload: SnapshotStartPayload): void {
+    this.assembly = {
+      snapshotId: payload.snapshotId,
+      totalChunks: payload.totalChunks,
+      totalBytes: payload.totalBytes,
+      snapshotVersion: payload.snapshotVersion,
+      protocolVersion: payload.protocolVersion,
+      schemaVersion: payload.schemaVersion,
+      baseEventVersion: payload.baseEventVersion,
+      entityCount: payload.entityCount,
+      checksum: payload.checksum,
+      startedAt: Date.now(),
+      chunkBytes: [],
+      nextChunkIndex: 0,
+      receivedBytes: 0,
+    };
   }
 
   private parseSnapshotStartPayload(payload: Record<string, unknown>): SnapshotStartPayload | null {
