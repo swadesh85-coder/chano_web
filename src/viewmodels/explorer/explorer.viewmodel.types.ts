@@ -40,6 +40,11 @@ export type RecordViewModel = RecordListViewModel;
 
 export type ContentPaneViewModel =
   | {
+      readonly mode: 'empty';
+      readonly threadList: readonly ThreadListViewModel[];
+      readonly recordList: readonly RecordListViewModel[];
+    }
+  | {
       readonly mode: 'threads';
       readonly threadList: readonly ThreadListViewModel[];
       readonly recordList: readonly RecordListViewModel[];

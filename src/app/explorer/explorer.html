@@ -29,7 +29,7 @@
           type="button"
           class="panel-item panel-item--folder"
           data-testid="folder-root"
-          [class.panel-item--selected]="selectedFolderId() === rootFolderId"
+          [class.panel-item--selected]="activePane() === 'folder' && selectedFolderId() === rootFolderId"
           (click)="handleSelection('folder', rootFolderId)"
           aria-label="Select root folder"
         >
@@ -54,12 +54,14 @@
         <div>
           <h2 class="panel-title">Content</h2>
           <p class="panel-subtitle">
-            @if (selectedThreadId() !== null) {
+            @if (activePane() === 'thread') {
               Thread contents
-            } @else if (selectedFolderId() === null) {
+            } @else if (activePane() === 'folder' && selectedFolderId() === null) {
               Root folder contents
-            } @else {
+            } @else if (activePane() === 'folder') {
               {{ selectedFolder()?.name ?? 'Selected folder' }}
+            } @else {
+              No selection
             }
           </p>
         </div>

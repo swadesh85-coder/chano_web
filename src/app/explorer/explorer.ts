@@ -15,6 +15,7 @@ import { ExplorerActions } from './explorer_actions';
 import { RecordEditor } from './record_editor';
 import { ExplorerContentPaneContainer } from '../explorer_content_pane.container';
 import { ExplorerFolderTreeContainer } from '../explorer_folder_tree.container';
+import { NavigationContainer } from '../navigation.container';
 import type { MutationEntityType } from '../../transport';
 import {
   type FolderTreeViewModel,
@@ -35,17 +36,35 @@ export class ExplorerComponent {
   private readonly relay = inject(WebRelayClient);
   private readonly contentPaneContainer = inject(ExplorerContentPaneContainer);
   private readonly folderTreeContainer = inject(ExplorerFolderTreeContainer);
+  private readonly navigation = inject(NavigationContainer);
 
   readonly rootFolderId: null = null;
-  readonly selectedFolderId = signal<string | null>(this.rootFolderId);
-  readonly selectedThreadId = signal<string | null>(null);
+  readonly selectedFolderId = this.navigation.selectedFolderId;
+  readonly selectedThreadId = this.navigation.selectedThreadId;
+  readonly activePane = this.navigation.activePane;
   readonly folderTree = this.folderTreeContainer.folderTree;
-  readonly threadList = computed(() => this.contentPaneContainer.threadList(this.selectedFolderId()));
-  readonly recordList = computed(() => this.contentPaneContainer.recordList(this.selectedThreadId()));
-  readonly contentPane = computed(() =>
-    this.contentPaneContainer.contentPane(this.selectedFolderId(), this.selectedThreadId()),
+  readonly threadList = computed(() =>
+    this.activePane() !== 'empty'
+      ? this.contentPaneContainer.threadList(this.selectedFolderId())
+      : [],
   );
-  readonly selectedFolder = computed(() => this.folderTreeContainer.findFolder(this.selectedFolderId()));
+  readonly recordList = computed(() =>
+    this.activePane() === 'thread' && this.selectedThreadId() !== null
+      ? this.contentPaneContainer.recordList(this.selectedThreadId())
+      : [],
+  );
+  readonly contentPane = computed(() =>
+    this.contentPaneContainer.contentPane(
+      this.selectedFolderId(),
+      this.selectedThreadId(),
+      this.activePane(),
+    ),
+  );
+  readonly selectedFolder = computed(() =>
+    this.activePane() === 'empty'
+      ? null
+      : this.folderTreeContainer.findFolder(this.selectedFolderId()),
+  );
   readonly disabledThreadIds = computed<Readonly<Record<string, boolean>>>(() => {
     return Object.fromEntries(
       this.threadList().map((thread) => [thread.id, this.isActionDisabled(thread.id)]),
@@ -58,8 +77,6 @@ export class ExplorerComponent {
   });
 
   constructor() {
-    this.subscribeToProjection();
-
     effect(() => {
       const folderCount = this.countFolderNodes(this.folderTree());
       const threads = this.threadList();
@@ -85,22 +102,20 @@ export class ExplorerComponent {
   }
 
   selectFolder(folderId: string | null): void {
-    if (this.selectedFolderId() === folderId) {
+    if (this.activePane() === 'folder' && this.selectedFolderId() === folderId) {
       return;
     }
 
-    this.selectedFolderId.set(folderId);
-    this.selectedThreadId.set(null);
-    console.log(`SELECT folder=${folderId}`);
+    this.navigation.selectFolder(folderId);
   }
 
   selectThread(threadId: string): void {
-    if (!this.threadList().some((thread) => thread.id === threadId)) {
+    const thread = this.threadList().find((candidate) => candidate.id === threadId);
+    if (thread === undefined) {
       return;
     }
 
-    this.selectedThreadId.set(threadId);
-    console.log(`SELECT thread=${threadId}`);
+    this.navigation.selectThread(threadId);
   }
 
   onCreateThread(folderId: string, title: string): void {
@@ -245,42 +260,14 @@ export class ExplorerComponent {
     return record.id;
   }
 
-  private reconcileSelection(): void {
-    const selectedFolderId = untracked(() => this.selectedFolderId());
-    const selectedThreadId = untracked(() => this.selectedThreadId());
-    const folderExists = this.folderTreeContainer.hasFolder(selectedFolderId);
+  private readonly projectionEffect = effect(() => {
+    this.folderTree();
+    this.threadList();
+    this.recordList();
+    const projectionUpdate = this.contentPaneContainer.projectionUpdate();
 
-    if (!folderExists) {
-      this.selectedFolderId.set(this.rootFolderId);
-      console.log('SELECT folder=null');
-    }
-
-    if (selectedThreadId === null) {
-      return;
-    }
-
-    const effectiveSelectedFolderId = folderExists ? selectedFolderId : this.rootFolderId;
-    const threadStillVisible = this.contentPaneContainer.hasVisibleThread(
-      effectiveSelectedFolderId,
-      selectedThreadId,
-    );
-    if (!threadStillVisible) {
-      this.selectedThreadId.set(null);
-      console.log('THREAD_REMOVED selection cleared');
-    }
-  }
-
-  private subscribeToProjection(): void {
-    effect(() => {
-      this.folderTree();
-      this.threadList();
-      this.recordList();
-      const projectionUpdate = this.contentPaneContainer.projectionUpdate();
-
-      this.reconcileSelection();
-      this.refreshOnSnapshotAndEvents(projectionUpdate);
-    });
-  }
+    this.refreshOnSnapshotAndEvents(projectionUpdate);
+  });
 
   private refreshOnSnapshotAndEvents(projectionUpdate: ProjectionUpdate | null): void {
     if (projectionUpdate === null) {

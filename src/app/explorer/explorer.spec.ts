@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectionStore } from '../projection/projection.store';
 import { ExplorerActions } from './explorer_actions';
@@ -14,6 +15,17 @@ import type {
   RecordEntry,
   Thread,
 } from '../projection/projection.models';
+
+let angularTestEnvironmentInitialized = false;
+
+function ensureAngularTestEnvironment(): void {
+  if (angularTestEnvironmentInitialized) {
+    return;
+  }
+
+  TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  angularTestEnvironmentInitialized = true;
+}
 
 describe('ExplorerComponent', () => {
   let fixture: ComponentFixture<ExplorerComponent>;
@@ -79,6 +91,8 @@ describe('ExplorerComponent', () => {
   }
 
   beforeEach(async () => {
+    ensureAngularTestEnvironment();
+
     sendCommand = vi.fn(() => null);
     consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     pendingStore = {

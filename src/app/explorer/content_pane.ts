@@ -15,7 +15,9 @@ import { ThreadListComponent } from './thread_list';
   selector: 'app-content-pane',
   imports: [RecordListComponent, ThreadListComponent],
   template: `
-    @if (content().mode === 'records') {
+    @if (content().mode === 'empty') {
+      <p class="empty-text panel-empty">Select a folder or thread to inspect content</p>
+    } @else if (content().mode === 'records') {
       <app-record-list
         [threadId]="activeThreadId()"
         [records]="content().recordList"
