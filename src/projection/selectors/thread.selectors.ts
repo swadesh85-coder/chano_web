@@ -1,5 +1,6 @@
 import type { ProjectionState, Thread } from '../../app/projection/projection.models';
 import { selectRecordsByThread, selectRecordsByThreadId, selectRecordEventVersion } from './record.selectors';
+import { sortThreadsForExplorer } from './explorer.ordering.selectors';
 
 export type ProjectionThreadSelectorResult = {
   readonly threadIds: readonly string[];
@@ -7,7 +8,7 @@ export type ProjectionThreadSelectorResult = {
 };
 
 export function selectThreads(state: ProjectionState): readonly Thread[] {
-  return [...state.threads].sort(compareThreadsDeterministically);
+  return sortThreadsForExplorer(state.threads);
 }
 
 export function selectThreadMap(state: ProjectionState): Readonly<Record<string, Thread>> {
@@ -35,9 +36,9 @@ export function selectThreadsByFolderId(
   state: ProjectionState,
   folderId: string | null,
 ): ProjectionThreadSelectorResult {
-  const threads = state.threads
-    .filter((thread) => folderId === null ? thread.folderId === 'root' : thread.folderId === folderId)
-    .sort(compareThreadsDeterministically);
+  const threads = sortThreadsForExplorer(
+    state.threads.filter((thread) => folderId === null ? thread.folderId === 'root' : thread.folderId === folderId),
+  );
 
   return {
     threadIds: threads.map((thread) => thread.id),
@@ -55,36 +56,13 @@ export function selectThreadLastEventVersion(state: ProjectionState, threadId: s
     return null;
   }
 
-  let lastEventVersion = thread.entityVersion;
-  for (const record of selectRecordsByThread(state, thread.id)) {
-    const eventVersion = selectRecordEventVersion(record);
-    if (eventVersion > lastEventVersion) {
-      lastEventVersion = eventVersion;
-    }
+  if (typeof thread.lastEventVersion !== 'number' || Number.isNaN(thread.lastEventVersion)) {
+    throw new Error(`Thread ${thread.id} missing authoritative lastEventVersion`);
   }
 
-  return lastEventVersion;
+  return thread.lastEventVersion;
 }
 
 function buildThreadMap(threads: readonly Thread[]): Readonly<Record<string, Thread>> {
   return Object.fromEntries(threads.map((thread) => [thread.id, thread]));
-}
-
-function compareThreadsDeterministically(left: Thread, right: Thread): number {
-  const leftOrderIndex = readOptionalOrderIndex(left);
-  const rightOrderIndex = readOptionalOrderIndex(right);
-  if (leftOrderIndex !== rightOrderIndex) {
-    return leftOrderIndex - rightOrderIndex;
-  }
-
-  if (left.entityVersion !== right.entityVersion) {
-    return left.entityVersion - right.entityVersion;
-  }
-
-  return left.id.localeCompare(right.id);
-}
-
-function readOptionalOrderIndex(thread: Thread): number {
-  const orderIndex = (thread as Thread & { readonly orderIndex?: number | null }).orderIndex;
-  return typeof orderIndex === 'number' ? orderIndex : Number.MAX_SAFE_INTEGER;
 }

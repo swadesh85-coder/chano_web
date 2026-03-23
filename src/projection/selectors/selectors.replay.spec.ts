@@ -32,6 +32,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-root',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'folder-root',
@@ -45,6 +46,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-root',
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'thread-root',
@@ -199,10 +201,10 @@ describe('Strict selector layer replay', () => {
 function createProjectionState(): ProjectionState {
   return {
     folders: [
-      { id: 'folder-root', name: 'Root', parentId: null, entityVersion: 1 },
+      { id: 'folder-root', name: 'Root', parentId: null, entityVersion: 1, lastEventVersion: 1 },
     ],
     threads: [
-      { id: 'thread-root', folderId: 'folder-root', title: 'Main thread', entityVersion: 2 },
+      { id: 'thread-root', folderId: 'folder-root', title: 'Main thread', entityVersion: 2, lastEventVersion: 2 },
     ],
     records: [
       {

@@ -118,6 +118,7 @@ function createCanonicalSnapshotJson(options: {
         entityType: 'folder',
         entityUuid: 'folder-1',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'folder-1',
@@ -131,6 +132,7 @@ function createCanonicalSnapshotJson(options: {
         entityType: 'thread',
         entityUuid: 'thread-1',
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'thread-1',
@@ -262,7 +264,7 @@ describe('SnapshotLoader', () => {
 
   it('snapshot_complete_snapshot_rebuild', async () => {
     const snapshotJson = JSON.stringify({
-      folders: [{ entityType: 'folder', entityUuid: 'f1', entityVersion: 1, ownerUserId: 'u1', data: { uuid: 'f1', name: 'Inbox', parentFolderUuid: null } }],
+      folders: [{ entityType: 'folder', entityUuid: 'f1', entityVersion: 1, lastEventVersion: 1, ownerUserId: 'u1', data: { uuid: 'f1', name: 'Inbox', parentFolderUuid: null } }],
       threads: [],
       records: [],
     });
@@ -306,6 +308,7 @@ describe('SnapshotLoader', () => {
           entityType: 'folder',
           entityUuid: 'folder-root',
           entityVersion: 1,
+          lastEventVersion: 1,
           ownerUserId: 'owner-1',
           data: {
             uuid: 'folder-root',
@@ -319,6 +322,7 @@ describe('SnapshotLoader', () => {
           entityType: 'thread',
           entityUuid: 'thread-1',
           entityVersion: 2,
+          lastEventVersion: 2,
           ownerUserId: 'owner-1',
           data: {
             uuid: 'thread-1',

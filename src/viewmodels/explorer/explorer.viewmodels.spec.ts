@@ -12,15 +12,15 @@ import { selectThreadListViewModel } from './threadList.viewmodel';
 function createProjectionState(): ProjectionState {
   return {
     folders: [
-      { id: 'folder-b', name: 'Folder B', parentId: null, entityVersion: 2 },
-      { id: 'folder-a-2', name: 'Folder A2', parentId: 'folder-a', entityVersion: 4 },
-      { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 1 },
-      { id: 'folder-a-1', name: 'Folder A1', parentId: 'folder-a', entityVersion: 3 },
+      { id: 'folder-b', name: 'Folder B', parentId: null, entityVersion: 2, lastEventVersion: 2 },
+      { id: 'folder-a-2', name: 'Folder A2', parentId: 'folder-a', entityVersion: 4, lastEventVersion: 4 },
+      { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 1, lastEventVersion: 1 },
+      { id: 'folder-a-1', name: 'Folder A1', parentId: 'folder-a', entityVersion: 3, lastEventVersion: 3 },
     ],
     threads: [
-      { id: 'thread-c', folderId: 'folder-a', title: 'Thread C', entityVersion: 4 },
-      { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 2 },
-      { id: 'thread-b', folderId: 'folder-a', title: 'Thread B', entityVersion: 3 },
+      { id: 'thread-c', folderId: 'folder-a', title: 'Thread C', entityVersion: 4, lastEventVersion: 4 },
+      { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 2, lastEventVersion: 2 },
+      { id: 'thread-b', folderId: 'folder-a', title: 'Thread B', entityVersion: 3, lastEventVersion: 3 },
     ],
     records: [
       {
@@ -113,6 +113,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-root',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'folder-root',
@@ -126,6 +127,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-root',
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'thread-root',
@@ -227,7 +229,7 @@ describe('Explorer viewmodels', () => {
 
     const threadList = selectThreadListViewModel(state, 'folder-a');
     expect(threadList.map((thread) => thread.id)).toEqual(['thread-a', 'thread-b', 'thread-c']);
-    expect(threadList.map((thread) => thread.lastEventVersion)).toEqual([7, 10, 10]);
+    expect(threadList.map((thread) => thread.lastEventVersion)).toEqual([2, 3, 4]);
     expect(threadList.map((thread) => thread.folderId)).toEqual(['folder-a', 'folder-a', 'folder-a']);
 
     const recordList = selectRecordListViewModel(state, 'thread-a');
@@ -236,12 +238,72 @@ describe('Explorer viewmodels', () => {
     expect(recordList.map((record) => record.threadId)).toEqual(['thread-a', 'thread-a', 'thread-a']);
   });
 
+  it('derives thread record nodes directly from selector ordering without local resorting', () => {
+    const state: ProjectionState = {
+      folders: [],
+      threads: [{ id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 1, lastEventVersion: 1 }],
+      records: [
+        {
+          id: 'record-z',
+          threadId: 'thread-a',
+          type: 'text',
+          name: 'Trailing text',
+          createdAt: 3,
+          editedAt: 3,
+          orderIndex: 2,
+          isStarred: false,
+          imageGroupId: null,
+          entityVersion: 3,
+          lastEventVersion: 3,
+        },
+        {
+          id: 'record-a1',
+          threadId: 'thread-a',
+          type: 'image',
+          name: 'Lead image',
+          createdAt: 1,
+          editedAt: 1,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: 'group-a',
+          entityVersion: 1,
+          lastEventVersion: 1,
+        },
+        {
+          id: 'record-a2',
+          threadId: 'thread-a',
+          type: 'image',
+          name: 'Second image',
+          createdAt: 2,
+          editedAt: 2,
+          orderIndex: 1,
+          isStarred: false,
+          imageGroupId: 'group-a',
+          entityVersion: 2,
+          lastEventVersion: 2,
+        },
+      ],
+    };
+
+    const nodes = selectThreadRecordNodeViewModel(state, 'thread-a');
+
+    expect(nodes).toHaveLength(2);
+    expect(nodes[0]?.kind).toBe('imageGroup');
+    expect(nodes[0]?.key).toBe('imageGroup:group-a');
+    expect(nodes[1]).toEqual({
+      kind: 'record',
+      key: 'record:record-z',
+      record: expect.objectContaining({ id: 'record-z', eventVersion: 3 }),
+    });
+  });
+
   it('deep_hierarchy_renders_10_levels_without_losing_structure', () => {
     const folders = Array.from({ length: 11 }, (_value, index) => ({
       id: `folder-${index}`,
       name: `Folder ${index}`,
       parentId: index === 0 ? null : `folder-${index - 1}`,
       entityVersion: index + 1,
+      lastEventVersion: index + 1,
     }));
     const state: ProjectionState = {
       folders,
@@ -264,9 +326,9 @@ describe('Explorer viewmodels', () => {
   it('folder_tree_updates_the_correct_parent_branch_only', () => {
     const initialState: ProjectionState = {
       folders: [
-        { id: 'folder-root', name: 'Root', parentId: null, entityVersion: 1 },
-        { id: 'folder-a', name: 'Folder A', parentId: 'folder-root', entityVersion: 2 },
-        { id: 'folder-b', name: 'Folder B', parentId: 'folder-root', entityVersion: 3 },
+        { id: 'folder-root', name: 'Root', parentId: null, entityVersion: 1, lastEventVersion: 1 },
+        { id: 'folder-a', name: 'Folder A', parentId: 'folder-root', entityVersion: 2, lastEventVersion: 2 },
+        { id: 'folder-b', name: 'Folder B', parentId: 'folder-root', entityVersion: 3, lastEventVersion: 3 },
       ],
       threads: [],
       records: [],
@@ -275,7 +337,7 @@ describe('Explorer viewmodels', () => {
       ...initialState,
       folders: [
         ...initialState.folders,
-        { id: 'folder-a-child', name: 'Folder A Child', parentId: 'folder-a', entityVersion: 4 },
+        { id: 'folder-a-child', name: 'Folder A Child', parentId: 'folder-a', entityVersion: 4, lastEventVersion: 4 },
       ],
     };
 

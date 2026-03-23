@@ -115,7 +115,15 @@ export class ProjectionStore {
         console.log(
           `PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=${this.formatSessionId(this.snapshotSessionId)}`,
         );
-        this.applyLoadedSnapshot(event.parsedSnapshot, event.baseEventVersion, event.entityCount);
+        try {
+          this.applyLoadedSnapshot(event.parsedSnapshot, event.baseEventVersion, event.entityCount);
+        } catch (error: unknown) {
+          this.projectionEngine.abortSnapshot();
+          this._phase.set('idle');
+          console.error(
+            `SNAPSHOT_ERROR ${error instanceof Error ? error.message : 'UNKNOWN_SNAPSHOT_REJECTION'}`,
+          );
+        }
         return;
     }
   }

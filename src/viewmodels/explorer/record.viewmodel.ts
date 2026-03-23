@@ -8,7 +8,6 @@ import {
   selectRecordById,
   selectRecordEventVersion,
   selectRecordsByThread,
-  selectRecordsByThreadId,
 } from '../../projection/selectors';
 import type {
   MediaViewerViewModel,
@@ -21,8 +20,7 @@ export function selectRecordListViewModel(
   state: ProjectionState,
   threadId: string | null,
 ): readonly RecordListViewModel[] {
-  const selection = selectRecordsByThreadId(state, threadId);
-  return buildRecordListViewModel(selection.recordIds.map((recordId) => selection.recordMap[recordId]!));
+  return buildRecordListViewModel(selectRecordsByThread(state, threadId));
 }
 
 export function buildRecordListViewModel(records: readonly RecordEntry[]): readonly RecordListViewModel[] {
@@ -68,20 +66,44 @@ export function selectThreadRecordNodeViewModel(
 
   const records = selectRecordsByThread(state, threadId);
   const imageGroups = selectImageGroupsForThread(state, threadId);
-  const groupedRecordIds = new Set(
-    imageGroups.flatMap((imageGroup) => imageGroup.records.map((record) => record.id)),
+  const imageGroupsById = Object.fromEntries(
+    imageGroups.map((imageGroup) => [imageGroup.imageGroupId, imageGroup] as const),
   );
 
-  const groupNodes = imageGroups.map((imageGroup) => buildImageGroupNode(imageGroup.imageGroupId, imageGroup.records));
-  const recordNodes = records
-    .filter((record) => !groupedRecordIds.has(record.id))
-    .map((record) => ({
-      kind: 'record' as const,
-      key: `record:${record.id}`,
-      record: buildRecordViewModel(record),
-    }));
+  return records.reduce<{
+    readonly emittedGroupIds: Readonly<Record<string, boolean>>;
+    readonly nodes: readonly ThreadRecordNodeViewModel[];
+  }>((accumulator, record) => {
+    if (record.type === 'image' && record.imageGroupId !== null) {
+      const imageGroup = imageGroupsById[record.imageGroupId];
+      if (imageGroup === undefined || accumulator.emittedGroupIds[imageGroup.imageGroupId] === true) {
+        return accumulator;
+      }
 
-  return [...groupNodes, ...recordNodes].sort(compareThreadRecordNodeViewModel);
+      return {
+        emittedGroupIds: {
+          ...accumulator.emittedGroupIds,
+          [imageGroup.imageGroupId]: true,
+        },
+        nodes: [...accumulator.nodes, buildImageGroupNode(imageGroup.imageGroupId, imageGroup.records)],
+      };
+    }
+
+    return {
+      emittedGroupIds: accumulator.emittedGroupIds,
+      nodes: [
+        ...accumulator.nodes,
+        {
+          kind: 'record',
+          key: `record:${record.id}`,
+          record: buildRecordViewModel(record),
+        },
+      ],
+    };
+  }, {
+    emittedGroupIds: {},
+    nodes: [],
+  }).nodes;
 }
 
 export function selectMediaViewerViewModel(
@@ -141,33 +163,6 @@ function buildImageGroupNode(
     leadRecordId: recordViewModels[0]?.id ?? null,
     recordIdsSummary: `[${recordViewModels.map((record) => record.id).join(', ')}]`,
   };
-}
-
-function compareThreadRecordNodeViewModel(
-  left: ThreadRecordNodeViewModel,
-  right: ThreadRecordNodeViewModel,
-): number {
-  const leftEventVersion = getThreadRecordNodeEventVersion(left);
-  const rightEventVersion = getThreadRecordNodeEventVersion(right);
-
-  if (leftEventVersion !== rightEventVersion) {
-    return leftEventVersion - rightEventVersion;
-  }
-
-  return left.key.localeCompare(right.key);
-}
-
-function getThreadRecordNodeEventVersion(node: ThreadRecordNodeViewModel): number {
-  if (node.kind === 'record') {
-    return node.record.eventVersion;
-  }
-
-  const leadRecord = node.records[0];
-  if (leadRecord === undefined) {
-    throw new Error('Image group missing authoritative eventVersion');
-  }
-
-  return leadRecord.eventVersion;
 }
 
 function findRecordViewModel(

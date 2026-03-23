@@ -10,6 +10,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder:0001',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'folder:0001',
@@ -21,6 +22,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder:0002',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'folder:0002',
@@ -34,6 +36,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread:0001',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'thread:0001',
@@ -103,10 +106,10 @@ describe('VaultDomainProjection', () => {
     expect(state.records.map((record) => record.id)).toEqual(['record:0001']);
     expect(state).toEqual({
       folders: [
-        { id: 'folder:0001', name: 'Root', parentId: null, entityVersion: 1 },
-        { id: 'folder:0002', name: 'Child', parentId: 'folder:0001', entityVersion: 1 },
+        { id: 'folder:0001', name: 'Root', parentId: null, entityVersion: 1, lastEventVersion: 1 },
+        { id: 'folder:0002', name: 'Child', parentId: 'folder:0001', entityVersion: 1, lastEventVersion: 1 },
       ],
-      threads: [{ id: 'thread:0001', folderId: 'folder:0002', title: 'Thread A', entityVersion: 1 }],
+      threads: [{ id: 'thread:0001', folderId: 'folder:0002', title: 'Thread A', entityVersion: 1, lastEventVersion: 1 }],
       records: [
         {
           id: 'record:0001',
@@ -212,6 +215,7 @@ describe('VaultDomainProjection', () => {
           entityType: 'thread',
           entityUuid: 'thread:0002',
           entityVersion: 1,
+          lastEventVersion: 1,
           ownerUserId: 'owner-1',
           data: {
             uuid: 'thread:0002',

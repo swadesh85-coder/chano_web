@@ -2,9 +2,9 @@ import type {
   ProjectionState,
 } from '../../app/projection/projection.models';
 import {
+  selectThreadsByFolder,
   selectThreadLastEventVersion,
   selectThreadRecordCount,
-  selectThreadsByFolderId,
 } from '../../projection/selectors';
 import type {
   ThreadListItemSelectorView,
@@ -36,16 +36,17 @@ function buildThreadSelectorView(
   state: ProjectionState,
   folderId: string | null,
 ): readonly ThreadListItemSelectorView[] {
-  const selection = selectThreadsByFolderId(state, folderId);
-
-  return selection.threadIds.map((threadId) => {
-    const thread = selection.threadMap[threadId]!;
+  return selectThreadsByFolder(state, folderId).map((thread) => {
+    const lastEventVersion = selectThreadLastEventVersion(state, thread.id);
+    if (lastEventVersion === null) {
+      throw new Error(`Thread ${thread.id} missing authoritative lastEventVersion`);
+    }
 
     return {
       entityId: thread.id,
       title: thread.title,
       folderId: thread.folderId,
-      lastEventVersion: selectThreadLastEventVersion(state, thread.id) ?? thread.entityVersion,
+      lastEventVersion,
       recordCount: selectThreadRecordCount(state, thread.id),
     };
   });

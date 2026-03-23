@@ -14,6 +14,7 @@ type CanonicalFolder = {
   readonly name: string;
   readonly parentId: string | null;
   readonly ownerUserId: string;
+  readonly lastEventVersion: number;
   readonly lastMutationVersion: number;
   readonly deleted: boolean;
 };
@@ -23,6 +24,7 @@ type CanonicalThread = {
   readonly folderId: string;
   readonly title: string;
   readonly ownerUserId: string;
+  readonly lastEventVersion: number;
   readonly lastMutationVersion: number;
   readonly deleted: boolean;
 };
@@ -167,6 +169,7 @@ export class VaultDomainProjection {
         entityType: 'folder' as const,
         entityUuid: folder.id,
         entityVersion: folder.lastMutationVersion,
+        lastEventVersion: folder.lastEventVersion,
         ownerUserId: folder.ownerUserId,
         data: {
           uuid: folder.id,
@@ -178,6 +181,7 @@ export class VaultDomainProjection {
         entityType: 'thread' as const,
         entityUuid: thread.id,
         entityVersion: thread.lastMutationVersion,
+        lastEventVersion: thread.lastEventVersion,
         ownerUserId: thread.ownerUserId,
         data: {
           uuid: thread.id,
@@ -217,22 +221,38 @@ export class VaultDomainProjection {
   }
 
   private insertSnapshotFolder(entity: SnapshotEntity): void {
+    if (!('lastEventVersion' in entity) || entity.lastEventVersion == null) {
+      throw new Error('Missing folder lastEventVersion in snapshot');
+    }
+
+    this.assertValidEventVersion(entity.lastEventVersion);
+    console.log('ORDERING_VALIDATION entity=folder status=OK');
+
     this.folders.set(entity.entityUuid, {
       id: entity.entityUuid,
       name: entity.data['name'] as string,
       parentId: (entity.data['parentFolderUuid'] as string | null | undefined) ?? null,
       ownerUserId: entity.ownerUserId,
+      lastEventVersion: entity.lastEventVersion,
       lastMutationVersion: entity.entityVersion,
       deleted: false,
     });
   }
 
   private insertSnapshotThread(entity: SnapshotEntity): void {
+    if (!('lastEventVersion' in entity) || entity.lastEventVersion == null) {
+      throw new Error('Missing thread lastEventVersion in snapshot');
+    }
+
+    this.assertValidEventVersion(entity.lastEventVersion);
+    console.log('ORDERING_VALIDATION entity=thread status=OK');
+
     this.threads.set(entity.entityUuid, {
       id: entity.entityUuid,
       folderId: ((entity.data['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID),
       title: entity.data['title'] as string,
       ownerUserId: entity.ownerUserId,
+      lastEventVersion: entity.lastEventVersion,
       lastMutationVersion: entity.entityVersion,
       deleted: false,
     });
@@ -244,6 +264,7 @@ export class VaultDomainProjection {
     }
 
     this.assertValidEventVersion(entity.lastEventVersion);
+    console.log('ORDERING_VALIDATION entity=record status=OK');
 
     this.records.set(entity.entityUuid, {
       id: entity.entityUuid,
@@ -275,9 +296,11 @@ export class VaultDomainProjection {
           name: eventEnvelope.payload['name'] as string,
           parentId: (eventEnvelope.payload['parentFolderUuid'] as string | null | undefined) ?? null,
           ownerUserId: eventEnvelope.originDeviceId,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
           deleted: false,
         });
+        console.log('ORDERING_VALIDATION entity=folder status=OK');
         break;
       case 'thread':
         this.threads.set(eventEnvelope.entityId, {
@@ -285,9 +308,11 @@ export class VaultDomainProjection {
           folderId: (eventEnvelope.payload['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID,
           title: eventEnvelope.payload['title'] as string,
           ownerUserId: eventEnvelope.originDeviceId,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
           deleted: false,
         });
+        console.log('ORDERING_VALIDATION entity=thread status=OK');
         break;
       case 'record':
         this.records.set(eventEnvelope.entityId, {
@@ -309,6 +334,7 @@ export class VaultDomainProjection {
           lastMutationVersion: eventEnvelope.eventVersion,
           deleted: false,
         });
+        console.log('ORDERING_VALIDATION entity=record status=OK');
         break;
     }
   }
@@ -331,9 +357,11 @@ export class VaultDomainProjection {
             ? (eventEnvelope.payload['parentFolderUuid'] as string | null)
             : existing.parentId,
           ownerUserId: existing.ownerUserId,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
           deleted: existing.deleted,
         });
+        console.log('ORDERING_VALIDATION entity=folder status=OK');
         break;
       }
       case 'thread': {
@@ -351,9 +379,11 @@ export class VaultDomainProjection {
             ? eventEnvelope.payload['title'] as string
             : existing.title,
           ownerUserId: existing.ownerUserId,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
           deleted: existing.deleted,
         });
+        console.log('ORDERING_VALIDATION entity=thread status=OK');
         break;
       }
       case 'record': {
@@ -405,6 +435,7 @@ export class VaultDomainProjection {
           lastMutationVersion: eventEnvelope.eventVersion,
           deleted: existing.deleted,
         });
+        console.log('ORDERING_VALIDATION entity=record status=OK');
         break;
       }
     }
@@ -422,8 +453,10 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
           name: eventEnvelope.payload['name'] as string,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=folder status=OK');
         break;
       }
       case 'thread': {
@@ -435,8 +468,10 @@ export class VaultDomainProjection {
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
           title: eventEnvelope.payload['title'] as string,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=thread status=OK');
         break;
       }
       case 'record': {
@@ -451,6 +486,7 @@ export class VaultDomainProjection {
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=record status=OK');
         break;
       }
     }
@@ -468,8 +504,10 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
           parentId: (eventEnvelope.payload['parentFolderUuid'] as string | null | undefined) ?? null,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=folder status=OK');
         break;
       }
       case 'thread': {
@@ -481,8 +519,10 @@ export class VaultDomainProjection {
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
           folderId: (eventEnvelope.payload['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=thread status=OK');
         break;
       }
       case 'record': {
@@ -497,6 +537,7 @@ export class VaultDomainProjection {
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=record status=OK');
         break;
       }
     }
@@ -514,8 +555,10 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
           deleted: true,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=folder status=OK');
         break;
       }
       case 'thread': {
@@ -527,8 +570,10 @@ export class VaultDomainProjection {
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
           deleted: true,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=thread status=OK');
         break;
       }
       case 'record': {
@@ -543,6 +588,7 @@ export class VaultDomainProjection {
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=record status=OK');
         break;
       }
     }
@@ -560,8 +606,10 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
           deleted: false,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=folder status=OK');
         break;
       }
       case 'thread': {
@@ -573,8 +621,10 @@ export class VaultDomainProjection {
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
           deleted: false,
+          lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=thread status=OK');
         break;
       }
       case 'record': {
@@ -589,6 +639,7 @@ export class VaultDomainProjection {
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
+        console.log('ORDERING_VALIDATION entity=record status=OK');
         break;
       }
     }
@@ -628,6 +679,7 @@ export class VaultDomainProjection {
       name: folder.name,
       parentId: folder.parentId,
       entityVersion: folder.lastMutationVersion,
+      lastEventVersion: folder.lastEventVersion,
     }));
   }
 
@@ -671,6 +723,7 @@ export class VaultDomainProjection {
       folderId: thread.folderId,
       title: thread.title,
       entityVersion: thread.lastMutationVersion,
+      lastEventVersion: thread.lastEventVersion,
     }));
   }
 

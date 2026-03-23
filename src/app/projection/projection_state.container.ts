@@ -1,7 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import type { EventEntity, ProjectionState } from './projection.models';
 import { ProjectionStore } from './projection.store';
-import { selectEntityVersion } from '../../projection/selectors';
 
 @Injectable({ providedIn: 'root' })
 export class ProjectionStateContainer {
@@ -16,6 +15,16 @@ export class ProjectionStateContainer {
   }
 
   getEntityVersion(entityType: EventEntity, entityId: string): number | null {
-    return selectEntityVersion(this.store.state(), entityType, entityId);
+    const state = this.store.state();
+
+    switch (entityType) {
+      case 'folder':
+      case 'imageGroup':
+        return state.folders.find((entity) => entity.id === entityId)?.entityVersion ?? null;
+      case 'thread':
+        return state.threads.find((entity) => entity.id === entityId)?.entityVersion ?? null;
+      case 'record':
+        return state.records.find((entity) => entity.id === entityId)?.entityVersion ?? null;
+    }
   }
 }

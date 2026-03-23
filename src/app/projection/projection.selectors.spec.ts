@@ -27,11 +27,11 @@ import {
 function createProjectionState(): ProjectionState {
   return {
     folders: [
-      { id: 'folder-1', name: 'Inbox', parentId: null, entityVersion: 1 },
-      { id: 'folder-2', name: 'Archive', parentId: 'folder-1', entityVersion: 2 },
+      { id: 'folder-1', name: 'Inbox', parentId: null, entityVersion: 1, lastEventVersion: 1 },
+      { id: 'folder-2', name: 'Archive', parentId: 'folder-1', entityVersion: 2, lastEventVersion: 2 },
     ],
     threads: [
-      { id: 'thread-1', folderId: 'folder-1', title: 'Roadmap', entityVersion: 3 },
+      { id: 'thread-1', folderId: 'folder-1', title: 'Roadmap', entityVersion: 3, lastEventVersion: 3 },
     ],
     records: [
       {
@@ -161,12 +161,12 @@ describe('Projection selectors', () => {
     expect(selectRecordById(state, 'record-1')).toBe(state.records[0]);
   });
 
-  it('orders folder hierarchy deterministically by orderIndex then entityVersion then id', () => {
+  it('orders folder hierarchy deterministically by orderIndex then lastEventVersion then id', () => {
     const state = {
       folders: [
-        { id: 'folder-c', name: 'Folder C', parentId: null, entityVersion: 3, orderIndex: 2 },
-        { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 2, orderIndex: null },
-        { id: 'folder-b', name: 'Folder B', parentId: null, entityVersion: 1, orderIndex: 0 },
+        { id: 'folder-c', name: 'Folder C', parentId: null, entityVersion: 30, lastEventVersion: 3, orderIndex: 2 },
+        { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 20, lastEventVersion: 4, orderIndex: null },
+        { id: 'folder-b', name: 'Folder B', parentId: null, entityVersion: 10, lastEventVersion: 1, orderIndex: 0 },
       ],
       threads: [],
       records: [],
@@ -206,8 +206,8 @@ describe('Projection selectors', () => {
       'record-2',
       'record-1',
     ]);
-    expect(selectThreadLastEventVersion(initialState, 'thread-1')).toBe(6);
-    expect(selectThreadLastEventVersion(updatedState, 'thread-1')).toBe(10);
+    expect(selectThreadLastEventVersion(initialState, 'thread-1')).toBe(3);
+    expect(selectThreadLastEventVersion(updatedState, 'thread-1')).toBe(3);
     expect(selectThreadRecordCount(updatedState, 'thread-1')).toBe(3);
     expect(selectImageGroupRecords(initialState, 'group-1').map((record) => record.id)).toEqual(['record-1', 'record-2']);
     expect(selectImageGroupRecords(updatedState, 'group-1').map((record) => record.id)).toEqual(['record-2', 'record-1']);
@@ -218,9 +218,9 @@ describe('Projection selectors', () => {
     const state = {
       folders: [],
       threads: [
-        { id: 'thread-c', folderId: 'folder-1', title: 'Thread C', entityVersion: 8 },
-        { id: 'thread-a', folderId: 'folder-1', title: 'Thread A', entityVersion: 5 },
-        { id: 'thread-b', folderId: 'folder-1', title: 'Thread B', entityVersion: 5 },
+        { id: 'thread-c', folderId: 'folder-1', title: 'Thread C', entityVersion: 80, lastEventVersion: 8 },
+        { id: 'thread-a', folderId: 'folder-1', title: 'Thread A', entityVersion: 50, lastEventVersion: 5 },
+        { id: 'thread-b', folderId: 'folder-1', title: 'Thread B', entityVersion: 50, lastEventVersion: 5 },
       ],
       records: [
         {
@@ -272,5 +272,95 @@ describe('Projection selectors', () => {
     expect(Object.keys(threadSelection.threadMap)).toEqual(['thread-a', 'thread-b', 'thread-c']);
     expect(recordSelection.recordIds).toEqual(['record-a', 'record-b', 'record-c']);
     expect(Object.keys(recordSelection.recordMap)).toEqual(['record-a', 'record-b', 'record-c']);
+  });
+
+  it('resolves ties by entity id when orderIndex and authoritative event version match', () => {
+    const state = {
+      folders: [
+        { id: 'folder-b', name: 'Folder B', parentId: null, entityVersion: 100, lastEventVersion: 7, orderIndex: 0 },
+        { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 200, lastEventVersion: 7, orderIndex: 0 },
+      ],
+      threads: [
+        { id: 'thread-b', folderId: 'folder-a', title: 'Thread B', entityVersion: 100, lastEventVersion: 9, orderIndex: 1 },
+        { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 200, lastEventVersion: 9, orderIndex: 1 },
+      ],
+      records: [
+        {
+          id: 'record-b',
+          threadId: 'thread-a',
+          type: 'text',
+          name: 'Record B',
+          createdAt: 2,
+          editedAt: 2,
+          orderIndex: 3,
+          isStarred: false,
+          imageGroupId: null,
+          entityVersion: 300,
+          lastEventVersion: 11,
+        },
+        {
+          id: 'record-a',
+          threadId: 'thread-a',
+          type: 'text',
+          name: 'Record A',
+          createdAt: 1,
+          editedAt: 1,
+          orderIndex: 3,
+          isStarred: false,
+          imageGroupId: null,
+          entityVersion: 400,
+          lastEventVersion: 11,
+        },
+      ],
+    } as unknown as ProjectionState;
+
+    expect(selectRootFolders(state)).toEqual(['folder-a', 'folder-b']);
+    expect(selectThreads(state).map((thread) => thread.id)).toEqual(['thread-a', 'thread-b']);
+    expect(selectRecords(state).map((record) => record.id)).toEqual(['record-a', 'record-b']);
+  });
+
+  it('fails fast when a record is missing authoritative lastEventVersion', () => {
+    const record = {
+      id: 'record-missing-version',
+      threadId: 'thread-a',
+      type: 'text',
+      name: 'Broken record',
+      createdAt: 1,
+      editedAt: 1,
+      orderIndex: 0,
+      isStarred: false,
+      imageGroupId: null,
+      entityVersion: 1,
+      lastEventVersion: null,
+    } as unknown as ProjectionState['records'][number];
+
+    expect(() => selectRecordEventVersion(record)).toThrowError('Record missing authoritative lastEventVersion');
+  });
+
+  it('keeps large selector datasets stable across repeated executions', () => {
+    const records = Array.from({ length: 1000 }, (_value, index) => ({
+      id: `record-${String(1000 - index).padStart(4, '0')}`,
+      threadId: 'thread-large',
+      type: 'text',
+      name: `Record ${index}`,
+      createdAt: index,
+      editedAt: index,
+      orderIndex: index % 7 === 0 ? null : index % 11,
+      isStarred: false,
+      imageGroupId: null,
+      entityVersion: index + 1,
+      lastEventVersion: 1000 - index,
+    }));
+    const state: ProjectionState = {
+      folders: [],
+      threads: [{ id: 'thread-large', folderId: 'folder-large', title: 'Large thread', entityVersion: 1, lastEventVersion: 1 }],
+      records,
+    };
+
+    const firstRun = selectRecordsByThread(state, 'thread-large').map((record) => record.id);
+    const secondRun = selectRecordsByThread(state, 'thread-large').map((record) => record.id);
+
+    expect(firstRun).toEqual(secondRun);
+    expect(firstRun).toHaveLength(1000);
   });
 });

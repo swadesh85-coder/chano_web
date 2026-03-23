@@ -1,10 +1,7 @@
 import type { Folder, ProjectionState } from '../../app/projection/projection.models';
+import { sortFoldersForExplorer } from './explorer.ordering.selectors';
 
 const ROOT_FOLDER_KEY = '__root__';
-
-type FolderWithOptionalOrderIndex = Folder & {
-  readonly orderIndex?: number | null;
-};
 
 export type ProjectionFolderSelectorResult = {
   readonly rootFolderIds: readonly string[];
@@ -37,16 +34,14 @@ export function selectFolders(state: ProjectionState): ProjectionFolderSelectorR
   const childrenByFolderId: Record<string, readonly string[]> = {};
   for (const [parentKey, children] of Object.entries(childFoldersByParent)) {
     childrenByFolderId[parentKey] = Object.freeze(
-      [...children]
-        .sort(compareFoldersDeterministically)
+      sortFoldersForExplorer(children)
         .map((folder) => folder.id),
     );
   }
 
   return Object.freeze({
     rootFolderIds: Object.freeze(
-      [...rootFolders]
-        .sort(compareFoldersDeterministically)
+      sortFoldersForExplorer(rootFolders)
         .map((folder) => folder.id),
     ),
     childrenByFolderId: Object.freeze(childrenByFolderId),
@@ -107,25 +102,6 @@ function buildFolderTreeNodes(
   }));
 }
 
-function compareFoldersDeterministically(left: Folder, right: Folder): number {
-  const leftOrderIndex = readFolderOrderIndex(left);
-  const rightOrderIndex = readFolderOrderIndex(right);
-  if (leftOrderIndex !== rightOrderIndex) {
-    return leftOrderIndex - rightOrderIndex;
-  }
-
-  if (left.entityVersion !== right.entityVersion) {
-    return left.entityVersion - right.entityVersion;
-  }
-
-  return left.id.localeCompare(right.id);
-}
-
 function normalizeParentKey(parentId: string): string {
   return parentId || ROOT_FOLDER_KEY;
-}
-
-function readFolderOrderIndex(folder: Folder): number {
-  const orderIndex = (folder as FolderWithOptionalOrderIndex).orderIndex;
-  return typeof orderIndex === 'number' ? orderIndex : Number.MAX_SAFE_INTEGER;
 }

@@ -159,7 +159,15 @@ export class ProjectionEngine {
       + (snapshot.threads?.length ?? 0)
       + (snapshot.records?.length ?? 0);
     const nextProjection = new VaultDomainProjection();
-    const nextState = this.freezeProjectionState(nextProjection.applySnapshot(snapshot));
+    let nextState: ProjectionState;
+
+    try {
+      nextState = this.freezeProjectionState(nextProjection.applySnapshot(snapshot));
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : 'UNKNOWN_SNAPSHOT_REJECTION';
+      console.error(`SNAPSHOT_INPUT_REJECTED reason=${reason}`);
+      throw error;
+    }
 
     this.vaultDomainProjection = nextProjection;
     this._state = nextState;
@@ -400,11 +408,37 @@ export class ProjectionEngine {
   }
 
   private freezeProjectionState(state: ProjectionState): ProjectionState {
+    this.assertOrderingState(state);
+
     return Object.freeze({
       folders: Object.freeze(state.folders.map((folder) => Object.freeze({ ...folder }))),
       threads: Object.freeze(state.threads.map((thread) => Object.freeze({ ...thread }))),
       records: Object.freeze(state.records.map((record) => Object.freeze({ ...record }))),
     });
+  }
+
+  private assertOrderingState(state: ProjectionState): void {
+    for (const folder of state.folders) {
+      this.assertEntityLastEventVersion('folder', folder.id, folder.lastEventVersion);
+    }
+
+    for (const thread of state.threads) {
+      this.assertEntityLastEventVersion('thread', thread.id, thread.lastEventVersion);
+    }
+
+    for (const record of state.records) {
+      this.assertEntityLastEventVersion('record', record.id, record.lastEventVersion);
+    }
+  }
+
+  private assertEntityLastEventVersion(
+    entityType: EventEntity,
+    entityId: string,
+    lastEventVersion: number,
+  ): void {
+    if (!Number.isInteger(lastEventVersion) || lastEventVersion <= 0) {
+      throw new Error(`INVALID_LAST_EVENT_VERSION entity=${entityType} id=${entityId}`);
+    }
   }
 
   getLastAppliedEventVersion(): number | null {

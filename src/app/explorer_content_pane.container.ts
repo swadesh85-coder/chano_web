@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { ProjectionStateContainer } from './projection/projection_state.container';
+import type { NavigationPane } from './navigation.state';
 import type {
   ContentPaneViewModel,
   RecordListViewModel,
@@ -12,6 +13,11 @@ import {
 
 const EMPTY_THREADS: readonly ThreadListViewModel[] = [];
 const EMPTY_RECORDS: readonly RecordListViewModel[] = [];
+const EMPTY_CONTENT_PANE: ContentPaneViewModel = Object.freeze({
+  mode: 'empty',
+  threadList: EMPTY_THREADS,
+  recordList: EMPTY_RECORDS,
+});
 
 @Injectable({ providedIn: 'root' })
 export class ExplorerContentPaneContainer {
@@ -28,18 +34,37 @@ export class ExplorerContentPaneContainer {
     return selectRecordListViewModel(this.projectionState(), threadId);
   }
 
-  contentPane(folderId: string | null, selectedThreadId: string | null): ContentPaneViewModel {
-    if (selectedThreadId !== null) {
+  contentPane(
+    folderId: string | null,
+    selectedThreadId: string | null,
+    activePane: NavigationPane,
+  ): ContentPaneViewModel {
+    if (activePane === 'empty') {
+      return EMPTY_CONTENT_PANE;
+    }
+
+    const orderedThreadList = activePane === 'folder'
+      ? this.threadList(folderId)
+      : EMPTY_THREADS;
+    const orderedRecordList = activePane === 'thread' && selectedThreadId !== null
+      ? this.recordList(selectedThreadId)
+      : EMPTY_RECORDS;
+
+    if (activePane === 'thread' && selectedThreadId !== null) {
       return {
         mode: 'records',
         threadList: EMPTY_THREADS,
-        recordList: this.recordList(selectedThreadId),
+        recordList: orderedRecordList,
       };
+    }
+
+    if (activePane !== 'folder') {
+      return EMPTY_CONTENT_PANE;
     }
 
     return {
       mode: 'threads',
-      threadList: this.threadList(folderId),
+      threadList: orderedThreadList,
       recordList: EMPTY_RECORDS,
     };
   }

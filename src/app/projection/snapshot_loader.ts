@@ -476,14 +476,10 @@ export class SnapshotLoader {
     }
 
     const entity = raw as Record<string, unknown>;
-    if (expectedType === 'record') {
-      if (!this.hasExactKeys(entity, ['entityType', 'entityUuid', 'entityVersion', 'ownerUserId', 'lastEventVersion', 'data'])) {
-        return false;
-      }
-      if (!this.isNonNegativeInteger(entity['lastEventVersion'])) {
-        return false;
-      }
-    } else if (!this.hasExactKeys(entity, ['entityType', 'entityUuid', 'entityVersion', 'ownerUserId', 'data'])) {
+    if (!this.hasExactKeys(entity, ['entityType', 'entityUuid', 'entityVersion', 'ownerUserId', 'lastEventVersion', 'data'])) {
+      return false;
+    }
+    if (!this.isNonNegativeInteger(entity['lastEventVersion'])) {
       return false;
     }
 

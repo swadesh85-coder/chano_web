@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
+import { afterEach, describe, expect, it } from 'vitest';
 import { ProjectionEngine } from './projection/projection_engine';
 import { ExplorerContentPaneContainer } from './explorer_content_pane.container';
 import { ProjectionStateContainer } from './projection/projection_state.container';
@@ -12,12 +13,43 @@ import type {
   ProjectionUpdate,
 } from './projection/projection.models';
 
+let angularTestEnvironmentInitialized = false;
+
+function ensureAngularTestEnvironment(): void {
+  if (angularTestEnvironmentInitialized) {
+    return;
+  }
+
+  TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  angularTestEnvironmentInitialized = true;
+}
+
 function createProjectionState(): ProjectionState {
   return {
-    folders: [],
+    folders: [
+      {
+        id: 'folder-a',
+        name: 'Folder A',
+        parentFolderId: null,
+        entityVersion: 1,
+        lastEventVersion: 1,
+      },
+    ],
     threads: [
-      { id: 'thread-b', folderId: 'folder-a', title: 'Thread B', entityVersion: 3 },
-      { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 2 },
+      {
+        id: 'thread-b',
+        folderId: 'folder-a',
+        title: 'Thread B',
+        entityVersion: 3,
+        lastEventVersion: 3,
+      },
+      {
+        id: 'thread-a',
+        folderId: 'folder-a',
+        title: 'Thread A',
+        entityVersion: 2,
+        lastEventVersion: 2,
+      },
     ],
     records: [
       {
@@ -57,6 +89,7 @@ function createSnapshot(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-a',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'folder-a',
@@ -70,6 +103,7 @@ function createSnapshot(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-a',
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'thread-a',
@@ -114,6 +148,12 @@ function deepFreeze<T>(value: T): T {
 }
 
 describe('ExplorerContentPaneContainer audit', () => {
+  ensureAngularTestEnvironment();
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
   it('keeps projection access and selector-to-viewmodel resolution inside the container boundary', () => {
     const source = fs.readFileSync(
       path.resolve(process.cwd(), 'src/app/explorer_content_pane.container.ts'),
@@ -148,16 +188,17 @@ describe('ExplorerContentPaneContainer audit', () => {
     const container = TestBed.inject(ExplorerContentPaneContainer);
     const before = JSON.stringify(state());
 
-    const folderContent = container.contentPane('folder-a', null);
-    const threadContent = container.contentPane('folder-a', 'thread-a');
+    const folderContent = container.contentPane('folder-a', null, 'folder');
+    const threadContent = container.contentPane('folder-a', 'thread-a', 'thread');
+    const emptyContent = container.contentPane(null, null, 'empty');
 
     expect(folderContent.mode).toBe('threads');
     expect(folderContent.threadList.map((thread) => thread.id)).toEqual(['thread-a', 'thread-b']);
     expect(threadContent.mode).toBe('records');
     expect(threadContent.recordList.map((record) => record.id)).toEqual(['record-a', 'record-b']);
+    expect(emptyContent.mode).toBe('empty');
     expect(JSON.stringify(state())).toBe(before);
 
-    TestBed.resetTestingModule();
   });
 
   it('keeps navigation isolated from authoritative projection state', () => {
@@ -181,12 +222,12 @@ describe('ExplorerContentPaneContainer audit', () => {
 
     expect(container.hasVisibleThread('folder-a', 'thread-a')).toBe(true);
     expect(container.hasVisibleThread('folder-a', 'missing-thread')).toBe(false);
-    container.contentPane('folder-a', null);
-    container.contentPane('folder-a', 'thread-a');
+    container.contentPane('folder-a', null, 'folder');
+    container.contentPane('folder-a', 'thread-a', 'thread');
+    container.contentPane(null, null, 'empty');
 
     expect(JSON.stringify(state())).toBe(before);
 
-    TestBed.resetTestingModule();
   });
 
   it('replays snapshot state into identical content pane output', () => {
@@ -211,7 +252,7 @@ describe('ExplorerContentPaneContainer audit', () => {
     });
 
     const firstContainer = TestBed.inject(ExplorerContentPaneContainer);
-    const firstContent = firstContainer.contentPane('folder-a', 'thread-a');
+    const firstContent = firstContainer.contentPane('folder-a', 'thread-a', 'thread');
 
     TestBed.resetTestingModule();
 
@@ -229,10 +270,8 @@ describe('ExplorerContentPaneContainer audit', () => {
     });
 
     const secondContainer = TestBed.inject(ExplorerContentPaneContainer);
-    const secondContent = secondContainer.contentPane('folder-a', 'thread-a');
+    const secondContent = secondContainer.contentPane('folder-a', 'thread-a', 'thread');
 
     expect(firstContent).toEqual(secondContent);
-
-    TestBed.resetTestingModule();
   });
 });

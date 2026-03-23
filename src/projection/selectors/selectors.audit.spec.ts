@@ -31,6 +31,7 @@ function listRuntimeFiles(dirPath: string): string[] {
 
 describe('Strict selector layer audit', () => {
   it('selector_modules_exist', () => {
+    expect(statSync(path.resolve(process.cwd(), 'src/projection/selectors/explorer.ordering.selectors.ts')).isFile()).toBe(true);
     expect(statSync(path.resolve(process.cwd(), 'src/projection/selectors/folder.selectors.ts')).isFile()).toBe(true);
     expect(statSync(path.resolve(process.cwd(), 'src/projection/selectors/thread.selectors.ts')).isFile()).toBe(true);
     expect(statSync(path.resolve(process.cwd(), 'src/projection/selectors/record.selectors.ts')).isFile()).toBe(true);

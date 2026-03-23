@@ -3,6 +3,7 @@ export interface Folder {
   readonly name: string;
   readonly parentId: string | null;
   readonly entityVersion: number;
+  readonly lastEventVersion: number;
 }
 
 export interface Thread {
@@ -10,6 +11,7 @@ export interface Thread {
   readonly folderId: string;
   readonly title: string;
   readonly entityVersion: number;
+  readonly lastEventVersion: number;
 }
 
 export interface RecordEntry {
@@ -65,11 +67,13 @@ interface BaseSnapshotEntity {
 
 export interface FolderSnapshotEntity extends BaseSnapshotEntity {
   readonly entityType: 'folder';
+  readonly lastEventVersion: number;
   readonly data: Record<string, unknown>;
 }
 
 export interface ThreadSnapshotEntity extends BaseSnapshotEntity {
   readonly entityType: 'thread';
+  readonly lastEventVersion: number;
   readonly data: Record<string, unknown>;
 }
 

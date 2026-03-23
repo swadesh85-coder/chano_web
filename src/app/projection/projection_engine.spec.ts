@@ -9,6 +9,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-1',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'folder-1',
@@ -22,6 +23,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-1',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'thread-1',
@@ -60,6 +62,7 @@ function createReplacementSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-2',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-2',
         data: {
           uuid: 'folder-2',
@@ -73,6 +76,7 @@ function createReplacementSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-2',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-2',
         data: {
           uuid: 'thread-2',
@@ -111,6 +115,7 @@ function createDeterministicSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-a',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'folder-a',
@@ -122,6 +127,7 @@ function createDeterministicSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-b',
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'folder-b',
@@ -135,6 +141,7 @@ function createDeterministicSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-a',
         entityVersion: 3,
+        lastEventVersion: 3,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'thread-a',
@@ -146,6 +153,7 @@ function createDeterministicSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-b',
         entityVersion: 4,
+        lastEventVersion: 4,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'thread-b',
@@ -202,6 +210,7 @@ function createUnorderedSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-b',
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'folder-b',
@@ -213,6 +222,7 @@ function createUnorderedSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-a',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'folder-a',
@@ -226,6 +236,7 @@ function createUnorderedSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-b',
         entityVersion: 4,
+        lastEventVersion: 4,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'thread-b',
@@ -237,6 +248,7 @@ function createUnorderedSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-a',
         entityVersion: 3,
+        lastEventVersion: 3,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'thread-a',
@@ -301,6 +313,36 @@ function createUnorderedSnapshotDocument(): ProjectionSnapshotDocument {
         },
       },
     ],
+  };
+}
+
+function createSnapshotMissingLastEventVersion(entityType: 'folder' | 'thread'): ProjectionSnapshotDocument {
+  const snapshot = createSnapshotDocument();
+
+  if (entityType === 'folder') {
+    return {
+      ...snapshot,
+      folders: snapshot.folders.map((folder, index) => {
+        if (index !== 0) {
+          return folder;
+        }
+
+        const { lastEventVersion: _removedLastEventVersion, ...folderWithoutLastEventVersion } = folder;
+        return folderWithoutLastEventVersion;
+      }) as ProjectionSnapshotDocument['folders'],
+    };
+  }
+
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread, index) => {
+      if (index !== 0) {
+        return thread;
+      }
+
+      const { lastEventVersion: _removedLastEventVersion, ...threadWithoutLastEventVersion } = thread;
+      return threadWithoutLastEventVersion;
+    }) as ProjectionSnapshotDocument['threads'],
   };
 }
 
@@ -420,8 +462,8 @@ describe('ProjectionEngine', () => {
     expect(result.status).toBe('SNAPSHOT_APPLIED');
     expect(engine.getLastAppliedEventVersion()).toBe(100);
     expect(engine.state).toEqual({
-      folders: [{ id: 'folder-1', name: 'Inbox', parentId: null, entityVersion: 1 }],
-      threads: [{ id: 'thread-1', folderId: 'folder-1', title: 'Roadmap', entityVersion: 1 }],
+      folders: [{ id: 'folder-1', name: 'Inbox', parentId: null, entityVersion: 1, lastEventVersion: 1 }],
+      threads: [{ id: 'thread-1', folderId: 'folder-1', title: 'Roadmap', entityVersion: 1, lastEventVersion: 1 }],
       records: [
         {
           id: 'record-1',
@@ -910,10 +952,10 @@ describe('ProjectionEngine', () => {
     expect(firstEngine.getLastAppliedEventVersion()).toBe(104);
     expect(secondEngine.getLastAppliedEventVersion()).toBe(104);
     expect(firstState).toEqual({
-      folders: [{ id: 'folder-1', name: 'Inbox', parentId: null, entityVersion: 1 }],
+      folders: [{ id: 'folder-1', name: 'Inbox', parentId: null, entityVersion: 1, lastEventVersion: 1 }],
       threads: [
-        { id: 'thread-1', folderId: 'folder-1', title: 'Roadmap', entityVersion: 1 },
-        { id: 'thread-2', folderId: 'folder-1', title: 'Backlog Updated', entityVersion: 104 },
+        { id: 'thread-1', folderId: 'folder-1', title: 'Roadmap', entityVersion: 1, lastEventVersion: 1 },
+        { id: 'thread-2', folderId: 'folder-1', title: 'Backlog Updated', entityVersion: 104, lastEventVersion: 104 },
       ],
       records: [
         {
@@ -1077,8 +1119,8 @@ describe('ProjectionEngine', () => {
     const result = engine.onSnapshotComplete(createReplacementSnapshotDocument(), 100);
 
     expect(result.state).toEqual({
-      folders: [{ id: 'folder-2', name: 'Archive', parentId: null, entityVersion: 1 }],
-      threads: [{ id: 'thread-2', folderId: 'folder-2', title: 'Imported', entityVersion: 1 }],
+      folders: [{ id: 'folder-2', name: 'Archive', parentId: null, entityVersion: 1, lastEventVersion: 1 }],
+      threads: [{ id: 'thread-2', folderId: 'folder-2', title: 'Imported', entityVersion: 1, lastEventVersion: 1 }],
       records: [
         {
           id: 'record-9',
@@ -1149,12 +1191,12 @@ describe('ProjectionEngine', () => {
 
     expect(engine.state).toEqual({
       folders: [
-        { id: 'folder-a', name: 'Alpha', parentId: null, entityVersion: 1 },
-        { id: 'folder-b', name: 'Beta', parentId: 'folder-a', entityVersion: 2 },
+        { id: 'folder-a', name: 'Alpha', parentId: null, entityVersion: 1, lastEventVersion: 1 },
+        { id: 'folder-b', name: 'Beta', parentId: 'folder-a', entityVersion: 2, lastEventVersion: 2 },
       ],
       threads: [
-        { id: 'thread-a', folderId: 'folder-a', title: 'Alpha Thread', entityVersion: 3 },
-        { id: 'thread-b', folderId: 'folder-b', title: 'Beta Thread', entityVersion: 4 },
+        { id: 'thread-a', folderId: 'folder-a', title: 'Alpha Thread', entityVersion: 3, lastEventVersion: 3 },
+        { id: 'thread-b', folderId: 'folder-b', title: 'Beta Thread', entityVersion: 4, lastEventVersion: 4 },
       ],
       records: [
         {
@@ -1204,6 +1246,7 @@ describe('ProjectionEngine', () => {
           entityType: 'folder',
           entityUuid: 'folder-a',
           entityVersion: 1,
+          lastEventVersion: 1,
           ownerUserId: 'owner-a',
           data: {
             uuid: 'folder-a',
@@ -1215,6 +1258,7 @@ describe('ProjectionEngine', () => {
           entityType: 'folder',
           entityUuid: 'folder-b',
           entityVersion: 2,
+          lastEventVersion: 2,
           ownerUserId: 'owner-a',
           data: {
             uuid: 'folder-b',
@@ -1228,6 +1272,7 @@ describe('ProjectionEngine', () => {
           entityType: 'thread',
           entityUuid: 'thread-a',
           entityVersion: 3,
+          lastEventVersion: 3,
           ownerUserId: 'owner-a',
           data: {
             uuid: 'thread-a',
@@ -1239,6 +1284,7 @@ describe('ProjectionEngine', () => {
           entityType: 'thread',
           entityUuid: 'thread-b',
           entityVersion: 4,
+          lastEventVersion: 4,
           ownerUserId: 'owner-a',
           data: {
             uuid: 'thread-b',
@@ -1318,6 +1364,35 @@ describe('ProjectionEngine', () => {
       new TypeError('INVALID_SNAPSHOT_DOCUMENT'),
     );
     expect(consoleError).toHaveBeenCalledWith('SNAPSHOT_INPUT_REJECTED reason=INVALID_SNAPSHOT_DOCUMENT');
+
+    consoleError.mockRestore();
+  });
+
+  it.each([
+    {
+      entityType: 'folder',
+      expectedError: 'Missing folder lastEventVersion in snapshot',
+    },
+    {
+      entityType: 'thread',
+      expectedError: 'Missing thread lastEventVersion in snapshot',
+    },
+  ])('snapshot_missing_lastEventVersion_should_fail for $entityType', ({ entityType, expectedError }) => {
+    const engine = new ProjectionEngine();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const invalidSnapshot = createSnapshotMissingLastEventVersion(entityType);
+
+    expect(() => engine.applySnapshot(invalidSnapshot, 100)).toThrowError(expectedError);
+    expect(engine.trackState()).toEqual({
+      lastAppliedEventVersion: null,
+      resyncRequired: false,
+      state: {
+        folders: [],
+        threads: [],
+        records: [],
+      },
+    });
+    expect(consoleError).toHaveBeenCalledWith(`SNAPSHOT_INPUT_REJECTED reason=${expectedError}`);
 
     consoleError.mockRestore();
   });

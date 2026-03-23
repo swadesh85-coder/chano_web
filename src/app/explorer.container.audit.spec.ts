@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
+import { afterEach, describe, expect, it } from 'vitest';
 import { ExplorerContainer } from './explorer.container';
 import { ProjectionStateContainer } from './projection/projection_state.container';
 import type {
@@ -10,12 +11,43 @@ import type {
   ProjectionUpdate,
 } from './projection/projection.models';
 
+let angularTestEnvironmentInitialized = false;
+
+function ensureAngularTestEnvironment(): void {
+  if (angularTestEnvironmentInitialized) {
+    return;
+  }
+
+  TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  angularTestEnvironmentInitialized = true;
+}
+
 function createProjectionState(): ProjectionState {
   return {
-    folders: [],
+    folders: [
+      {
+        id: 'folder-a',
+        name: 'Folder A',
+        parentFolderId: null,
+        entityVersion: 1,
+        lastEventVersion: 1,
+      },
+    ],
     threads: [
-      { id: 'thread-b', folderId: 'folder-a', title: 'Thread B', entityVersion: 3 },
-      { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 2 },
+      {
+        id: 'thread-b',
+        folderId: 'folder-a',
+        title: 'Thread B',
+        entityVersion: 3,
+        lastEventVersion: 3,
+      },
+      {
+        id: 'thread-a',
+        folderId: 'folder-a',
+        title: 'Thread A',
+        entityVersion: 2,
+        lastEventVersion: 2,
+      },
     ],
     records: [
       {
@@ -61,6 +93,12 @@ function deepFreeze<T>(value: T): T {
 }
 
 describe('ExplorerContainer audit', () => {
+  ensureAngularTestEnvironment();
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
   it('enforces projection-to-viewmodel flow without selector or store leakage', () => {
     const source = fs.readFileSync(path.resolve(process.cwd(), 'src/app/explorer.container.ts'), 'utf8');
 
@@ -111,6 +149,5 @@ describe('ExplorerContainer audit', () => {
     expect(first.records.map((record) => record.id)).toEqual(['record-a', 'record-b']);
     expect(JSON.stringify(state())).toBe(before);
 
-    TestBed.resetTestingModule();
   });
 });

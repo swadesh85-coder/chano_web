@@ -45,6 +45,7 @@ describe('Explorer viewmodel audit', () => {
     expect(source).not.toMatch(/ProjectionEngine|ProjectionStore/);
     expect(source).not.toMatch(/new Map\(/);
     expect(source).not.toMatch(/memo|cache/i);
+    expect(source).not.toMatch(/\.sort\(/);
   });
 
   it('rejects_projection_and_selector_input_mutation_patterns', () => {

@@ -124,6 +124,7 @@ describe('ProjectionStore', () => {
             entityType: 'folder',
             entityUuid: entity['id'] ?? entity['uuid'],
             entityVersion: 1,
+            lastEventVersion: 1,
             ownerUserId: 'owner-1',
             data: {
               uuid: entity['id'] ?? entity['uuid'],
@@ -139,6 +140,7 @@ describe('ProjectionStore', () => {
             entityType: 'thread',
             entityUuid: entity['id'] ?? entity['uuid'],
             entityVersion: 1,
+            lastEventVersion: 1,
             ownerUserId: 'owner-1',
             data: {
               uuid: entity['id'] ?? entity['uuid'],
@@ -154,6 +156,7 @@ describe('ProjectionStore', () => {
             entityType: 'record',
             entityUuid: entity['id'] ?? entity['uuid'],
             entityVersion: 1,
+            lastEventVersion: 1,
             ownerUserId: 'owner-1',
             data: {
               uuid: entity['id'] ?? entity['uuid'],
@@ -180,6 +183,64 @@ describe('ProjectionStore', () => {
       folders: normalizeSnapshotEntities('folder', folders),
       threads: normalizeSnapshotEntities('thread', threads),
       records: normalizeSnapshotEntities('record', records),
+    });
+  }
+
+  function buildMalformedSnapshotJson(entityType: 'folder' | 'thread'): string {
+    const folderEntity: Record<string, unknown> = {
+      entityType: 'folder',
+      entityUuid: 'folder-1',
+      entityVersion: 1,
+      ownerUserId: 'owner-1',
+      data: {
+        uuid: 'folder-1',
+        name: 'Inbox',
+        parentFolderUuid: null,
+      },
+    };
+    const threadEntity: Record<string, unknown> = {
+      entityType: 'thread',
+      entityUuid: 'thread-1',
+      entityVersion: 1,
+      ownerUserId: 'owner-1',
+      data: {
+        uuid: 'thread-1',
+        folderUuid: 'folder-1',
+        title: 'Roadmap',
+      },
+    };
+
+    if (entityType !== 'folder') {
+      folderEntity['lastEventVersion'] = 1;
+    }
+
+    if (entityType !== 'thread') {
+      threadEntity['lastEventVersion'] = 1;
+    }
+
+    return JSON.stringify({
+      folders: [folderEntity],
+      threads: [threadEntity],
+      records: [
+        {
+          entityType: 'record',
+          entityUuid: 'record-1',
+          entityVersion: 1,
+          lastEventVersion: 1,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'record-1',
+            threadUuid: 'thread-1',
+            type: 'text',
+            body: 'Seed',
+            createdAt: 1,
+            editedAt: 1,
+            orderIndex: 0,
+            isStarred: false,
+            imageGroupId: null,
+          },
+        },
+      ],
     });
   }
 
@@ -462,5 +523,55 @@ describe('ProjectionStore', () => {
       entityType: null,
       eventVersion: 150,
     });
+  });
+
+  it.each([
+    {
+      entityType: 'folder',
+    },
+    {
+      entityType: 'thread',
+    },
+  ])('rejects malformed snapshot pipeline when $entityType lastEventVersion is missing', async ({ entityType }) => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const publishProjectionStateSpy = vi.spyOn(store as never, 'publishProjectionState');
+    const applySnapshotSpy = vi.spyOn((store as never)['projectionEngine'], 'applySnapshot');
+    const protocol = await createByteSnapshotProtocol(buildMalformedSnapshotJson(entityType));
+
+    emitRaw('snapshot_start', protocol.start);
+    for (const chunk of protocol.chunks) {
+      emitRaw('snapshot_chunk', chunk);
+    }
+    await flushAsyncWork();
+
+    expect(store.phase()).toBe('receiving');
+    expect(store.state()).toEqual({
+      folders: [],
+      threads: [],
+      records: [],
+    });
+    expect(store.lastProjectionUpdate()).toBeNull();
+    expect(publishProjectionStateSpy).not.toHaveBeenCalled();
+
+    emitRaw('snapshot_complete', protocol.complete);
+    await flushAsyncWork();
+
+    expect(store.phase()).toBe('idle');
+    expect(store.state()).toEqual({
+      folders: [],
+      threads: [],
+      records: [],
+    });
+    expect(store.baseEventVersion()).toBeNull();
+    expect(store.lastAppliedEventVersion()).toBeNull();
+    expect(store.lastProjectionUpdate()).toBeNull();
+    expect(publishProjectionStateSpy).not.toHaveBeenCalled();
+    expect(applySnapshotSpy).not.toHaveBeenCalled();
+    expect(errorSpy.mock.calls).toContainEqual(['SCHEMA_VALIDATION_ERROR entity field mismatch']);
+    expect(errorSpy.mock.calls).toContainEqual(['SNAPSHOT_ERROR invalid snapshot schema']);
+
+    applySnapshotSpy.mockRestore();
+    publishProjectionStateSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });
