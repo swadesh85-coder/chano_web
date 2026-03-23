@@ -1,7 +1,7 @@
 @if (activeThreadId() === null) {
   <p class="thread-view-empty">No thread selected</p>
 } @else {
-  @let viewNodes = renderThread(activeThreadId());
+  @let nodes = viewNodes();
 
   <div class="thread-view-toolbar">
     <button
@@ -16,12 +16,12 @@
     </button>
   </div>
 
-  @if (viewNodes.length === 0) {
+  @if (nodes.length === 0) {
     <p class="thread-view-empty">No records visible for this thread</p>
   } @else {
-    <app-media-viewer #mediaViewer></app-media-viewer>
+    <app-media-viewer #mediaViewer [threadId]="activeThreadId()"></app-media-viewer>
 
-    @for (node of viewNodes; track trackNode($index, node)) {
+    @for (node of nodes; track trackNode($index, node)) {
       @if (node.kind === 'record') {
         <div class="thread-view-item" data-testid="thread-view-node">
           @if (isMediaRecord(node.record)) {
@@ -30,15 +30,15 @@
               class="thread-view-item-body thread-view-content thread-view-open-button"
               data-testid="record-item"
               aria-haspopup="dialog"
-              (click)="mediaViewer.openMedia(node.record.entityUuid)"
+              (click)="mediaViewer.openMedia(node.record.id)"
             >
               <span class="thread-view-title">{{ getRecordLabel(node.record) }}</span>
-              <span class="thread-view-meta"> {{ node.record.entityUuid }} · {{ node.record.data.type }}</span>
+              <span class="thread-view-meta"> {{ node.record.id }} · {{ node.record.type }} · v{{ node.record.eventVersion }}</span>
             </button>
           } @else {
             <div class="thread-view-item-body thread-view-content" data-testid="record-item">
               <span class="thread-view-title">{{ getRecordLabel(node.record) }}</span>
-              <span class="thread-view-meta"> {{ node.record.entityUuid }}</span>
+              <span class="thread-view-meta"> {{ node.record.id }} · v{{ node.record.eventVersion }}</span>
             </div>
           }
           <span class="thread-view-actions">
@@ -46,7 +46,7 @@
               type="button"
               class="thread-view-action"
               (click)="promptEditRecord(node.record, $event)"
-              [disabled]="isActionDisabled(node.record.entityUuid)"
+              [disabled]="isActionDisabled(node.record.id)"
               aria-label="Edit record body"
             >
               Edit
@@ -55,7 +55,7 @@
               type="button"
               class="thread-view-action"
               (click)="promptRenameRecord(node.record, $event)"
-              [disabled]="isActionDisabled(node.record.entityUuid)"
+              [disabled]="isActionDisabled(node.record.id)"
               aria-label="Rename record"
             >
               Rename
@@ -64,7 +64,7 @@
               type="button"
               class="thread-view-action"
               (click)="promptMoveRecord(node.record, $event)"
-              [disabled]="isActionDisabled(node.record.entityUuid)"
+              [disabled]="isActionDisabled(node.record.id)"
               aria-label="Move record"
             >
               Move
@@ -73,7 +73,7 @@
               type="button"
               class="thread-view-action thread-view-action--danger"
               (click)="triggerSoftDeleteRecord(node.record, $event)"
-              [disabled]="isActionDisabled(node.record.entityUuid)"
+              [disabled]="isActionDisabled(node.record.id)"
               aria-label="Delete record"
             >
               Delete
@@ -87,10 +87,10 @@
             class="thread-view-item-body thread-view-content thread-view-open-button"
             data-testid="image-group-item"
             aria-haspopup="dialog"
-            (click)="getImageGroupLeadRecordId(node.records) !== null && mediaViewer.openMedia(getImageGroupLeadRecordId(node.records)!)"
+            (click)="node.leadRecordId !== null && mediaViewer.openMedia(node.leadRecordId)"
           >
             <span class="thread-view-title">{{ 'imageGroup:' + node.imageGroupId }}</span>
-            <span class="thread-view-meta">{{ ' → [' + node.records.map((record) => record.entityUuid).join(', ') + ']' }}</span>
+            <span class="thread-view-meta">{{ ' → ' + node.recordIdsSummary }}</span>
           </button>
         </div>
       }

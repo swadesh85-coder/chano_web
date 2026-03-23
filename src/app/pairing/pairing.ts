@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import QRCode from 'qrcode';
-import { ProjectionStore } from '../projection/projection.store';
+import { ProjectionStateContainer } from '../projection/projection_state.container';
 import { WebRelayClient } from '../../transport';
 import type { TransportEnvelope } from '../../transport';
 
@@ -33,7 +33,7 @@ type PairingStatus =
 })
 export class PairingComponent implements OnInit {
   private readonly relay: WebRelayClient = inject(WebRelayClient);
-  private readonly projection = inject(ProjectionStore);
+  private readonly projection = inject(ProjectionStateContainer);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);

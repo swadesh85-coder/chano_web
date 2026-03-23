@@ -468,9 +468,9 @@ describe('Web transport runtime audit', () => {
     const commandId = '123e4567-e89b-42d3-a456-426614174001';
 
     const beforeMutation = {
-      folders: projection.folders().length,
-      threads: projection.threads().length,
-      records: projection.records().length,
+      folders: projection.state().folders.length,
+      threads: projection.state().threads.length,
+      records: projection.state().records.length,
     };
 
     vi.spyOn(globalThis.crypto, 'randomUUID')
@@ -487,9 +487,9 @@ describe('Web transport runtime audit', () => {
     });
 
     const afterOutboundCommand = {
-      folders: projection.folders().length,
-      threads: projection.threads().length,
-      records: projection.records().length,
+      folders: projection.state().folders.length,
+      threads: projection.state().threads.length,
+      records: projection.state().records.length,
     };
 
     const localStateMutation =
@@ -500,7 +500,7 @@ describe('Web transport runtime audit', () => {
     console.log(`LOCAL_STATE_MUTATION ${localStateMutation}`);
 
     expect(localStateMutation).toBe(false);
-    expect(projection.threads().length).toBe(0);
+    expect(projection.state().threads.length).toBe(0);
 
     MockWebSocket.last.simulateEnvelope({
       protocolVersion: 2,
@@ -522,7 +522,7 @@ describe('Web transport runtime audit', () => {
     await fixture.whenStable();
     await Promise.resolve();
 
-    expect(projection.threads()).toEqual([
+    expect(projection.state().threads.map(({ id, folderId, title }) => ({ id, folderId, title }))).toEqual([
       {
         id: generatedEntityId,
         folderId: 'folder-1',
@@ -531,7 +531,7 @@ describe('Web transport runtime audit', () => {
     ]);
 
     const constitution = {
-      mobileAuthority: projection.threads()[0]?.id === generatedEntityId,
+      mobileAuthority: projection.state().threads[0]?.id === generatedEntityId,
       mutationBoundary: !localStateMutation,
       eventOrdering: parsedEnvelope('event_stream').sequence === 7,
       relayNeutrality: parsedEnvelope('snapshot_chunk').protocolVersion === 2,

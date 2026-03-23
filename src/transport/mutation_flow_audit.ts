@@ -1,10 +1,15 @@
 import type { ProjectionState } from '../app/projection/projection.models';
+import {
+  selectFolderById,
+  selectRecordById,
+  selectThreadById,
+} from '../projection/selectors';
 import type { CommandResult, MutationCommand } from './mutation-command';
 import type { TransportEnvelope } from './transport-envelope';
 
 export type MutationFlowAuditDependencies = {
   readonly triggerUiAction: () => TransportEnvelope<MutationCommand> | null;
-  readonly getProjectionState: () => ProjectionState;
+  readonly readProjectionState: () => Readonly<ProjectionState>;
   readonly isPendingCommand: (commandId: string) => boolean;
   readonly getCommandResult: (commandId: string) => CommandResult | null;
   readonly dispatchEnvelope: (envelope: TransportEnvelope) => void | Promise<void>;
@@ -44,14 +49,14 @@ export async function auditMutationFlow(
   dependencies: MutationFlowAuditDependencies,
   input: MutationFlowAuditInput,
 ): Promise<MutationFlowAuditResult> {
-  const beforeSendState = cloneProjectionState(dependencies.getProjectionState());
+  const beforeSendState = cloneProjectionState(dependencies.readProjectionState());
   const sentEnvelope = dependencies.triggerUiAction();
   if (sentEnvelope === null) {
     throw new Error('UI_ACTION_DID_NOT_SEND_COMMAND');
   }
 
   const sentCommand = sentEnvelope.payload;
-  const afterSendState = cloneProjectionState(dependencies.getProjectionState());
+  const afterSendState = cloneProjectionState(dependencies.readProjectionState());
   const stateBeforeEvent = isSameProjectionState(beforeSendState, afterSendState)
     ? 'unchanged'
     : 'changed';
@@ -60,11 +65,11 @@ export async function auditMutationFlow(
   let commandResultStateChange: 'unchanged' | 'changed' = 'unchanged';
 
   if (input.commandResultEnvelope) {
-    const beforeCommandResultState = cloneProjectionState(dependencies.getProjectionState());
+    const beforeCommandResultState = cloneProjectionState(dependencies.readProjectionState());
     await dependencies.dispatchEnvelope(input.commandResultEnvelope);
     await flushAsyncWork(dependencies);
 
-    const afterCommandResultState = cloneProjectionState(dependencies.getProjectionState());
+    const afterCommandResultState = cloneProjectionState(dependencies.readProjectionState());
     commandResultStateChange = isSameProjectionState(beforeCommandResultState, afterCommandResultState)
       ? 'unchanged'
       : 'changed';
@@ -72,12 +77,12 @@ export async function auditMutationFlow(
   }
 
   const pendingBeforeEvent = dependencies.isPendingCommand(sentCommand.commandId);
-  const beforeEventState = cloneProjectionState(dependencies.getProjectionState());
+  const beforeEventState = cloneProjectionState(dependencies.readProjectionState());
 
   await dependencies.dispatchEnvelope(input.eventEnvelope);
   await flushAsyncWork(dependencies);
 
-  const afterEventState = cloneProjectionState(dependencies.getProjectionState());
+  const afterEventState = cloneProjectionState(dependencies.readProjectionState());
   const eventSummary = summarizeEventEnvelope(input.eventEnvelope);
   const stateAfterEvent = isSameProjectionState(beforeEventState, afterEventState)
     ? 'unchanged'
@@ -86,11 +91,11 @@ export async function auditMutationFlow(
 
   let duplicateEventIgnored = false;
   if (input.duplicateEventEnvelope) {
-    const beforeDuplicateState = cloneProjectionState(dependencies.getProjectionState());
+    const beforeDuplicateState = cloneProjectionState(dependencies.readProjectionState());
     await dependencies.dispatchEnvelope(input.duplicateEventEnvelope);
     await flushAsyncWork(dependencies);
 
-    const afterDuplicateState = cloneProjectionState(dependencies.getProjectionState());
+    const afterDuplicateState = cloneProjectionState(dependencies.readProjectionState());
     duplicateEventIgnored = isSameProjectionState(beforeDuplicateState, afterDuplicateState);
   }
 
@@ -126,11 +131,7 @@ function flushAsyncWork(dependencies: MutationFlowAuditDependencies): Promise<vo
 }
 
 function cloneProjectionState(state: ProjectionState): ProjectionState {
-  return {
-    folders: state.folders.map((folder) => ({ ...folder })),
-    threads: state.threads.map((thread) => ({ ...thread })),
-    records: state.records.map((record) => ({ ...record })),
-  };
+  return structuredClone(state);
 }
 
 function isSameProjectionState(left: ProjectionState, right: ProjectionState): boolean {
@@ -223,10 +224,10 @@ function hasEntity(state: ProjectionState, entityType: MutationCommand['entityTy
   switch (entityType) {
     case 'folder':
     case 'imageGroup':
-      return state.folders.some((folder) => folder.id === entityId);
+      return selectFolderById(state, entityId) !== null;
     case 'thread':
-      return state.threads.some((thread) => thread.id === entityId);
+      return selectThreadById(state, entityId) !== null;
     case 'record':
-      return state.records.some((record) => record.id === entityId);
+      return selectRecordById(state, entityId) !== null;
   }
 }

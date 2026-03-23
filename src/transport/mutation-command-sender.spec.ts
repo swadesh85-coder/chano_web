@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { ProjectionStore } from '../app/projection/projection.store';
+import { ProjectionStateContainer } from '../app/projection/projection_state.container';
 import { CommandResultHandler } from './command-result-handler';
 import { MutationCommandSender } from './mutation-command-sender';
 import { WebDeviceIdentity } from './web-device-identity';
@@ -30,7 +30,7 @@ describe('MutationCommandSender', () => {
     TestBed.configureTestingModule({
       providers: [
         MutationCommandSender,
-        { provide: ProjectionStore, useValue: projection },
+        { provide: ProjectionStateContainer, useValue: projection },
         { provide: CommandResultHandler, useValue: {} },
         { provide: WebDeviceIdentity, useValue: { deviceId: 'web-device-1' } },
         {

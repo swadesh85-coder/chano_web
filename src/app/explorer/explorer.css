@@ -64,6 +64,10 @@
   overflow: hidden;
 }
 
+.panel--content {
+  grid-column: span 2;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
@@ -199,5 +203,9 @@
 
   .panel {
     min-height: 18rem;
+  }
+
+  .panel--content {
+    grid-column: auto;
   }
 }

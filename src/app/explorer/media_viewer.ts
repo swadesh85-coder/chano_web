@@ -3,24 +3,18 @@ import {
   Component,
   computed,
   inject,
+  input,
   signal,
 } from '@angular/core';
-import { ProjectionStore } from '../projection/projection.store';
-import type { RecordProjectionEntity } from '../projection/projection.models';
+import {
+  type MediaViewerViewModel,
+  type RecordViewModel,
+} from '../../viewmodels';
+import { ExplorerContainer } from '../explorer.container';
 
 type SupportedMediaType = 'image' | 'file' | 'audio';
 
-type MediaViewerState = {
-  readonly type: SupportedMediaType;
-  readonly recordId: string;
-  readonly title: string;
-  readonly mediaId: string | null;
-  readonly mimeType: string | null;
-  readonly size: number | null;
-  readonly imageGroupId: string | null;
-  readonly groupRecordIds: readonly string[];
-  readonly currentIndex: number;
-};
+type MediaViewerState = MediaViewerViewModel;
 
 @Component({
   selector: 'app-media-viewer',
@@ -32,94 +26,55 @@ type MediaViewerState = {
   },
 })
 export class MediaViewerComponent {
-  private readonly projection = inject(ProjectionStore);
+  private readonly container = inject(ExplorerContainer);
 
+  readonly threadId = input<string | null>(null);
   readonly viewerOpen = signal(false);
-  readonly selectedRecord = signal<RecordProjectionEntity | null>(null);
-  readonly renderState = signal<MediaViewerState | null>(null);
-  readonly canNavigateBackward = computed(() => (this.renderState()?.currentIndex ?? 0) > 0);
-  readonly canNavigateForward = computed(() => {
+  readonly selectedRecordId = signal<string | null>(null);
+  readonly selectedRecord = computed(() =>
+    this.container.selectMediaRecord(this.threadId(), this.selectedRecordId()),
+  );
+  readonly renderState = computed(() =>
+    this.container.selectMediaViewerState(this.threadId(), this.selectedRecordId()),
+  );
+
+  openMedia(recordId: string): void {
+    const record = this.container.selectMediaRecord(this.threadId(), recordId);
+    if (record === null || !this.isSupportedMediaType(record.type)) {
+      return;
+    }
+
+    this.selectedRecordId.set(record.id);
+    this.viewerOpen.set(true);
+    console.log(`MEDIA_VIEW_OPEN record=${record.id} type=${record.type}`);
+
+    const state = this.renderState();
+    if (state !== null) {
+      console.log(`MEDIA_RENDER type=${state.type} mediaId=${state.mediaId ?? 'null'}`);
+    }
+  }
+
+  canNavigateBackward(): boolean {
+    return (this.renderState()?.currentIndex ?? 0) > 0;
+  }
+
+  canNavigateForward(): boolean {
     const state = this.renderState();
     if (state === null) {
       return false;
     }
 
     return state.currentIndex < state.groupRecordIds.length - 1;
-  });
-
-  openMedia(recordId: string): void {
-    const record = this.resolveRecord(recordId);
-    if (record === null || !this.isSupportedMediaType(record.data.type)) {
-      return;
-    }
-
-    this.selectedRecord.set(record);
-    this.viewerOpen.set(true);
-    console.log(`MEDIA_VIEW_OPEN record=${record.entityUuid} type=${record.data.type}`);
-    this.renderSelectedRecord(record);
-  }
-
-  renderImage(record: RecordProjectionEntity): MediaViewerState {
-    const groupRecords = this.resolveImageGroupRecords(record);
-    const state: MediaViewerState = {
-      type: 'image',
-      recordId: record.entityUuid,
-      title: this.resolveDisplayTitle(record),
-      mediaId: this.resolveOptionalMediaText(record.data.mediaId),
-      mimeType: this.resolveOptionalMediaText(record.data.mimeType),
-      size: record.data.size ?? null,
-      imageGroupId: record.data.imageGroupId,
-      groupRecordIds: groupRecords.map((groupRecord) => groupRecord.entityUuid),
-      currentIndex: Math.max(0, groupRecords.findIndex((groupRecord) => groupRecord.entityUuid === record.entityUuid)),
-    };
-
-    console.log(`MEDIA_RENDER type=image mediaId=${state.mediaId ?? 'null'}`);
-    return state;
-  }
-
-  renderFile(record: RecordProjectionEntity): MediaViewerState {
-    const state: MediaViewerState = {
-      type: 'file',
-      recordId: record.entityUuid,
-      title: this.resolveDisplayTitle(record),
-      mediaId: this.resolveOptionalMediaText(record.data.mediaId),
-      mimeType: this.resolveOptionalMediaText(record.data.mimeType),
-      size: record.data.size ?? null,
-      imageGroupId: null,
-      groupRecordIds: [record.entityUuid],
-      currentIndex: 0,
-    };
-
-    console.log(`MEDIA_RENDER type=file mediaId=${state.mediaId ?? 'null'}`);
-    return state;
-  }
-
-  renderAudio(record: RecordProjectionEntity): MediaViewerState {
-    const state: MediaViewerState = {
-      type: 'audio',
-      recordId: record.entityUuid,
-      title: this.resolveDisplayTitle(record),
-      mediaId: this.resolveOptionalMediaText(record.data.mediaId),
-      mimeType: this.resolveOptionalMediaText(record.data.mimeType),
-      size: record.data.size ?? null,
-      imageGroupId: null,
-      groupRecordIds: [record.entityUuid],
-      currentIndex: 0,
-    };
-
-    console.log(`MEDIA_RENDER type=audio mediaId=${state.mediaId ?? 'null'}`);
-    return state;
   }
 
   closeMediaViewer(): void {
     const record = this.selectedRecord();
     if (record !== null) {
-      console.log(`MEDIA_VIEW_CLOSE record=${record.entityUuid}`);
+      console.log(`MEDIA_VIEW_CLOSE record=${record.id}`);
     }
 
     this.viewerOpen.set(false);
-    this.selectedRecord.set(null);
-    this.renderState.set(null);
+    this.selectedRecordId.set(null);
   }
 
   navigateImageGroup(direction: -1 | 1): void {
@@ -134,12 +89,11 @@ export class MediaViewerComponent {
     }
 
     const nextRecord = this.resolveRecord(nextRecordId);
-    if (nextRecord === null || nextRecord.data.type !== 'image') {
+    if (nextRecord === null || nextRecord.type !== 'image') {
       return;
     }
 
-    this.selectedRecord.set(nextRecord);
-    this.renderState.set(this.renderImage(nextRecord));
+    this.selectedRecordId.set(nextRecord.id);
   }
 
   handleEscape(event: Event): void {
@@ -171,38 +125,8 @@ export class MediaViewerComponent {
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  private renderSelectedRecord(record: RecordProjectionEntity): void {
-    switch (record.data.type) {
-      case 'image':
-        this.renderState.set(this.renderImage(record));
-        break;
-      case 'file':
-        this.renderState.set(this.renderFile(record));
-        break;
-      case 'audio':
-        this.renderState.set(this.renderAudio(record));
-        break;
-    }
-  }
-
-  private resolveRecord(recordId: string): RecordProjectionEntity | null {
-    return this.projection.getProjectionState().records.get(recordId) ?? null;
-  }
-
-  private resolveImageGroupRecords(record: RecordProjectionEntity): readonly RecordProjectionEntity[] {
-    if (record.data.imageGroupId === null) {
-      return [record];
-    }
-
-    return this.projection.getProjectionState().imageGroups.get(record.data.imageGroupId) ?? [record];
-  }
-
-  private resolveDisplayTitle(record: RecordProjectionEntity): string {
-    return record.data.title ?? (record.data.body || record.entityUuid);
-  }
-
-  private resolveOptionalMediaText(value: string | undefined): string | null {
-    return typeof value === 'string' ? value : null;
+  private resolveRecord(recordId: string): RecordViewModel | null {
+    return this.container.selectMediaRecord(this.threadId(), recordId);
   }
 
   private isSupportedMediaType(type: string): type is SupportedMediaType {

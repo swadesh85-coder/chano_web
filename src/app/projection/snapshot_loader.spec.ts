@@ -1,3 +1,4 @@
+import { beforeEach, describe, expect, it } from 'vitest';
 import { SnapshotLoader, type SnapshotLoaderEvent } from './snapshot_loader';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 
@@ -106,6 +107,61 @@ async function createMobileSnapshotProtocol(snapshotJson: string, snapshotVersio
   };
 }
 
+function createCanonicalSnapshotJson(options: {
+  readonly folderName?: string;
+  readonly threadTitle?: string;
+  readonly recordBody?: string;
+} = {}): string {
+  return JSON.stringify({
+    folders: [
+      {
+        entityType: 'folder',
+        entityUuid: 'folder-1',
+        entityVersion: 1,
+        ownerUserId: 'owner-1',
+        data: {
+          uuid: 'folder-1',
+          name: options.folderName ?? 'Inbox',
+          parentFolderUuid: null,
+        },
+      },
+    ],
+    threads: [
+      {
+        entityType: 'thread',
+        entityUuid: 'thread-1',
+        entityVersion: 2,
+        ownerUserId: 'owner-1',
+        data: {
+          uuid: 'thread-1',
+          folderUuid: 'folder-1',
+          title: options.threadTitle ?? 'Roadmap',
+        },
+      },
+    ],
+    records: [
+      {
+        entityType: 'record',
+        entityUuid: 'record-1',
+        entityVersion: 3,
+        lastEventVersion: 3,
+        ownerUserId: 'owner-1',
+        data: {
+          uuid: 'record-1',
+          threadUuid: 'thread-1',
+          type: 'text',
+          body: options.recordBody ?? 'Seed note',
+          createdAt: 1710000000,
+          editedAt: 1710000000,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
+        },
+      },
+    ],
+  });
+}
+
 describe('SnapshotLoader', () => {
   let loader: SnapshotLoader;
   let events: SnapshotLoaderEvent[];
@@ -119,8 +175,10 @@ describe('SnapshotLoader', () => {
   });
 
   it('snapshot_start_initializes_loader', async () => {
-    const firstProtocol = await createSnapshotProtocol('{"folders":[1],"threads":[],"records":[]}');
-    const secondProtocol = await createSnapshotProtocol('{"folders":[2],"threads":[],"records":[]}', 84);
+    const firstSnapshotJson = createCanonicalSnapshotJson({ folderName: 'First' });
+    const secondSnapshotJson = createCanonicalSnapshotJson({ folderName: 'Second' });
+    const firstProtocol = await createSnapshotProtocol(firstSnapshotJson);
+    const secondProtocol = await createSnapshotProtocol(secondSnapshotJson, 84);
 
     loader.handleSnapshotStart(firstProtocol.start);
     loader.handleSnapshotChunk(firstProtocol.chunks[0]!);
@@ -135,14 +193,15 @@ describe('SnapshotLoader', () => {
     expect(events).toEqual([
       {
         type: 'SNAPSHOT_LOADED',
-        snapshotJson: '{"folders":[2],"threads":[],"records":[]}',
+        parsedSnapshot: JSON.parse(secondSnapshotJson),
         baseEventVersion: 84,
+        entityCount: 3,
       },
     ]);
   });
 
   it('snapshot_chunk_byte_reconstruction', async () => {
-    const snapshotJson = '{"folders":[{"name":"Cafe \u2615"}],"threads":[],"records":[]}';
+    const snapshotJson = createCanonicalSnapshotJson({ folderName: 'Cafe \u2615' });
     const protocol = await createSnapshotProtocol(snapshotJson, 12);
 
     loader.handleSnapshotStart(protocol.start);
@@ -153,13 +212,18 @@ describe('SnapshotLoader', () => {
 
     expect(events).toContainEqual({
       type: 'SNAPSHOT_LOADED',
-      snapshotJson,
+      parsedSnapshot: JSON.parse(snapshotJson),
       baseEventVersion: 12,
+      entityCount: 3,
     });
   });
 
   it('snapshot_utf8_reconstruction', async () => {
-    const snapshotJson = '{"folders":[{"name":"Cafe \u2615"}],"threads":[{"title":"na\u00efve"}],"records":[{"body":"r\u00e9sum\u00e9"}]}';
+    const snapshotJson = createCanonicalSnapshotJson({
+      folderName: 'Cafe \u2615',
+      threadTitle: 'na\u00efve',
+      recordBody: 'r\u00e9sum\u00e9',
+    });
     const protocol = await createSnapshotProtocol(snapshotJson, 12);
 
     loader.handleSnapshotStart(protocol.start);
@@ -170,8 +234,9 @@ describe('SnapshotLoader', () => {
 
     expect(events).toContainEqual({
       type: 'SNAPSHOT_LOADED',
-      snapshotJson,
+      parsedSnapshot: JSON.parse(snapshotJson),
       baseEventVersion: 12,
+      entityCount: 3,
     });
   });
 
@@ -188,8 +253,9 @@ describe('SnapshotLoader', () => {
     expect(events).toEqual([
       {
         type: 'SNAPSHOT_LOADED',
-        snapshotJson,
+        parsedSnapshot: JSON.parse(snapshotJson),
         baseEventVersion: 9,
+        entityCount: 0,
       },
     ]);
   });
@@ -208,8 +274,9 @@ describe('SnapshotLoader', () => {
 
     expect(events[0]).toEqual({
       type: 'SNAPSHOT_LOADED',
-      snapshotJson,
+      parsedSnapshot: JSON.parse(snapshotJson),
       baseEventVersion: 7,
+      entityCount: 1,
     });
   });
 
@@ -265,6 +332,7 @@ describe('SnapshotLoader', () => {
           entityType: 'record',
           entityUuid: 'record-1',
           entityVersion: 3,
+          lastEventVersion: 3,
           ownerUserId: 'owner-1',
           data: {
             uuid: 'record-1',

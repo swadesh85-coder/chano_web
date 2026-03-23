@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThreadViewComponent } from './thread_view';
 import { ProjectionStore } from '../projection/projection.store';
 import { ExplorerActions } from './explorer_actions';
@@ -7,9 +8,9 @@ import { PendingCommandStore } from './pending_command_store';
 import { MutationCommandSender } from '../../transport';
 import { RecordEditor } from './record_editor';
 import type {
-  ProjectionSnapshotState,
+  ProjectionState,
   ProjectionUpdate,
-  RecordProjectionEntity,
+  RecordEntry,
 } from '../projection/projection.models';
 
 describe('ThreadViewComponent', () => {
@@ -24,7 +25,7 @@ describe('ThreadViewComponent', () => {
   };
   let sendCommand: ReturnType<typeof vi.fn>;
   let projectionStateSignals: {
-    records: ReturnType<typeof signal<RecordProjectionEntity[]>>;
+    records: ReturnType<typeof signal<RecordEntry[]>>;
   };
 
   const recordEntity = (
@@ -33,26 +34,34 @@ describe('ThreadViewComponent', () => {
     threadUuid: string,
     type = 'text',
     orderIndex = 0,
-    lastEventVersion: number | null = null,
+    lastEventVersion = 1,
     entityVersion = 1,
     imageGroupId: string | null = null,
-  ): RecordProjectionEntity => ({
-    entityType: 'record',
-    entityUuid: uuid,
+  ): RecordEntry => ({
+    id: uuid,
+    threadId: threadUuid,
+    type,
+    name: body,
+    createdAt: entityVersion,
+    editedAt: entityVersion,
+    orderIndex,
+    isStarred: false,
+    imageGroupId,
     entityVersion,
-    data: {
-      uuid,
-      threadUuid,
-      type,
-      body,
-      createdAt: entityVersion,
-      editedAt: entityVersion,
-      orderIndex,
-      isStarred: false,
-      imageGroupId,
-      lastEventVersion,
-    },
+    lastEventVersion,
   });
+
+  function deepFreeze<T>(value: T): T {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) {
+      return value;
+    }
+
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      deepFreeze(entry);
+    }
+
+    return Object.freeze(value);
+  }
 
   beforeEach(async () => {
     consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -64,7 +73,7 @@ describe('ThreadViewComponent', () => {
     };
     sendCommand = vi.fn(() => null);
     projectionStateSignals = {
-      records: signal<RecordProjectionEntity[]>([]),
+      records: signal<RecordEntry[]>([]),
     };
 
     await TestBed.configureTestingModule({
@@ -77,7 +86,11 @@ describe('ThreadViewComponent', () => {
         {
           provide: ProjectionStore,
           useValue: {
-            getProjectionState: (): ProjectionSnapshotState => buildProjectionState(projectionStateSignals.records()),
+            state: (): ProjectionState => ({
+              folders: [],
+              threads: [],
+              records: projectionStateSignals.records(),
+            }),
             lastProjectionUpdate: projectionUpdateSignal.asReadonly(),
           },
         },
@@ -90,47 +103,8 @@ describe('ThreadViewComponent', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
-
-  function buildProjectionState(records: readonly RecordProjectionEntity[]): ProjectionSnapshotState {
-    const recordMap = new Map(records.map((record) => [record.entityUuid, cloneRecord(record)]));
-    const imageGroups = new Map<string, readonly RecordProjectionEntity[]>();
-
-    for (const record of recordMap.values()) {
-      if (record.data.type !== 'image' || record.data.imageGroupId === null) {
-        continue;
-      }
-
-      const group = imageGroups.get(record.data.imageGroupId) ?? [];
-      imageGroups.set(record.data.imageGroupId, [...group, record].sort((left, right) => {
-        if (left.data.orderIndex !== right.data.orderIndex) {
-          return left.data.orderIndex - right.data.orderIndex;
-        }
-
-        const leftEventVersion = left.data.lastEventVersion ?? Number.MAX_SAFE_INTEGER;
-        const rightEventVersion = right.data.lastEventVersion ?? Number.MAX_SAFE_INTEGER;
-        if (leftEventVersion !== rightEventVersion) {
-          return leftEventVersion - rightEventVersion;
-        }
-
-        return left.entityUuid.localeCompare(right.entityUuid);
-      }));
-    }
-
-    return {
-      folders: new Map(),
-      threads: new Map(),
-      records: recordMap,
-      imageGroups,
-    };
-  }
-
-  function cloneRecord(record: RecordProjectionEntity): RecordProjectionEntity {
-    return {
-      ...record,
-      data: { ...record.data },
-    };
-  }
 
   function render(threadId: string | null): void {
     fixture.componentRef.setInput('threadId', threadId);
@@ -201,7 +175,7 @@ describe('ThreadViewComponent', () => {
       'imageGroup:img-123 → [rec-1, rec-2]',
     ]);
     expect(getTextValues('[data-testid="record-item"]')).toEqual([
-      'record:text-2 record:text-2',
+      'record:text-2 record:text-2 · v202',
     ]);
   });
 
@@ -217,9 +191,9 @@ describe('ThreadViewComponent', () => {
     render('thread:0001');
 
     expect(getOrderedThreadViewText()).toEqual([
-      'record:text-1 record:text-1',
+      'record:text-1 record:text-1 · v200',
       'imageGroup:img-123 → [rec-1, rec-2]',
-      'record:text-2 record:text-2',
+      'record:text-2 record:text-2 · v202',
     ]);
   });
 
@@ -237,6 +211,21 @@ describe('ThreadViewComponent', () => {
     expect(hashProjectionInputs()).toBe(beforeHash);
   });
 
+  it('thread_view_accepts_frozen_projection_input_without_mutation', () => {
+    projectionStateSignals.records.set(
+      deepFreeze([
+        recordEntity('record:text-1', 'record:text-1', 'thread:0001', 'text', 1, 200, 1),
+        recordEntity('rec-1', 'image-1', 'thread:0001', 'image', 2, 201, 1, 'img-123'),
+      ]),
+    );
+
+    expect(() => render('thread:0001')).not.toThrow();
+    expect(component.viewNodes().map((node) => node.key)).toEqual([
+      'record:record:text-1',
+      'imageGroup:img-123',
+    ]);
+  });
+
   it('deterministic_thread_render', () => {
     projectionStateSignals.records.set([
       recordEntity('record:text-1', 'record:text-1', 'thread:0001', 'text', 1, 200, 1),
@@ -247,12 +236,12 @@ describe('ThreadViewComponent', () => {
     projectionUpdateSignal.set({ reason: 'snapshot_loaded', entityType: null, eventVersion: 200 });
     render('thread:0001');
 
-    const firstRender = JSON.stringify(component.renderThread('thread:0001'));
+    const firstRender = JSON.stringify(component.viewNodes());
 
     projectionUpdateSignal.set({ reason: 'event_applied', entityType: 'record', eventVersion: 202 });
     render('thread:0001');
 
-    const secondRender = JSON.stringify(component.renderThread('thread:0001'));
+    const secondRender = JSON.stringify(component.viewNodes());
 
     expect(firstRender).toBe(secondRender);
     expect(getTextValues('[data-testid="image-group-item"]')).toHaveLength(1);
@@ -349,7 +338,7 @@ describe('ThreadViewComponent', () => {
       },
     });
     expect(getTextValues('[data-testid="record-item"]')).toEqual([
-      'Original body record:text-1',
+      'Original body record:text-1 · v200',
     ]);
   });
 
@@ -366,7 +355,7 @@ describe('ThreadViewComponent', () => {
     fixture.detectChanges();
 
     expect(getTextValues('[data-testid="record-item"]')).toEqual([
-      'Original body record:text-1',
+      'Original body record:text-1 · v200',
     ]);
 
     projectionStateSignals.records.set([
@@ -377,8 +366,8 @@ describe('ThreadViewComponent', () => {
     render('thread:0001');
 
     expect(getTextValues('[data-testid="record-item"]')).toEqual([
-      'Original body record:text-1',
-      'Created body record:text-2',
+      'Original body record:text-1 · v200',
+      'Created body record:text-2 · v201',
     ]);
   });
 
@@ -386,11 +375,8 @@ describe('ThreadViewComponent', () => {
     projectionStateSignals.records.set([
       {
         ...recordEntity('rec-1', 'Cover image', 'thread:0001', 'image', 1, 200, 1, null),
-        data: {
-          ...recordEntity('rec-1', 'Cover image', 'thread:0001', 'image', 1, 200, 1, null).data,
-          mediaId: 'media-789',
-          mimeType: 'image/jpeg',
-        },
+        mediaId: 'media-789',
+        mimeType: 'image/jpeg',
       },
     ]);
 

@@ -1,18 +1,19 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MediaViewerComponent } from './media_viewer';
 import { ProjectionStore } from '../projection/projection.store';
-import type { ProjectionSnapshotState, RecordProjectionEntity } from '../projection/projection.models';
+import type { ProjectionState, RecordEntry } from '../projection/projection.models';
 
 describe('MediaViewerComponent', () => {
   let fixture: ComponentFixture<MediaViewerComponent>;
   let component: MediaViewerComponent;
   let consoleLog: ReturnType<typeof vi.spyOn>;
-  let projectionRecords: ReturnType<typeof signal<RecordProjectionEntity[]>>;
+  let projectionRecords: ReturnType<typeof signal<RecordEntry[]>>;
 
   beforeEach(async () => {
     consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    projectionRecords = signal<RecordProjectionEntity[]>([]);
+    projectionRecords = signal<RecordEntry[]>([]);
 
     await TestBed.configureTestingModule({
       imports: [MediaViewerComponent],
@@ -20,7 +21,11 @@ describe('MediaViewerComponent', () => {
         {
           provide: ProjectionStore,
           useValue: {
-            getProjectionState: (): ProjectionSnapshotState => buildProjectionState(projectionRecords()),
+            state: (): ProjectionState => ({
+              folders: [],
+              threads: [],
+              records: projectionRecords(),
+            }),
           },
         },
       ],
@@ -32,72 +37,53 @@ describe('MediaViewerComponent', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
   function recordEntity(
     recordId: string,
     type: 'image' | 'file' | 'audio',
-    overrides: Partial<RecordProjectionEntity['data']> = {},
-  ): RecordProjectionEntity {
+    overrides: Partial<RecordEntry> = {},
+  ): RecordEntry {
     return {
-      entityType: 'record',
-      entityUuid: recordId,
+      id: recordId,
+      threadId: 'thread:0001',
+      type,
+      name: `${type} body`,
+      createdAt: 1,
+      editedAt: 1,
+      orderIndex: 0,
+      isStarred: false,
+      imageGroupId: null,
       entityVersion: 1,
-      data: {
-        uuid: recordId,
-        threadUuid: 'thread:0001',
-        type,
-        body: `${type} body`,
-        createdAt: 1,
-        editedAt: 1,
-        orderIndex: 0,
-        isStarred: false,
-        imageGroupId: null,
-        lastEventVersion: 1,
-        ...overrides,
-      },
+      lastEventVersion: 1,
+      ...overrides,
     };
   }
 
-  function buildProjectionState(records: readonly RecordProjectionEntity[]): ProjectionSnapshotState {
-    const recordMap = new Map(records.map((record) => [record.entityUuid, cloneRecord(record)]));
-    const imageGroups = new Map<string, readonly RecordProjectionEntity[]>();
-
-    for (const record of recordMap.values()) {
-      if (record.data.type !== 'image' || record.data.imageGroupId === null) {
-        continue;
-      }
-
-      const group = imageGroups.get(record.data.imageGroupId) ?? [];
-      imageGroups.set(record.data.imageGroupId, [...group, record]);
+  function deepFreeze<T>(value: T): T {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) {
+      return value;
     }
 
-    return {
-      folders: new Map(),
-      threads: new Map(),
-      records: recordMap,
-      imageGroups,
-    };
-  }
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      deepFreeze(entry);
+    }
 
-  function cloneRecord(record: RecordProjectionEntity): RecordProjectionEntity {
-    return {
-      ...record,
-      data: { ...record.data },
-    };
+    return Object.freeze(value);
   }
 
   it('media_viewer_open_image', () => {
     projectionRecords.set([
       recordEntity('rec-1', 'image', {
-        body: 'Hero image',
+        name: 'Hero image',
         mediaId: 'media-789',
         mimeType: 'image/jpeg',
         imageGroupId: 'img-123',
         orderIndex: 0,
       }),
       recordEntity('rec-2', 'image', {
-        body: 'Hero image alt',
+        name: 'Hero image alt',
         mediaId: 'media-790',
         mimeType: 'image/jpeg',
         imageGroupId: 'img-123',
@@ -105,11 +91,12 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
+    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     fixture.detectChanges();
 
     expect(component.viewerOpen()).toBe(true);
-    expect(component.selectedRecord()?.entityUuid).toBe('rec-1');
+    expect(component.selectedRecord()?.id).toBe('rec-1');
     expect(component.renderState()).toMatchObject({
       type: 'image',
       recordId: 'rec-1',
@@ -133,6 +120,7 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
+    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-file');
     fixture.detectChanges();
 
@@ -156,6 +144,7 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
+    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-audio');
     fixture.detectChanges();
 
@@ -179,6 +168,7 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
+    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     fixture.detectChanges();
 
@@ -196,10 +186,43 @@ describe('MediaViewerComponent', () => {
     ]);
     const beforeHash = JSON.stringify(projectionRecords());
 
+    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     component.closeMediaViewer();
 
     expect(JSON.stringify(projectionRecords())).toBe(beforeHash);
+  });
+
+  it('media_viewer_accepts_frozen_projection_input_without_mutation', () => {
+    projectionRecords.set(
+      deepFreeze([
+        recordEntity('rec-1', 'image', {
+          name: 'Hero image',
+          mediaId: 'media-789',
+          mimeType: 'image/jpeg',
+          imageGroupId: 'img-123',
+          orderIndex: 0,
+        }),
+        recordEntity('rec-2', 'image', {
+          name: 'Hero image alt',
+          mediaId: 'media-790',
+          mimeType: 'image/jpeg',
+          imageGroupId: 'img-123',
+          orderIndex: 1,
+        }),
+      ]),
+    );
+
+    fixture.componentRef.setInput('threadId', 'thread:0001');
+
+    expect(() => {
+      component.openMedia('rec-1');
+      fixture.detectChanges();
+      component.navigateImageGroup(1);
+      fixture.detectChanges();
+    }).not.toThrow();
+
+    expect(component.selectedRecord()?.id).toBe('rec-2');
   });
 
   it('viewer_close_cleanup', () => {
@@ -210,6 +233,7 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
+    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     fixture.detectChanges();
     component.closeMediaViewer();
@@ -220,5 +244,32 @@ describe('MediaViewerComponent', () => {
     expect(component.renderState()).toBeNull();
     expect(fixture.nativeElement.querySelector('[data-testid="media-viewer-overlay"]')).toBeNull();
     expect(consoleLog).toHaveBeenCalledWith('MEDIA_VIEW_CLOSE record=rec-1');
+  });
+
+  it('media_viewer_render_is_deterministic_for_same_input', () => {
+    projectionRecords.set([
+      recordEntity('rec-1', 'image', {
+        name: 'Hero image',
+        mediaId: 'media-789',
+        mimeType: 'image/jpeg',
+        imageGroupId: 'img-123',
+      }),
+      recordEntity('rec-2', 'image', {
+        name: 'Hero image alt',
+        mediaId: 'media-790',
+        mimeType: 'image/jpeg',
+        imageGroupId: 'img-123',
+      }),
+    ]);
+
+    fixture.componentRef.setInput('threadId', 'thread:0001');
+    component.openMedia('rec-1');
+    fixture.detectChanges();
+    const firstRender = fixture.nativeElement.querySelector('[data-testid="media-viewer-overlay"]')?.textContent?.replace(/\s+/g, ' ').trim();
+
+    fixture.detectChanges();
+    const secondRender = fixture.nativeElement.querySelector('[data-testid="media-viewer-overlay"]')?.textContent?.replace(/\s+/g, ' ').trim();
+
+    expect(firstRender).toBe(secondRender);
   });
 });

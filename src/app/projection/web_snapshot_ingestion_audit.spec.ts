@@ -1,12 +1,27 @@
-import { signal } from '@angular/core';
-import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ExplorerComponent } from '../explorer/explorer';
-import { ExplorerActions } from '../explorer/explorer_actions';
-import { PendingCommandStore } from '../explorer/pending_command_store';
+import { TestBed } from '@angular/core/testing';
+import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectionStore } from './projection.store';
-import { MutationCommandSender } from '../../transport';
 import { WebRelayClient } from '../../transport/web-relay-client';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
+
+let angularTestEnvironmentInitialized = false;
+
+function ensureAngularTestEnvironment(): void {
+  if (angularTestEnvironmentInitialized) {
+    return;
+  }
+
+  try {
+    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
+      throw error;
+    }
+  }
+
+  angularTestEnvironmentInitialized = true;
+}
 
 type WsHandler = ((ev: { data: string }) => void) | null;
 
@@ -52,8 +67,8 @@ class MockWebSocket {
 const ORIGINAL_WEB_SOCKET = globalThis.WebSocket;
 
 beforeAll(() => {
-  (globalThis as Record<string, unknown>)['WebSocket'] =
-    MockWebSocket as unknown as typeof WebSocket;
+  ensureAngularTestEnvironment();
+  (globalThis as Record<string, unknown>)['WebSocket'] = MockWebSocket as unknown as typeof WebSocket;
 });
 
 afterAll(() => {
@@ -89,7 +104,7 @@ function toBase64(bytes: Uint8Array): string {
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', copy);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', copy.buffer);
   return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
@@ -130,6 +145,7 @@ async function createSnapshotProtocol(sessionId: string): Promise<{
         entityType: 'record',
         entityUuid: 'record-audit-1',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'record-audit-1',
@@ -191,10 +207,7 @@ async function createSnapshotProtocol(sessionId: string): Promise<{
   };
 }
 
-async function waitForProjectionReady(
-  fixture: ComponentFixture<ExplorerComponent>,
-  projectionStore: ProjectionStore,
-): Promise<void> {
+async function waitForProjectionReady(projectionStore: ProjectionStore): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (projectionStore.phase() === 'ready') {
       return;
@@ -203,60 +216,36 @@ async function waitForProjectionReady(
     await new Promise<void>((resolve) => {
       setTimeout(() => resolve(), 0);
     });
-    fixture.detectChanges();
   }
 }
 
 describe('Web snapshot ingestion audit', () => {
-  let fixture: ComponentFixture<ExplorerComponent>;
-  let component: ExplorerComponent;
   let relay: WebRelayClient;
   let projectionStore: ProjectionStore;
   let consoleLog: ReturnType<typeof vi.spyOn>;
   let auditLog: string[];
 
-  beforeEach(async () => {
+  beforeEach(() => {
     auditLog = [];
     consoleLog = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
       auditLog.push(args.map((value) => String(value)).join(' '));
     });
 
-    await TestBed.configureTestingModule({
-      imports: [ExplorerComponent],
-      providers: [
-        ExplorerActions,
-        {
-          provide: PendingCommandStore,
-          useValue: {
-            isPending: vi.fn(() => false),
-            isCreatePending: vi.fn(() => false),
-            setPending: vi.fn(),
-            pendingEntities: signal([]),
-          },
-        },
-        {
-          provide: MutationCommandSender,
-          useValue: { sendCommand: vi.fn(() => null) },
-        },
-      ],
-    }).compileComponents();
-
-    fixture = TestBed.createComponent(ExplorerComponent);
-    component = fixture.componentInstance;
+    TestBed.configureTestingModule({});
     relay = TestBed.inject(WebRelayClient);
     projectionStore = TestBed.inject(ProjectionStore);
     relay.connect('ws://audit-relay');
     MockWebSocket.last.simulateOpen();
-    fixture.detectChanges();
     auditLog = [];
   });
 
   afterEach(() => {
-    relay.disconnect();
+    relay?.disconnect();
     vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
-  it('snapshot_start_to_render_trace', async () => {
+  it('snapshot_start_to_apply_trace', async () => {
     const sessionId = 'session-snapshot-audit';
     const protocol = await createSnapshotProtocol(sessionId);
 
@@ -264,26 +253,22 @@ describe('Web snapshot ingestion audit', () => {
     MockWebSocket.last.simulateEnvelope(protocol.chunk);
     MockWebSocket.last.simulateEnvelope(protocol.complete);
 
-    await waitForProjectionReady(fixture, projectionStore);
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    const projectionState = projectionStore.getProjectionState();
-    console.warn(`AUDIT_TRACE\n${auditLog.join('\n')}`);
+    await waitForProjectionReady(projectionStore);
 
     const expectedTrace = [
-      `WS_MESSAGE_RECEIVED raw=${JSON.stringify(protocol.start).slice(0, 200)} type=unknown sessionId=unknown`,
       `WS_MESSAGE_PARSED type=snapshot_start sessionId=${sessionId}`,
       `SNAPSHOT_RECEIVE_START snapshotId=snapshot-audit-1 totalChunks=1 type=snapshot_start sessionId=${sessionId}`,
       `HANDLE_MESSAGE type=snapshot_start sessionId=${sessionId} handled=true`,
-      `WS_MESSAGE_RECEIVED raw=${JSON.stringify(protocol.chunk).slice(0, 200)} type=unknown sessionId=unknown`,
       `WS_MESSAGE_PARSED type=snapshot_chunk sessionId=${sessionId}`,
       `SNAPSHOT_RECEIVE_CHUNK index=0 type=snapshot_chunk sessionId=${sessionId}`,
       `HANDLE_MESSAGE type=snapshot_chunk sessionId=${sessionId} handled=true`,
-      `WS_MESSAGE_RECEIVED raw=${JSON.stringify(protocol.complete).slice(0, 200)} type=unknown sessionId=unknown`,
       `WS_MESSAGE_PARSED type=snapshot_complete sessionId=${sessionId}`,
       `SNAPSHOT_RECEIVE_COMPLETE totalChunks=1 type=snapshot_complete sessionId=${sessionId}`,
       `HANDLE_MESSAGE type=snapshot_complete sessionId=${sessionId} handled=true`,
+      `PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=${sessionId}`,
+      'PROJECTION_SNAPSHOT_APPLIED baseEventVersion=12',
+      'PROJECTION_BUILD_COMPLETE entityCount=3',
+      `PROJECTION_APPLY entityCount=3 type=snapshot_apply sessionId=${sessionId}`,
     ];
 
     let cursor = -1;
@@ -293,15 +278,9 @@ describe('Web snapshot ingestion audit', () => {
       cursor = nextIndex;
     }
 
-    expect(projectionState.folders.size).toBe(1);
-    expect(projectionState.threads.size).toBe(1);
-    expect(projectionState.records.size).toBe(1);
-    expect(component.folderTree()).toHaveLength(1);
-    expect(component.threadList()).toHaveLength(1);
-    expect(
-      auditLog.includes(
-        `EXPLORER_RENDER folders=1 threads=1 records=0 type=projection_render sessionId=${sessionId}`,
-      ),
-    ).toBe(true);
+    expect(projectionStore.phase()).toBe('ready');
+    expect(projectionStore.state().folders.map((folder) => folder.id)).toEqual(['folder-audit-1']);
+    expect(projectionStore.state().threads.map((thread) => thread.id)).toEqual(['thread-audit-1']);
+    expect(projectionStore.state().records.map((record) => record.id)).toEqual(['record-audit-1']);
   });
 });

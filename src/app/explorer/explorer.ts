@@ -7,58 +7,54 @@ import {
   untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
-import { ProjectionStore } from '../projection/projection.store';
 import { WebRelayClient } from '../../transport/web-relay-client';
-import { ThreadViewComponent } from './thread_view';
-import type {
-  FolderProjectionEntity,
-  ProjectionSnapshotState,
-  ProjectionUpdate,
-  RecordProjectionEntity,
-  ThreadProjectionEntity,
-} from '../projection/projection.models';
+import { ContentPaneComponent } from './content_pane';
+import { FolderTreeComponent } from './folder_tree';
+import type { ProjectionUpdate } from '../projection/projection.models';
 import { ExplorerActions } from './explorer_actions';
+import { RecordEditor } from './record_editor';
+import { ExplorerContentPaneContainer } from '../explorer_content_pane.container';
+import { ExplorerFolderTreeContainer } from '../explorer_folder_tree.container';
 import type { MutationEntityType } from '../../transport';
-
-type FolderTreeNode = {
-  readonly entity: FolderProjectionEntity;
-  readonly children: readonly FolderTreeNode[];
-};
-
-type ExplorerView = {
-  readonly folderTree: readonly FolderTreeNode[];
-  readonly threadList: readonly ThreadProjectionEntity[];
-  readonly recordList: readonly RecordProjectionEntity[];
-};
+import {
+  type FolderTreeViewModel,
+  type RecordViewModel,
+  type ThreadListViewModel,
+} from '../../viewmodels';
 
 @Component({
   selector: 'app-explorer',
-  imports: [NgTemplateOutlet, ThreadViewComponent],
+  imports: [ContentPaneComponent, FolderTreeComponent],
   templateUrl: './explorer.html',
   styleUrl: './explorer.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExplorerComponent {
-  private readonly projection = inject(ProjectionStore);
   private readonly actions = inject(ExplorerActions);
+  private readonly recordEditor = inject(RecordEditor);
   private readonly relay = inject(WebRelayClient);
+  private readonly contentPaneContainer = inject(ExplorerContentPaneContainer);
+  private readonly folderTreeContainer = inject(ExplorerFolderTreeContainer);
 
   readonly rootFolderId: null = null;
   readonly selectedFolderId = signal<string | null>(this.rootFolderId);
   readonly selectedThreadId = signal<string | null>(null);
-  readonly projectionState = computed(() => this.projection.getProjectionState());
-  readonly explorerView = computed(() => this.renderExplorer(this.projectionState()));
-  readonly folderTree = computed(() => this.explorerView().folderTree);
-  readonly threadList = computed(() => this.explorerView().threadList);
-  readonly recordList = computed(() => this.explorerView().recordList);
-  readonly selectedFolder = computed(() => {
-    const selectedFolderId = this.selectedFolderId();
-    if (selectedFolderId === null) {
-      return null;
-    }
-
-    return this.projectionState().folders.get(selectedFolderId) ?? null;
+  readonly folderTree = this.folderTreeContainer.folderTree;
+  readonly threadList = computed(() => this.contentPaneContainer.threadList(this.selectedFolderId()));
+  readonly recordList = computed(() => this.contentPaneContainer.recordList(this.selectedThreadId()));
+  readonly contentPane = computed(() =>
+    this.contentPaneContainer.contentPane(this.selectedFolderId(), this.selectedThreadId()),
+  );
+  readonly selectedFolder = computed(() => this.folderTreeContainer.findFolder(this.selectedFolderId()));
+  readonly disabledThreadIds = computed<Readonly<Record<string, boolean>>>(() => {
+    return Object.fromEntries(
+      this.threadList().map((thread) => [thread.id, this.isActionDisabled(thread.id)]),
+    );
+  });
+  readonly disabledRecordIds = computed<Readonly<Record<string, boolean>>>(() => {
+    return Object.fromEntries(
+      this.recordList().map((record) => [record.id, this.isRecordActionDisabled(record.id)]),
+    );
   });
 
   constructor() {
@@ -99,7 +95,7 @@ export class ExplorerComponent {
   }
 
   selectThread(threadId: string): void {
-    if (!this.threadList().some((thread) => thread.entityUuid === threadId)) {
+    if (!this.threadList().some((thread) => thread.id === threadId)) {
       return;
     }
 
@@ -135,6 +131,10 @@ export class ExplorerComponent {
     return this.actions.isCreatePending('thread');
   }
 
+  isCreateRecordDisabled(): boolean {
+    return this.recordEditor.isCreatePending();
+  }
+
   promptCreateThread(folderId: string, event: Event): void {
     event.stopPropagation();
 
@@ -146,6 +146,22 @@ export class ExplorerComponent {
     this.onCreateThread(folderId, title);
   }
 
+  promptCreateRecord(event: Event): void {
+    event.stopPropagation();
+
+    const threadId = this.selectedThreadId();
+    if (threadId === null) {
+      return;
+    }
+
+    const body = globalThis.prompt('New text record body', '');
+    if (typeof body !== 'string') {
+      return;
+    }
+
+    this.recordEditor.createRecord(threadId, body);
+  }
+
   promptRenameEntity(entityType: MutationEntityType, entityId: string, currentTitle: string, event: Event): void {
     event.stopPropagation();
 
@@ -155,6 +171,29 @@ export class ExplorerComponent {
     }
 
     this.onRenameEntity(entityType, entityId, newTitle);
+  }
+
+  promptEditRecord(record: RecordViewModel, event: Event): void {
+    event.stopPropagation();
+
+    const currentBody = typeof record.content === 'string' ? record.content : '';
+    const body = globalThis.prompt('Edit record body', currentBody);
+    if (typeof body !== 'string') {
+      return;
+    }
+
+    this.recordEditor.updateRecord(record.id, body);
+  }
+
+  promptRenameRecord(record: RecordViewModel, event: Event): void {
+    event.stopPropagation();
+
+    const newTitle = globalThis.prompt('Rename item', record.displayLabel);
+    if (typeof newTitle !== 'string') {
+      return;
+    }
+
+    this.recordEditor.renameRecord(record.id, newTitle);
   }
 
   promptMoveEntity(entityType: Extract<MutationEntityType, 'thread' | 'record'>, entityId: string, currentName: string, event: Event): void {
@@ -169,27 +208,47 @@ export class ExplorerComponent {
     this.onMoveEntity(entityType, entityId, targetId);
   }
 
+  promptMoveRecord(record: RecordViewModel, event: Event): void {
+    event.stopPropagation();
+
+    const targetId = globalThis.prompt(`Move ${record.displayLabel} to target thread id`);
+    if (typeof targetId !== 'string') {
+      return;
+    }
+
+    this.actions.onMoveEntity('record', record.id, targetId);
+  }
+
   triggerSoftDelete(entityType: MutationEntityType, entityId: string, event: Event): void {
     event.stopPropagation();
     this.onSoftDelete(entityType, entityId);
   }
 
-  trackFolder(_index: number, node: FolderTreeNode): string {
-    return node.entity.entityUuid;
+  triggerSoftDeleteRecord(record: RecordViewModel, event: Event): void {
+    event.stopPropagation();
+    this.actions.onSoftDelete('record', record.id);
   }
 
-  trackThread(_index: number, thread: ThreadProjectionEntity): string {
-    return thread.entityUuid;
+  isRecordActionDisabled(entityId: string): boolean {
+    return this.actions.isPending(entityId) || this.recordEditor.isPending(entityId);
   }
 
-  trackRecord(_index: number, record: RecordProjectionEntity): string {
-    return record.entityUuid;
+  trackFolder(_index: number, node: FolderTreeViewModel): string {
+    return node.id;
   }
 
-  private reconcileSelection(projectionState: ProjectionSnapshotState): void {
+  trackThread(_index: number, thread: ThreadListViewModel): string {
+    return thread.id;
+  }
+
+  trackRecord(_index: number, record: RecordViewModel): string {
+    return record.id;
+  }
+
+  private reconcileSelection(): void {
     const selectedFolderId = untracked(() => this.selectedFolderId());
     const selectedThreadId = untracked(() => this.selectedThreadId());
-    const folderExists = selectedFolderId === null || projectionState.folders.has(selectedFolderId);
+    const folderExists = this.folderTreeContainer.hasFolder(selectedFolderId);
 
     if (!folderExists) {
       this.selectedFolderId.set(this.rootFolderId);
@@ -201,8 +260,10 @@ export class ExplorerComponent {
     }
 
     const effectiveSelectedFolderId = folderExists ? selectedFolderId : this.rootFolderId;
-    const visibleThreads = this.getVisibleThreads(projectionState, effectiveSelectedFolderId);
-    const threadStillVisible = visibleThreads.some((thread) => thread.entityUuid === selectedThreadId);
+    const threadStillVisible = this.contentPaneContainer.hasVisibleThread(
+      effectiveSelectedFolderId,
+      selectedThreadId,
+    );
     if (!threadStillVisible) {
       this.selectedThreadId.set(null);
       console.log('THREAD_REMOVED selection cleared');
@@ -211,52 +272,14 @@ export class ExplorerComponent {
 
   private subscribeToProjection(): void {
     effect(() => {
-      const projectionState = this.projectionState();
-      const projectionUpdate = this.projection.lastProjectionUpdate();
+      this.folderTree();
+      this.threadList();
+      this.recordList();
+      const projectionUpdate = this.contentPaneContainer.projectionUpdate();
 
-      this.reconcileSelection(projectionState);
+      this.reconcileSelection();
       this.refreshOnSnapshotAndEvents(projectionUpdate);
     });
-  }
-
-  private renderExplorer(projectionState: ProjectionSnapshotState): ExplorerView {
-    const folderTree = this.buildFolderTree(projectionState.folders);
-    const threadList = this.getVisibleThreads(projectionState, this.selectedFolderId());
-    const selectedThreadId = this.selectedThreadId();
-    const recordList = selectedThreadId === null
-      ? []
-      : [...projectionState.records.values()].filter((record) => record.data.threadUuid === selectedThreadId);
-
-    return {
-      folderTree,
-      threadList,
-      recordList,
-    };
-  }
-
-  private buildFolderTree(folders: ReadonlyMap<string, FolderProjectionEntity>): readonly FolderTreeNode[] {
-    const childrenByParent = new Map<string | null, FolderProjectionEntity[]>();
-
-    for (const folder of folders.values()) {
-      const key = folder.data.parentFolderUuid;
-      const siblings = childrenByParent.get(key) ?? [];
-      siblings.push(folder);
-      childrenByParent.set(key, siblings);
-    }
-
-    const buildNode = (entity: FolderProjectionEntity): FolderTreeNode => ({
-      entity,
-      children: (childrenByParent.get(entity.entityUuid) ?? []).map((child) => buildNode(child)),
-    });
-
-    return (childrenByParent.get(this.rootFolderId) ?? []).map((folder) => buildNode(folder));
-  }
-
-  private getVisibleThreads(
-    projectionState: ProjectionSnapshotState,
-    selectedFolderId: string | null,
-  ): readonly ThreadProjectionEntity[] {
-    return [...projectionState.threads.values()].filter((thread) => thread.data.folderUuid === selectedFolderId);
   }
 
   private refreshOnSnapshotAndEvents(projectionUpdate: ProjectionUpdate | null): void {
@@ -274,7 +297,7 @@ export class ExplorerComponent {
     }
   }
 
-  private countFolderNodes(nodes: readonly FolderTreeNode[]): number {
+  private countFolderNodes(nodes: readonly FolderTreeViewModel[]): number {
     let count = 0;
     for (const node of nodes) {
       count += 1;

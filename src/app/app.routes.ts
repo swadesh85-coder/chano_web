@@ -1,6 +1,6 @@
 import { inject } from '@angular/core';
 import { Router, Routes } from '@angular/router';
-import { ProjectionStore } from './projection/projection.store';
+import { ProjectionStateContainer } from './projection/projection_state.container';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'pair', pathMatch: 'full' },
@@ -15,9 +15,9 @@ export const routes: Routes = [
       import('./explorer/explorer').then((m) => m.ExplorerComponent),
     canActivate: [
       () => {
-        const store = inject(ProjectionStore);
+        const projection = inject(ProjectionStateContainer);
         const router = inject(Router);
-        return store.phase() === 'ready' || router.createUrlTree(['/pair']);
+        return projection.phase() === 'ready' || router.createUrlTree(['/pair']);
       },
     ],
   },

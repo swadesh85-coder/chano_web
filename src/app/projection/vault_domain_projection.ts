@@ -3,15 +3,11 @@ import type {
   Folder,
   ProjectionSnapshotDocument,
   ProjectionState,
+  RecordSnapshotEntity,
   RecordEntry,
   SnapshotEntity,
   Thread,
 } from './projection.models';
-import {
-  ImageGroupProjection,
-  type ImageGroupProjectionRecord,
-  type ImageGroupView,
-} from './image_group_projection';
 
 type CanonicalFolder = {
   readonly id: string;
@@ -46,7 +42,7 @@ type CanonicalRecord = {
   readonly mimeType?: string;
   readonly title?: string;
   readonly size?: number | null;
-  readonly lastEventVersion: number | null;
+  readonly lastEventVersion: number;
   readonly lastMutationVersion: number;
   readonly deleted: boolean;
 };
@@ -58,16 +54,12 @@ export class VaultDomainProjection {
   private readonly threads = new Map<string, CanonicalThread>();
   private readonly records = new Map<string, CanonicalRecord>();
   private readonly appliedEventIds = new Set<string>();
-  private readonly imageGroupProjection = new ImageGroupProjection((threadId) =>
-    this.getImageGroupProjectionRecords(threadId),
-  );
 
   reset(): void {
     this.folders.clear();
     this.threads.clear();
     this.records.clear();
     this.appliedEventIds.clear();
-    this.imageGroupProjection.reset();
   }
 
   applySnapshot(snapshotEntities: ProjectionSnapshotDocument): ProjectionState {
@@ -85,14 +77,12 @@ export class VaultDomainProjection {
       this.insertSnapshotRecord(entity);
     }
 
-    for (const threadId of this.threads.keys()) {
-      this.imageGroupProjection.buildImageGroups(threadId);
-    }
-
     return this.getState();
   }
 
   applyEvent(eventEnvelope: EventEnvelope): ProjectionState {
+    this.assertValidEventVersion(eventEnvelope.eventVersion);
+
     if (this.appliedEventIds.has(eventEnvelope.eventId)) {
       return this.getState();
     }
@@ -102,10 +92,6 @@ export class VaultDomainProjection {
     );
 
     this.appliedEventIds.add(eventEnvelope.eventId);
-    const previousRecord = eventEnvelope.entityType === 'record'
-      ? this.toImageGroupProjectionRecord(this.records.get(eventEnvelope.entityId) ?? null)
-      : null;
-
     switch (eventEnvelope.operation) {
       case 'create':
         this.applyCreate(eventEnvelope);
@@ -128,23 +114,7 @@ export class VaultDomainProjection {
         break;
     }
 
-    if (eventEnvelope.entityType === 'record') {
-      this.imageGroupProjection.updateOnEvent(
-        eventEnvelope,
-        previousRecord,
-        this.toImageGroupProjectionRecord(this.records.get(eventEnvelope.entityId) ?? null),
-      );
-    }
-
     return this.getState();
-  }
-
-  buildImageGroups(threadId: string): readonly ImageGroupView[] {
-    return this.imageGroupProjection.buildImageGroups(threadId);
-  }
-
-  getImageGroups(threadId: string): readonly ImageGroupView[] {
-    return this.imageGroupProjection.getGroupsForThread(threadId);
   }
 
   getEntityVersion(entityType: EventEnvelope['entityType'], entityId: string): number | null {
@@ -219,6 +189,7 @@ export class VaultDomainProjection {
         entityType: 'record' as const,
         entityUuid: record.id,
         entityVersion: record.lastMutationVersion,
+        lastEventVersion: record.lastEventVersion,
         ownerUserId: record.ownerUserId,
         data: {
           uuid: record.id,
@@ -237,6 +208,12 @@ export class VaultDomainProjection {
         },
       })),
     });
+  }
+
+  private assertValidEventVersion(eventVersion: number): void {
+    if (!Number.isInteger(eventVersion) || eventVersion <= 0) {
+      throw new Error('Invalid eventVersion');
+    }
   }
 
   private insertSnapshotFolder(entity: SnapshotEntity): void {
@@ -261,7 +238,13 @@ export class VaultDomainProjection {
     });
   }
 
-  private insertSnapshotRecord(entity: SnapshotEntity): void {
+  private insertSnapshotRecord(entity: RecordSnapshotEntity): void {
+    if (entity.lastEventVersion == null) {
+      throw new Error('Missing lastEventVersion in snapshot');
+    }
+
+    this.assertValidEventVersion(entity.lastEventVersion);
+
     this.records.set(entity.entityUuid, {
       id: entity.entityUuid,
       threadId: entity.data['threadUuid'] as string,
@@ -277,7 +260,7 @@ export class VaultDomainProjection {
       mimeType: this.resolveOptionalString(entity.data, 'mimeType'),
       title: this.resolveOptionalString(entity.data, 'title'),
       size: this.resolveOptionalNullableNumber(entity.data, 'size'),
-      lastEventVersion: null,
+      lastEventVersion: entity.lastEventVersion,
       lastMutationVersion: entity.entityVersion,
       deleted: false,
     });
@@ -611,36 +594,6 @@ export class VaultDomainProjection {
     }
   }
 
-  private getImageGroupProjectionRecords(threadId: string): readonly ImageGroupProjectionRecord[] {
-    const matchingRecords: ImageGroupProjectionRecord[] = [];
-
-    for (const record of this.records.values()) {
-      if (record.threadId !== threadId) {
-        continue;
-      }
-
-      matchingRecords.push(this.toImageGroupProjectionRecord(record)!);
-    }
-
-    return matchingRecords;
-  }
-
-  private toImageGroupProjectionRecord(record: CanonicalRecord | null): ImageGroupProjectionRecord | null {
-    if (record === null) {
-      return null;
-    }
-
-    return {
-      id: record.id,
-      threadId: record.threadId,
-      type: record.type,
-      imageGroupId: record.imageGroupId,
-      orderIndex: record.orderIndex,
-      lastMutationVersion: record.lastMutationVersion,
-      deleted: record.deleted,
-    };
-  }
-
   private collectVisibleFolderIds(): Set<string> {
     const visibleFolderIds = new Set<string>();
 
@@ -674,6 +627,7 @@ export class VaultDomainProjection {
       id: folder.id,
       name: folder.name,
       parentId: folder.parentId,
+      entityVersion: folder.lastMutationVersion,
     }));
   }
 
@@ -716,6 +670,7 @@ export class VaultDomainProjection {
       id: thread.id,
       folderId: thread.folderId,
       title: thread.title,
+      entityVersion: thread.lastMutationVersion,
     }));
   }
 
@@ -773,6 +728,8 @@ export class VaultDomainProjection {
       orderIndex: record.orderIndex,
       isStarred: record.isStarred,
       imageGroupId: record.imageGroupId,
+      entityVersion: record.lastMutationVersion,
+      lastEventVersion: record.lastEventVersion,
       ...(typeof record.mediaId === 'string' ? { mediaId: record.mediaId } : {}),
       ...(typeof record.mimeType === 'string' ? { mimeType: record.mimeType } : {}),
       ...(typeof record.title === 'string' ? { title: record.title } : {}),

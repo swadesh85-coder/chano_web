@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { ProjectionStore } from '../app/projection/projection.store';
+import { ProjectionStateContainer } from '../app/projection/projection_state.container';
 import type {
   MutationCommand,
   MutationCommandIntent,
@@ -15,7 +15,7 @@ import { WebRelayClient } from './web-relay-client';
 @Injectable({ providedIn: 'root' })
 export class MutationCommandSender {
   private readonly relay = inject(WebRelayClient);
-  private readonly projection = inject(ProjectionStore);
+  private readonly projection = inject(ProjectionStateContainer);
   private readonly deviceIdentity = inject(WebDeviceIdentity);
   private readonly commandResultHandler = inject(CommandResultHandler);
 

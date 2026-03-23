@@ -5,7 +5,7 @@ import { validateEventEnvelope } from './projection_event_validation';
 import {
   auditEventStream,
 } from './projection_event_stream_audit';
-import type { EventEnvelope, ProjectionState } from './projection.models';
+import type { EventEnvelope, ProjectionSnapshotDocument, ProjectionState } from './projection.models';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 
 const ROOT_FOLDER_ID = '123e4567-e89b-42d3-a456-426614174001';
@@ -42,8 +42,8 @@ type DeterminismAuditResult = {
   readonly identical: boolean;
 };
 
-function createSnapshotJson(): string {
-  return JSON.stringify({
+function createSnapshotDocument(): ProjectionSnapshotDocument {
+  return {
     folders: [
       {
         entityType: 'folder',
@@ -86,6 +86,7 @@ function createSnapshotJson(): string {
         entityType: 'record',
         entityUuid: RECORD_ID,
         entityVersion: 4,
+        lastEventVersion: 4,
         ownerUserId: 'owner-1',
         data: {
           uuid: RECORD_ID,
@@ -100,7 +101,11 @@ function createSnapshotJson(): string {
         },
       },
     ],
-  });
+  };
+}
+
+function createSnapshotJson(): string {
+  return JSON.stringify(createSnapshotDocument());
 }
 
 function createEnvelope(
@@ -304,19 +309,19 @@ async function auditSnapshotFlow(
   protocol: SnapshotProtocol,
 ): Promise<SnapshotAuditResult> {
   const snapshotLog = [`SNAPSHOT_START totalChunks=${protocol.start.payload['totalChunks']}`];
-  let stateAppliedBeforeComplete = hasProjectionData(engine.getProjectionState());
+  let stateAppliedBeforeComplete = hasProjectionData(engine.state);
   let appliedBaseEventVersion: number | null = null;
-  let state = engine.getProjectionState();
+  let state = engine.state;
 
   loader.onEvent((event) => {
     if (event.type === 'SNAPSHOT_LOADED') {
-      const result = engine.applySnapshot(event.snapshotJson, event.baseEventVersion);
+      const result = engine.applySnapshot(event.parsedSnapshot, event.baseEventVersion);
       appliedBaseEventVersion = result.lastAppliedEventVersion;
       state = result.state;
       return;
     }
 
-    state = engine.getProjectionState();
+    state = engine.state;
   });
 
   loader.handleSnapshotStart(protocol.start);
@@ -324,7 +329,7 @@ async function auditSnapshotFlow(
   for (const chunk of protocol.chunks) {
     snapshotLog.push(`SNAPSHOT_CHUNK index=${chunk.payload['index']}`);
     loader.handleSnapshotChunk(chunk);
-    stateAppliedBeforeComplete = stateAppliedBeforeComplete || hasProjectionData(engine.getProjectionState());
+    stateAppliedBeforeComplete = stateAppliedBeforeComplete || hasProjectionData(engine.state);
   }
 
   const reconstruction = await reconstructSnapshot(protocol);
@@ -376,13 +381,13 @@ async function hashProjectionState(state: ProjectionState): Promise<string> {
 }
 
 async function auditDeterminism(
-  snapshotJson: string,
+  snapshot: ProjectionSnapshotDocument,
   baseEventVersion: number,
   envelopes: readonly TransportEnvelope[],
 ): Promise<DeterminismAuditResult> {
   const runReplay = async (): Promise<string> => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(snapshotJson, baseEventVersion);
+    engine.applySnapshot(snapshot, baseEventVersion);
 
     for (const envelope of envelopes) {
       const validationResult = await validateEventEnvelope(envelope);
@@ -392,7 +397,7 @@ async function auditDeterminism(
       }
     }
 
-    return hashProjectionState(engine.getProjectionState());
+    return hashProjectionState(engine.state);
   };
 
   const hashRun1 = await runReplay();
@@ -483,7 +488,7 @@ describe('Projection pipeline audit', () => {
 
   it('event_sequential_apply', async () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), BASE_EVENT_VERSION);
+    engine.applySnapshot(createSnapshotDocument(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {
       uuid: EXTRA_RECORD_ID,
@@ -511,7 +516,7 @@ describe('Projection pipeline audit', () => {
 
   it('event_duplicate_ignore', async () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), BASE_EVENT_VERSION);
+    engine.applySnapshot(createSnapshotDocument(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {
       uuid: EXTRA_RECORD_ID,
@@ -552,7 +557,7 @@ describe('Projection pipeline audit', () => {
 
   it('event_gap_detection', async () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), BASE_EVENT_VERSION);
+    engine.applySnapshot(createSnapshotDocument(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {
       uuid: EXTRA_RECORD_ID,
@@ -587,7 +592,7 @@ describe('Projection pipeline audit', () => {
 
   it('event_projection_update', async () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), BASE_EVENT_VERSION);
+    engine.applySnapshot(createSnapshotDocument(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
     const duplicate101 = await createEventStreamEnvelope(101);
     const gap105 = await createEventStreamEnvelope(105, {
@@ -614,7 +619,7 @@ describe('Projection pipeline audit', () => {
   });
 
   it('projection_deterministic_after_fix', async () => {
-    const snapshotJson = createSnapshotJson();
+    const snapshot = createSnapshotDocument();
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {
       uuid: EXTRA_RECORD_ID,
@@ -647,7 +652,7 @@ describe('Projection pipeline audit', () => {
       eventId: 'evt-105',
     });
 
-    const determinismAudit = await auditDeterminism(snapshotJson, BASE_EVENT_VERSION, [
+    const determinismAudit = await auditDeterminism(snapshot, BASE_EVENT_VERSION, [
       event101,
       event102,
       duplicate102,

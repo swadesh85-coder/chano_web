@@ -1,40 +1,23 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
   signal,
 } from '@angular/core';
-import { ProjectionStore } from '../projection/projection.store';
 import { ExplorerActions } from './explorer_actions';
 import { RecordEditor } from './record_editor';
 import { MediaViewerComponent } from './media_viewer';
-import type {
-  ProjectionUpdate,
-  RecordProjectionEntity,
-} from '../projection/projection.models';
+import type { ProjectionUpdate } from '../projection/projection.models';
+import {
+  type RecordViewModel,
+  type ThreadRecordNodeViewModel,
+} from '../../viewmodels';
+import { ExplorerContainer } from '../explorer.container';
 
-type ThreadViewRecordNode = {
-  readonly kind: 'record';
-  readonly key: string;
-  readonly orderIndex: number | null;
-  readonly lastEventVersion: number | null;
-  readonly deterministicKey: string;
-  readonly record: RecordProjectionEntity;
-};
-
-type ThreadViewImageGroupNode = {
-  readonly kind: 'imageGroup';
-  readonly key: string;
-  readonly orderIndex: number | null;
-  readonly lastEventVersion: number | null;
-  readonly deterministicKey: string;
-  readonly imageGroupId: string;
-  readonly records: readonly RecordProjectionEntity[];
-};
-
-export type ThreadViewNode = ThreadViewRecordNode | ThreadViewImageGroupNode;
+export type ThreadViewNode = ThreadRecordNodeViewModel;
 
 @Component({
   selector: 'app-thread-view',
@@ -44,19 +27,29 @@ export type ThreadViewNode = ThreadViewRecordNode | ThreadViewImageGroupNode;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThreadViewComponent {
-  private readonly projection = inject(ProjectionStore);
   private readonly actions = inject(ExplorerActions);
   private readonly recordEditor = inject(RecordEditor);
+  private readonly container = inject(ExplorerContainer);
 
   readonly threadId = input<string | null>(null);
   readonly activeThreadId = signal<string | null>(null);
+  readonly viewNodes = computed(() => this.renderThread(this.activeThreadId()));
 
   constructor() {
     effect(() => {
       this.handleThreadSelection(this.threadId());
     });
 
-    this.subscribeToProjection();
+    effect(() => {
+      const threadId = this.activeThreadId();
+      if (threadId === null) {
+        return;
+      }
+
+      const viewNodes = this.viewNodes();
+      console.log('THREAD_RENDER ordering_applied using eventVersion');
+      this.logProjectionUpdate(this.container.projectionUpdate(), threadId, viewNodes);
+    });
   }
 
   handleThreadSelection(threadId: string | null): void {
@@ -73,74 +66,7 @@ export class ThreadViewComponent {
       return [];
     }
 
-    return this.applyOrdering(this.buildDeterministicView(threadId));
-  }
-
-  buildDeterministicView(threadId: string): readonly ThreadViewNode[] {
-    const projectionState = this.projection.getProjectionState();
-    const records = [...projectionState.records.values()].filter((record) => record.data.threadUuid === threadId);
-    const groupedRecordIds = new Set<string>();
-    const viewNodes: ThreadViewNode[] = [];
-
-    for (const [imageGroupId, imageGroupRecords] of projectionState.imageGroups.entries()) {
-      const threadImageGroupRecords = imageGroupRecords.filter((record) => record.data.threadUuid === threadId);
-      if (threadImageGroupRecords.length === 0) {
-        continue;
-      }
-
-      for (const record of threadImageGroupRecords) {
-        groupedRecordIds.add(record.entityUuid);
-      }
-
-      const firstRecord = threadImageGroupRecords[0];
-
-      viewNodes.push({
-        kind: 'imageGroup',
-        key: `imageGroup:${imageGroupId}`,
-        imageGroupId,
-        records: threadImageGroupRecords,
-        orderIndex: firstRecord.data.orderIndex,
-        lastEventVersion: firstRecord.data.lastEventVersion,
-        deterministicKey: imageGroupId,
-      });
-    }
-
-    for (const record of records) {
-      if (groupedRecordIds.has(record.entityUuid)) {
-        continue;
-      }
-
-      viewNodes.push({
-        kind: 'record',
-        key: `record:${record.entityUuid}`,
-        record,
-        orderIndex: record.data.orderIndex,
-        lastEventVersion: record.data.lastEventVersion,
-        deterministicKey: record.entityUuid,
-      });
-    }
-
-    return viewNodes;
-  }
-
-  applyOrdering(nodes: readonly ThreadViewNode[]): readonly ThreadViewNode[] {
-    console.log('THREAD_RENDER ordering_applied using eventVersion');
-
-    return [...nodes].sort((left, right) => {
-      const leftOrder = left.orderIndex ?? Number.MAX_SAFE_INTEGER;
-      const rightOrder = right.orderIndex ?? Number.MAX_SAFE_INTEGER;
-      if (leftOrder !== rightOrder) {
-        return leftOrder - rightOrder;
-      }
-
-      const leftEventVersion = left.lastEventVersion ?? Number.MAX_SAFE_INTEGER;
-      const rightEventVersion = right.lastEventVersion ?? Number.MAX_SAFE_INTEGER;
-      if (leftEventVersion !== rightEventVersion) {
-        return leftEventVersion - rightEventVersion;
-      }
-
-      return left.deterministicKey.localeCompare(right.deterministicKey);
-    });
+    return this.container.threadRecordNodes(threadId);
   }
 
   isActionDisabled(entityId: string): boolean {
@@ -167,71 +93,58 @@ export class ThreadViewComponent {
     this.recordEditor.createRecord(threadId, body);
   }
 
-  promptEditRecord(record: RecordProjectionEntity, event: Event): void {
+  promptEditRecord(record: RecordViewModel, event: Event): void {
     event.stopPropagation();
 
-    const body = globalThis.prompt('Edit record body', record.data.body);
+    const currentBody = typeof record.content === 'string' ? record.content : '';
+    const body = globalThis.prompt('Edit record body', currentBody);
     if (typeof body !== 'string') {
       return;
     }
 
-    this.recordEditor.updateRecord(record.entityUuid, body);
+    this.recordEditor.updateRecord(record.id, body);
   }
 
-  promptRenameRecord(record: RecordProjectionEntity, event: Event): void {
+  promptRenameRecord(record: RecordViewModel, event: Event): void {
     event.stopPropagation();
 
-    const newTitle = globalThis.prompt('Rename item', record.data.body);
+    const newTitle = globalThis.prompt('Rename item', record.displayLabel);
     if (typeof newTitle !== 'string') {
       return;
     }
 
-    this.recordEditor.renameRecord(record.entityUuid, newTitle);
+    this.recordEditor.renameRecord(record.id, newTitle);
   }
 
-  promptMoveRecord(record: RecordProjectionEntity, event: Event): void {
+  promptMoveRecord(record: RecordViewModel, event: Event): void {
     event.stopPropagation();
 
-    const targetId = globalThis.prompt(`Move ${record.data.body || record.data.type} to target thread id`);
+    const currentLabel = typeof record.content === 'string' && record.content.length > 0
+      ? record.content
+      : record.type;
+    const targetId = globalThis.prompt(`Move ${currentLabel} to target thread id`);
     if (typeof targetId !== 'string') {
       return;
     }
 
-    this.actions.onMoveEntity('record', record.entityUuid, targetId);
+    this.actions.onMoveEntity('record', record.id, targetId);
   }
 
-  triggerSoftDeleteRecord(record: RecordProjectionEntity, event: Event): void {
+  triggerSoftDeleteRecord(record: RecordViewModel, event: Event): void {
     event.stopPropagation();
-    this.actions.onSoftDelete('record', record.entityUuid);
+    this.actions.onSoftDelete('record', record.id);
   }
 
   trackNode(_index: number, node: ThreadViewNode): string {
     return node.key;
   }
 
-  isMediaRecord(record: RecordProjectionEntity): boolean {
-    return record.data.type === 'image' || record.data.type === 'file' || record.data.type === 'audio';
+  isMediaRecord(record: RecordViewModel): boolean {
+    return record.type === 'image' || record.type === 'file' || record.type === 'audio';
   }
 
-  getRecordLabel(record: RecordProjectionEntity): string {
-    return record.data.title ?? (record.data.body || record.data.type);
-  }
-
-  getImageGroupLeadRecordId(records: readonly RecordProjectionEntity[]): string | null {
-    return records[0]?.entityUuid ?? null;
-  }
-
-  private subscribeToProjection(): void {
-    effect(() => {
-      const projectionUpdate = this.projection.lastProjectionUpdate();
-      const threadId = this.activeThreadId();
-      if (threadId === null) {
-        return;
-      }
-
-      const viewNodes = this.renderThread(threadId);
-      this.logProjectionUpdate(projectionUpdate, threadId, viewNodes);
-    });
+  getRecordLabel(record: RecordViewModel): string {
+    return record.displayLabel;
   }
 
   private logProjectionUpdate(

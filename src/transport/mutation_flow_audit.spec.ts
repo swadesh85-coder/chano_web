@@ -233,10 +233,11 @@ function createCommandResultEnvelope(
 }
 
 function captureProjectionState(projection: ProjectionStore) {
+  const state = projection.state();
   return {
-    folders: projection.folders().map((folder) => ({ ...folder })),
-    threads: projection.threads().map((thread) => ({ ...thread })),
-    records: projection.records().map((record) => ({ ...record })),
+    folders: state.folders.map((folder) => ({ ...folder })),
+    threads: state.threads.map((thread) => ({ ...thread })),
+    records: state.records.map((record) => ({ ...record })),
   };
 }
 
@@ -280,7 +281,7 @@ describe('auditMutationFlow', () => {
 
     const result = await auditMutationFlow({
       triggerUiAction: () => recordEditor.createRecord(THREAD_ID, 'Record from web'),
-      getProjectionState: () => captureProjectionState(projection),
+      readProjectionState: () => captureProjectionState(projection),
       isPendingCommand: (commandId) => pending.pendingByCommandId()[commandId] !== undefined,
       getCommandResult: (commandId) => commandResults.getResult(commandId),
       dispatchEnvelope: async (envelope) => {
@@ -314,7 +315,7 @@ describe('auditMutationFlow', () => {
 
     const result = await auditMutationFlow({
       triggerUiAction: () => recordEditor.createRecord(THREAD_ID, 'Await event'),
-      getProjectionState: () => captureProjectionState(projection),
+      readProjectionState: () => captureProjectionState(projection),
       isPendingCommand: (commandId) => pending.pendingByCommandId()[commandId] !== undefined,
       getCommandResult: (commandId) => commandResults.getResult(commandId),
       dispatchEnvelope: async (envelope) => {
@@ -341,7 +342,7 @@ describe('auditMutationFlow', () => {
 
     const result = await auditMutationFlow({
       triggerUiAction: () => recordEditor.createRecord(THREAD_ID, 'Projected record'),
-      getProjectionState: () => captureProjectionState(projection),
+      readProjectionState: () => captureProjectionState(projection),
       isPendingCommand: (commandId) => pending.pendingByCommandId()[commandId] !== undefined,
       getCommandResult: (commandId) => commandResults.getResult(commandId),
       dispatchEnvelope: async (envelope) => {
@@ -374,7 +375,7 @@ describe('auditMutationFlow', () => {
 
     const result = await auditMutationFlow({
       triggerUiAction: () => recordEditor.createRecord(THREAD_ID, 'Result only metadata'),
-      getProjectionState: () => captureProjectionState(projection),
+      readProjectionState: () => captureProjectionState(projection),
       isPendingCommand: (commandId) => pending.pendingByCommandId()[commandId] !== undefined,
       getCommandResult: (commandId) => commandResults.getResult(commandId),
       dispatchEnvelope: async (envelope) => {
@@ -412,7 +413,7 @@ describe('auditMutationFlow', () => {
 
     const result = await auditMutationFlow({
       triggerUiAction: () => recordEditor.createRecord(THREAD_ID, 'Target record'),
-      getProjectionState: () => captureProjectionState(projection),
+      readProjectionState: () => captureProjectionState(projection),
       isPendingCommand: (commandId) => pending.pendingByCommandId()[commandId] !== undefined,
       getCommandResult: (commandId) => commandResults.getResult(commandId),
       dispatchEnvelope: async (envelope) => {

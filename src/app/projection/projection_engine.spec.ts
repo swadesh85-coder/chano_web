@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ProjectionEngine } from './projection_engine';
-import type { EventEnvelope, ProjectionState } from './projection.models';
+import type { EventEnvelope, ProjectionSnapshotDocument, ProjectionState } from './projection.models';
 
-function createSnapshotJson(): string {
-  return JSON.stringify({
+function createSnapshotDocument(): ProjectionSnapshotDocument {
+  return {
     folders: [
       {
         entityType: 'folder',
@@ -35,6 +35,7 @@ function createSnapshotJson(): string {
         entityType: 'record',
         entityUuid: 'record-1',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'record-1',
@@ -49,11 +50,11 @@ function createSnapshotJson(): string {
         },
       },
     ],
-  });
+  };
 }
 
-function createReplacementSnapshotJson(): string {
-  return JSON.stringify({
+function createReplacementSnapshotDocument(): ProjectionSnapshotDocument {
+  return {
     folders: [
       {
         entityType: 'folder',
@@ -85,6 +86,7 @@ function createReplacementSnapshotJson(): string {
         entityType: 'record',
         entityUuid: 'record-9',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-2',
         data: {
           uuid: 'record-9',
@@ -99,11 +101,11 @@ function createReplacementSnapshotJson(): string {
         },
       },
     ],
-  });
+  };
 }
 
-function createDeterministicSnapshotJson(): string {
-  return JSON.stringify({
+function createDeterministicSnapshotDocument(): ProjectionSnapshotDocument {
+  return {
     folders: [
       {
         entityType: 'folder',
@@ -157,6 +159,7 @@ function createDeterministicSnapshotJson(): string {
         entityType: 'record',
         entityUuid: 'record-a',
         entityVersion: 5,
+        lastEventVersion: 5,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'record-a',
@@ -174,6 +177,7 @@ function createDeterministicSnapshotJson(): string {
         entityType: 'record',
         entityUuid: 'record-b',
         entityVersion: 6,
+        lastEventVersion: 6,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'record-b',
@@ -188,11 +192,11 @@ function createDeterministicSnapshotJson(): string {
         },
       },
     ],
-  });
+  };
 }
 
-function createUnorderedSnapshotJson(): string {
-  return JSON.stringify({
+function createUnorderedSnapshotDocument(): ProjectionSnapshotDocument {
+  return {
     folders: [
       {
         entityType: 'folder',
@@ -246,6 +250,7 @@ function createUnorderedSnapshotJson(): string {
         entityType: 'record',
         entityUuid: 'record-c',
         entityVersion: 9,
+        lastEventVersion: 9,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'record-c',
@@ -263,6 +268,7 @@ function createUnorderedSnapshotJson(): string {
         entityType: 'record',
         entityUuid: 'record-b',
         entityVersion: 6,
+        lastEventVersion: 6,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'record-b',
@@ -280,6 +286,7 @@ function createUnorderedSnapshotJson(): string {
         entityType: 'record',
         entityUuid: 'record-a',
         entityVersion: 5,
+        lastEventVersion: 5,
         ownerUserId: 'owner-a',
         data: {
           uuid: 'record-a',
@@ -294,7 +301,7 @@ function createUnorderedSnapshotJson(): string {
         },
       },
     ],
-  });
+  };
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -408,13 +415,13 @@ describe('ProjectionEngine', () => {
   it('projection_engine_apply_only_logic', () => {
     const engine = new ProjectionEngine();
 
-    const result = engine.applySnapshot(createSnapshotJson(), 100);
+    const result = engine.applySnapshot(createSnapshotDocument(), 100);
 
     expect(result.status).toBe('SNAPSHOT_APPLIED');
     expect(engine.getLastAppliedEventVersion()).toBe(100);
-    expect(engine.getProjectionState()).toEqual({
-      folders: [{ id: 'folder-1', name: 'Inbox', parentId: null }],
-      threads: [{ id: 'thread-1', folderId: 'folder-1', title: 'Roadmap' }],
+    expect(engine.state).toEqual({
+      folders: [{ id: 'folder-1', name: 'Inbox', parentId: null, entityVersion: 1 }],
+      threads: [{ id: 'thread-1', folderId: 'folder-1', title: 'Roadmap', entityVersion: 1 }],
       records: [
         {
           id: 'record-1',
@@ -426,6 +433,8 @@ describe('ProjectionEngine', () => {
           orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 1,
+          lastEventVersion: 1,
         },
       ],
     });
@@ -433,7 +442,7 @@ describe('ProjectionEngine', () => {
 
   it('projection_engine_no_validation_logic', () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const createResult = engine.applyEvent(createEventEnvelope(101, {
       checksum: 'not-verified',
@@ -454,7 +463,7 @@ describe('ProjectionEngine', () => {
     expect(createResult.status).toBe('EVENT_APPLIED');
     expect(renameResult.status).toBe('EVENT_APPLIED');
     expect(engine.getLastAppliedEventVersion()).toBe(102);
-    expect(engine.getProjectionState().records).toEqual([
+    expect(engine.state.records).toEqual([
       {
         id: 'record-1',
         threadId: 'thread-1',
@@ -465,6 +474,8 @@ describe('ProjectionEngine', () => {
         orderIndex: 0,
         isStarred: false,
         imageGroupId: null,
+        entityVersion: 1,
+        lastEventVersion: 1,
       },
       {
         id: 'record-2',
@@ -476,6 +487,8 @@ describe('ProjectionEngine', () => {
         orderIndex: null,
         isStarred: false,
         imageGroupId: null,
+        entityVersion: 102,
+        lastEventVersion: 102,
       },
     ]);
   });
@@ -483,7 +496,7 @@ describe('ProjectionEngine', () => {
   it('projection_engine_gap_triggers_resync_callback', () => {
     const emitResyncRequired = vi.fn();
     const engine = new ProjectionEngine({ emitResyncRequired });
-    engine.applySnapshot(createSnapshotJson(), 199);
+    engine.applySnapshot(createSnapshotDocument(), 199);
     engine.applyEvent(createEventEnvelope(200));
 
     const gapResult = engine.applyEvent(createEventEnvelope(205, {
@@ -503,7 +516,7 @@ describe('ProjectionEngine', () => {
     expect(gapResult).toEqual({
       status: 'SNAPSHOT_RESYNC_REQUIRED',
       lastAppliedEventVersion: 200,
-      state: engine.getProjectionState(),
+      state: engine.state,
       reason: 'EVENT_GAP',
       expectedEventVersion: 201,
       receivedEventVersion: 205,
@@ -513,20 +526,20 @@ describe('ProjectionEngine', () => {
 
   it('projection_engine_duplicate_ignore', () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
     engine.applyEvent(createEventEnvelope(101));
 
     const duplicateResult = engine.applyEvent(createEventEnvelope(101));
 
     expect(duplicateResult.status).toBe('EVENT_IGNORED_DUPLICATE');
     expect(engine.getLastAppliedEventVersion()).toBe(101);
-    expect(engine.getProjectionState().records).toHaveLength(2);
+    expect(engine.state.records).toHaveLength(2);
   });
 
   it('event_apply_sequential', () => {
     const engine = new ProjectionEngine();
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const result = engine.applyEventSequence([
       createEventEnvelope(101),
@@ -552,7 +565,7 @@ describe('ProjectionEngine', () => {
   it('event_duplicate_ignore', () => {
     const engine = new ProjectionEngine();
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const result = simulateDuplicateEvents(engine);
@@ -569,7 +582,7 @@ describe('ProjectionEngine', () => {
     expect(consoleLog.mock.calls).toContainEqual(['EVENT_APPLY eventVersion=102 lastApplied=101']);
     expect(consoleLog.mock.calls).toContainEqual(['EVENT_IGNORE_DUPLICATE version=102']);
     expect(consoleLog.mock.calls).toContainEqual(['EVENT_APPLY eventVersion=103 lastApplied=102']);
-    expect(engine.getProjectionState().records.find((record) => record.id === 'record-2')?.name).toBe('Body 103');
+    expect(engine.state.records.find((record) => record.id === 'record-2')?.name).toBe('Body 103');
 
     consoleLog.mockRestore();
   });
@@ -578,8 +591,8 @@ describe('ProjectionEngine', () => {
     const engine = new ProjectionEngine();
     const replayEngine = new ProjectionEngine();
 
-    engine.applySnapshot(createSnapshotJson(), 100);
-    replayEngine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
+    replayEngine.applySnapshot(createSnapshotDocument(), 100);
 
     expect(engine.applyEvent(createEventEnvelope(101)).status).toBe('EVENT_APPLIED');
     expect(engine.applyEvent(createEventEnvelope(102, {
@@ -590,7 +603,7 @@ describe('ProjectionEngine', () => {
       },
     })).status).toBe('EVENT_APPLIED');
 
-    const stateBeforeDuplicate = engine.getProjectionState();
+    const stateBeforeDuplicate = engine.state;
 
     const duplicateResult = engine.applyEvent(createEventEnvelope(102, {
       eventId: 'evt-102-duplicate',
@@ -602,7 +615,7 @@ describe('ProjectionEngine', () => {
     }));
 
     expect(duplicateResult.status).toBe('EVENT_IGNORED_DUPLICATE');
-    expect(engine.getProjectionState()).toEqual(stateBeforeDuplicate);
+    expect(engine.state).toEqual(stateBeforeDuplicate);
     expect(engine.getLastAppliedEventVersion()).toBe(102);
 
     expect(engine.applyEvent(createEventEnvelope(103, {
@@ -615,7 +628,7 @@ describe('ProjectionEngine', () => {
 
     const replayResult = replayEngine.trackApplyLog(createNonDuplicateReplaySequence());
 
-    expect(engine.getProjectionState()).toEqual(replayResult.state);
+    expect(engine.state).toEqual(replayResult.state);
     expect(engine.getLastAppliedEventVersion()).toBe(103);
     expect(replayResult.lastAppliedEventVersion).toBe(103);
   });
@@ -624,7 +637,7 @@ describe('ProjectionEngine', () => {
     const emitResyncRequired = vi.fn();
     const engine = new ProjectionEngine({ emitResyncRequired });
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const result = simulateDuplicateEvents(engine);
 
@@ -638,7 +651,7 @@ describe('ProjectionEngine', () => {
     const engine = new ProjectionEngine();
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const result = simulateGapScenario(engine);
     const trackedState = engine.trackState();
@@ -662,7 +675,7 @@ describe('ProjectionEngine', () => {
   it('event_gap_no_apply', () => {
     const engine = new ProjectionEngine();
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
     expect(engine.applyEvent(createEventEnvelope(101)).status).toBe('EVENT_APPLIED');
 
     const stateBeforeGap = engine.trackState();
@@ -690,7 +703,7 @@ describe('ProjectionEngine', () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const engine = new ProjectionEngine({ emitResyncRequired });
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const result = simulateGapScenario(engine);
 
@@ -713,7 +726,7 @@ describe('ProjectionEngine', () => {
   it('event_recovery_after_snapshot', () => {
     const engine = new ProjectionEngine();
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const gapResult = simulateGapScenario(engine);
     const stateBeforeRecovery = engine.trackState();
@@ -725,7 +738,7 @@ describe('ProjectionEngine', () => {
     expect(stateBeforeRecovery.lastAppliedEventVersion).toBe(101);
     expect(stateBeforeRecovery.resyncRequired).toBe(true);
 
-    const recoveryResult = engine.applySnapshot(createReplacementSnapshotJson(), 200);
+    const recoveryResult = engine.applySnapshot(createReplacementSnapshotDocument(), 200);
     const stateAfterSnapshot = engine.trackState();
 
     expect(recoveryResult.status).toBe('SNAPSHOT_APPLIED');
@@ -747,16 +760,16 @@ describe('ProjectionEngine', () => {
     expect(engine.trackState()).toEqual({
       lastAppliedEventVersion: 201,
       resyncRequired: false,
-      state: engine.getProjectionState(),
+      state: engine.state,
     });
-    expect(engine.getProjectionState().records.find((record) => record.id === 'record-10')?.name).toBe('Recovered 201');
+    expect(engine.state.records.find((record) => record.id === 'record-10')?.name).toBe('Recovered 201');
   });
 
   it('event_start_boundary_valid', () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const engine = new ProjectionEngine();
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const result = engine.applyEvent(createEventEnvelope(101));
 
@@ -773,7 +786,7 @@ describe('ProjectionEngine', () => {
     const emitResyncRequired = vi.fn();
     const engine = new ProjectionEngine({ emitResyncRequired });
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const result = engine.applyEvent(createEventEnvelope(105, {
       entityId: 'record-5',
@@ -788,7 +801,7 @@ describe('ProjectionEngine', () => {
     expect(result).toEqual({
       status: 'SNAPSHOT_RESYNC_REQUIRED',
       lastAppliedEventVersion: 100,
-      state: engine.getProjectionState(),
+      state: engine.state,
       reason: 'EVENT_GAP',
       expectedEventVersion: 101,
       receivedEventVersion: 105,
@@ -807,7 +820,7 @@ describe('ProjectionEngine', () => {
   it('event_stream_starts_correctly', () => {
     const engine = new ProjectionEngine();
 
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     const firstResult = engine.applyEvent(createEventEnvelope(101));
     const secondResult = engine.applyEvent(createEventEnvelope(102, {
@@ -821,15 +834,15 @@ describe('ProjectionEngine', () => {
     expect(firstResult.status).toBe('EVENT_APPLIED');
     expect(secondResult.status).toBe('EVENT_APPLIED');
     expect(engine.getLastAppliedEventVersion()).toBe(102);
-    expect(engine.getProjectionState().records.find((record) => record.id === 'record-2')?.name).toBe('Body 102');
+    expect(engine.state.records.find((record) => record.id === 'record-2')?.name).toBe('Body 102');
   });
 
   it('no_event_applied_before_boundary_check', () => {
     const emitResyncRequired = vi.fn();
     const engine = new ProjectionEngine({ emitResyncRequired });
 
-    engine.applySnapshot(createSnapshotJson(), 100);
-    const committedState = engine.getProjectionState();
+    engine.applySnapshot(createSnapshotDocument(), 100);
+    const committedState = engine.state;
 
     const duplicateResult = engine.applyEvent(createEventEnvelope(100));
     const invalidBoundaryResult = engine.applyEvent(createEventEnvelope(105, {
@@ -844,7 +857,7 @@ describe('ProjectionEngine', () => {
 
     expect(duplicateResult.status).toBe('EVENT_IGNORED_DUPLICATE');
     expect(invalidBoundaryResult.status).toBe('SNAPSHOT_RESYNC_REQUIRED');
-    expect(engine.getProjectionState()).toEqual(committedState);
+    expect(engine.state).toEqual(committedState);
     expect(engine.getLastAppliedEventVersion()).toBe(100);
     expect(emitResyncRequired).toHaveBeenCalledWith('EVENT_GAP', {
       expectedEventVersion: 101,
@@ -882,25 +895,25 @@ describe('ProjectionEngine', () => {
       }),
     ];
 
-    firstEngine.applySnapshot(createSnapshotJson(), 100);
-    secondEngine.applySnapshot(createSnapshotJson(), 100);
+    firstEngine.applySnapshot(createSnapshotDocument(), 100);
+    secondEngine.applySnapshot(createSnapshotDocument(), 100);
 
     for (const event of events) {
       firstEngine.applyEvent(event);
       secondEngine.applyEvent(event);
     }
 
-    const firstState = firstEngine.getProjectionState();
-    const secondState = secondEngine.getProjectionState();
+    const firstState = firstEngine.state;
+    const secondState = secondEngine.state;
 
     expect(firstState).toEqual(secondState);
     expect(firstEngine.getLastAppliedEventVersion()).toBe(104);
     expect(secondEngine.getLastAppliedEventVersion()).toBe(104);
     expect(firstState).toEqual({
-      folders: [{ id: 'folder-1', name: 'Inbox', parentId: null }],
+      folders: [{ id: 'folder-1', name: 'Inbox', parentId: null, entityVersion: 1 }],
       threads: [
-        { id: 'thread-1', folderId: 'folder-1', title: 'Roadmap' },
-        { id: 'thread-2', folderId: 'folder-1', title: 'Backlog Updated' },
+        { id: 'thread-1', folderId: 'folder-1', title: 'Roadmap', entityVersion: 1 },
+        { id: 'thread-2', folderId: 'folder-1', title: 'Backlog Updated', entityVersion: 104 },
       ],
       records: [
         {
@@ -913,6 +926,8 @@ describe('ProjectionEngine', () => {
           orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 1,
+          lastEventVersion: 1,
         },
         {
           id: 'record-2',
@@ -924,6 +939,8 @@ describe('ProjectionEngine', () => {
           orderIndex: null,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 103,
+          lastEventVersion: 103,
         },
       ],
     } satisfies ProjectionState);
@@ -931,8 +948,8 @@ describe('ProjectionEngine', () => {
 
   it('event_block_during_snapshot', () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), 100);
-    const committedState = engine.getProjectionState();
+    engine.applySnapshot(createSnapshotDocument(), 100);
+    const committedState = engine.state;
 
     engine.onSnapshotStart('snapshot-iso-1');
     const result = engine.onEvent(createEventEnvelope(101, {
@@ -946,14 +963,14 @@ describe('ProjectionEngine', () => {
     }));
 
     expect(result.status).toBe('EVENT_BUFFERED');
-    expect(engine.getProjectionState()).toEqual(committedState);
+    expect(engine.state).toEqual(committedState);
     expect(engine.getLastAppliedEventVersion()).toBe(100);
   });
 
   it('snapshot_event_buffering', () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
 
     engine.onSnapshotStart('snapshot-iso-2');
     engine.onEvent(createEventEnvelope(101));
@@ -1009,7 +1026,7 @@ describe('ProjectionEngine', () => {
       },
     }));
 
-    const result = engine.onSnapshotComplete(createReplacementSnapshotJson(), 100);
+    const result = engine.onSnapshotComplete(createReplacementSnapshotDocument(), 100);
     const applyLog = [
       result.status,
       ...consoleLog.mock.calls
@@ -1040,8 +1057,8 @@ describe('ProjectionEngine', () => {
 
   it('snapshot_atomic_apply', () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(createSnapshotJson(), 90);
-    const committedState = engine.getProjectionState();
+    engine.applySnapshot(createSnapshotDocument(), 90);
+    const committedState = engine.state;
 
     engine.onSnapshotStart('snapshot-iso-4');
     engine.onEvent(createEventEnvelope(101, {
@@ -1054,14 +1071,14 @@ describe('ProjectionEngine', () => {
       },
     }));
 
-    expect(engine.getProjectionState()).toEqual(committedState);
+    expect(engine.state).toEqual(committedState);
     expect(engine.getLastAppliedEventVersion()).toBe(90);
 
-    const result = engine.onSnapshotComplete(createReplacementSnapshotJson(), 100);
+    const result = engine.onSnapshotComplete(createReplacementSnapshotDocument(), 100);
 
     expect(result.state).toEqual({
-      folders: [{ id: 'folder-2', name: 'Archive', parentId: null }],
-      threads: [{ id: 'thread-2', folderId: 'folder-2', title: 'Imported' }],
+      folders: [{ id: 'folder-2', name: 'Archive', parentId: null, entityVersion: 1 }],
+      threads: [{ id: 'thread-2', folderId: 'folder-2', title: 'Imported', entityVersion: 1 }],
       records: [
         {
           id: 'record-9',
@@ -1073,6 +1090,8 @@ describe('ProjectionEngine', () => {
           orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 1,
+          lastEventVersion: 1,
         },
         {
           id: 'record-10',
@@ -1084,6 +1103,8 @@ describe('ProjectionEngine', () => {
           orderIndex: null,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 101,
+          lastEventVersion: 101,
         },
       ],
     });
@@ -1092,13 +1113,14 @@ describe('ProjectionEngine', () => {
 
   it('projection_determinism_repeat_load', async () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const snapshotJson = createDeterministicSnapshotJson();
+    const snapshot = createDeterministicSnapshotDocument();
+    const snapshotJson = JSON.stringify(snapshot);
     const mobileChecksum = await sha256Hex(snapshotJson);
     const firstEngine = new ProjectionEngine();
     const secondEngine = new ProjectionEngine();
 
-    firstEngine.applySnapshot(snapshotJson, 200);
-    secondEngine.applySnapshot(snapshotJson, 200);
+    firstEngine.applySnapshot(snapshot, 200);
+    secondEngine.applySnapshot(snapshot, 200);
 
     const firstSerialized = firstEngine.serializeProjectionState();
     const secondSerialized = secondEngine.serializeProjectionState();
@@ -1123,16 +1145,16 @@ describe('ProjectionEngine', () => {
   it('projection_entity_ordering', () => {
     const engine = new ProjectionEngine();
 
-    engine.applySnapshot(createUnorderedSnapshotJson(), 150);
+    engine.applySnapshot(createUnorderedSnapshotDocument(), 150);
 
-    expect(engine.getProjectionState()).toEqual({
+    expect(engine.state).toEqual({
       folders: [
-        { id: 'folder-a', name: 'Alpha', parentId: null },
-        { id: 'folder-b', name: 'Beta', parentId: 'folder-a' },
+        { id: 'folder-a', name: 'Alpha', parentId: null, entityVersion: 1 },
+        { id: 'folder-b', name: 'Beta', parentId: 'folder-a', entityVersion: 2 },
       ],
       threads: [
-        { id: 'thread-a', folderId: 'folder-a', title: 'Alpha Thread' },
-        { id: 'thread-b', folderId: 'folder-b', title: 'Beta Thread' },
+        { id: 'thread-a', folderId: 'folder-a', title: 'Alpha Thread', entityVersion: 3 },
+        { id: 'thread-b', folderId: 'folder-b', title: 'Beta Thread', entityVersion: 4 },
       ],
       records: [
         {
@@ -1145,6 +1167,8 @@ describe('ProjectionEngine', () => {
           orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 5,
+          lastEventVersion: 5,
         },
         {
           id: 'record-c',
@@ -1156,6 +1180,8 @@ describe('ProjectionEngine', () => {
           orderIndex: 1,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 9,
+          lastEventVersion: 9,
         },
         {
           id: 'record-b',
@@ -1167,6 +1193,8 @@ describe('ProjectionEngine', () => {
           orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 6,
+          lastEventVersion: 6,
         },
       ],
     });
@@ -1224,6 +1252,7 @@ describe('ProjectionEngine', () => {
           entityType: 'record',
           entityUuid: 'record-a',
           entityVersion: 5,
+          lastEventVersion: 5,
           ownerUserId: 'owner-a',
           data: {
             uuid: 'record-a',
@@ -1241,6 +1270,7 @@ describe('ProjectionEngine', () => {
           entityType: 'record',
           entityUuid: 'record-c',
           entityVersion: 9,
+          lastEventVersion: 9,
           ownerUserId: 'owner-a',
           data: {
             uuid: 'record-c',
@@ -1258,6 +1288,7 @@ describe('ProjectionEngine', () => {
           entityType: 'record',
           entityUuid: 'record-b',
           entityVersion: 6,
+          lastEventVersion: 6,
           ownerUserId: 'owner-a',
           data: {
             uuid: 'record-b',
@@ -1273,5 +1304,21 @@ describe('ProjectionEngine', () => {
         },
       ],
     });
+  });
+
+  it('projection_engine_rejects_invalid_snapshot_input_types', () => {
+    const engine = new ProjectionEngine();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    // @ts-expect-error ProjectionEngine accepts only parsed ProjectionSnapshotDocument input.
+    const invalidSnapshotInput: Parameters<ProjectionEngine['applySnapshot']>[0] = JSON.stringify(createSnapshotDocument());
+
+    expect(invalidSnapshotInput).toBeTypeOf('string');
+    expect(() => engine.applySnapshot({ folders: [] } as ProjectionSnapshotDocument, 100)).toThrowError(
+      new TypeError('INVALID_SNAPSHOT_DOCUMENT'),
+    );
+    expect(consoleError).toHaveBeenCalledWith('SNAPSHOT_INPUT_REJECTED reason=INVALID_SNAPSHOT_DOCUMENT');
+
+    consoleError.mockRestore();
   });
 });

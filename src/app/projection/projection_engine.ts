@@ -93,14 +93,14 @@ export type ProjectionTrackedState = {
   readonly state: ProjectionState;
 };
 
-const EMPTY_PROJECTION_STATE: ProjectionState = {
+const EMPTY_PROJECTION_STATE: ProjectionState = Object.freeze({
   folders: [],
   threads: [],
   records: [],
-};
+});
 
 export class ProjectionEngine {
-  private state: ProjectionState = EMPTY_PROJECTION_STATE;
+  private _state: ProjectionState = EMPTY_PROJECTION_STATE;
   private baseEventVersion: number | null = null;
   private lastAppliedEventVersion: number | null = null;
   private hasSnapshot = false;
@@ -108,13 +108,13 @@ export class ProjectionEngine {
   private isSnapshotInProgress = false;
   private resyncRequired = false;
   private bufferedEvents: EventEnvelope[] = [];
-  private readonly vaultDomainProjection = new VaultDomainProjection();
+  private vaultDomainProjection = new VaultDomainProjection();
 
   constructor(private readonly options: ProjectionEngineOptions = {}) {}
 
   reset(): void {
-    this.vaultDomainProjection.reset();
-    this.state = EMPTY_PROJECTION_STATE;
+    this.vaultDomainProjection = new VaultDomainProjection();
+    this._state = EMPTY_PROJECTION_STATE;
     this.baseEventVersion = null;
     this.lastAppliedEventVersion = null;
     this.hasSnapshot = false;
@@ -139,11 +139,39 @@ export class ProjectionEngine {
     this.bufferedEvents = [];
   }
 
-  onSnapshotComplete(snapshotJson: string, baseEventVersion: number): SnapshotCompletionResult {
+  onSnapshotComplete(
+    snapshot: ProjectionSnapshotDocument,
+    baseEventVersion: number,
+  ): SnapshotCompletionResult {
     console.log('SNAPSHOT_COMPLETE');
 
-    this.applySnapshot(snapshotJson, baseEventVersion);
+    const result = this.applySnapshot(snapshot, baseEventVersion);
     console.log('SNAPSHOT_APPLIED');
+    return result;
+  }
+
+  applySnapshot(
+    snapshot: ProjectionSnapshotDocument,
+    baseEventVersion: number,
+  ): SnapshotCompletionResult {
+    this.assertSnapshotDocumentInput(snapshot);
+    const entityCount = (snapshot.folders?.length ?? 0)
+      + (snapshot.threads?.length ?? 0)
+      + (snapshot.records?.length ?? 0);
+    const nextProjection = new VaultDomainProjection();
+    const nextState = this.freezeProjectionState(nextProjection.applySnapshot(snapshot));
+
+    this.vaultDomainProjection = nextProjection;
+    this._state = nextState;
+    this.baseEventVersion = baseEventVersion;
+    this.lastAppliedEventVersion = baseEventVersion;
+    this.hasSnapshot = true;
+    this.hasStartedEventStream = false;
+    this.resyncRequired = false;
+
+    console.log(`PROJECTION_SNAPSHOT_APPLIED baseEventVersion=${baseEventVersion}`);
+    console.log(`PROJECTION_BUILD_COMPLETE entityCount=${entityCount}`);
+
     const bufferedResult = this.processBufferedEvents(baseEventVersion);
     const lastAppliedEventVersion = this.getLastAppliedEventVersion();
 
@@ -159,37 +187,27 @@ export class ProjectionEngine {
     };
   }
 
-  applySnapshot(snapshotJson: string, baseEventVersion: number): ProjectionEngineResult {
-    const snapshot = JSON.parse(snapshotJson) as ProjectionSnapshotDocument;
-    const entityCount = (snapshot.folders?.length ?? 0)
-      + (snapshot.threads?.length ?? 0)
-      + (snapshot.records?.length ?? 0);
+  private assertSnapshotDocumentInput(snapshot: ProjectionSnapshotDocument): void {
+    const isObjectLike = typeof snapshot === 'object' && snapshot !== null;
+    const candidate = snapshot as Partial<ProjectionSnapshotDocument>;
 
-    this.state = this.vaultDomainProjection.applySnapshot(snapshot);
-    this.baseEventVersion = baseEventVersion;
-    this.lastAppliedEventVersion = baseEventVersion;
-    this.hasSnapshot = true;
-    this.hasStartedEventStream = false;
-    this.resyncRequired = false;
-
-    console.log(`PROJECTION_SNAPSHOT_APPLIED baseEventVersion=${baseEventVersion}`);
-    console.log(`PROJECTION_BUILD_COMPLETE entityCount=${entityCount}`);
-
-    return {
-      status: 'SNAPSHOT_APPLIED',
-      lastAppliedEventVersion: baseEventVersion,
-      state: this.getProjectionState(),
-    };
+    if (!isObjectLike || !Array.isArray(candidate.folders)
+      || !Array.isArray(candidate.threads) || !Array.isArray(candidate.records)) {
+      console.error('SNAPSHOT_INPUT_REJECTED reason=INVALID_SNAPSHOT_DOCUMENT');
+      throw new TypeError('INVALID_SNAPSHOT_DOCUMENT');
+    }
   }
 
   applyEvent(eventEnvelope: EventEnvelope): ProjectionEngineResult {
+    this.assertValidEventVersion(eventEnvelope.eventVersion);
+
     const validationResult = this.validateEvent(eventEnvelope);
 
     if (validationResult.status === 'IGNORE_SNAPSHOT_NOT_APPLIED') {
       return {
         status: 'EVENT_IGNORED_SNAPSHOT_NOT_APPLIED',
         lastAppliedEventVersion: this.lastAppliedEventVersion,
-        state: this.getProjectionState(),
+        state: this.state,
       };
     }
 
@@ -221,7 +239,7 @@ export class ProjectionEngine {
       return {
         status: 'EVENT_IGNORED_SNAPSHOT_NOT_APPLIED',
         lastAppliedEventVersion: this.lastAppliedEventVersion,
-        state: this.getProjectionState(),
+        state: this.state,
       };
     }
 
@@ -303,7 +321,7 @@ export class ProjectionEngine {
             applyLog,
             lastAppliedEventVersion: this.lastAppliedEventVersion,
             resyncRequired: this.resyncRequired,
-            state: this.getProjectionState(),
+            state: this.state,
           };
         case 'EVENT_IGNORED_SNAPSHOT_NOT_APPLIED':
         case 'EVENT_BUFFERED':
@@ -316,7 +334,7 @@ export class ProjectionEngine {
       applyLog,
       lastAppliedEventVersion: this.lastAppliedEventVersion,
       resyncRequired: this.resyncRequired,
-      state: this.getProjectionState(),
+      state: this.state,
     };
   }
 
@@ -324,25 +342,31 @@ export class ProjectionEngine {
     return this.trackApplyLog(events);
   }
 
+  private assertValidEventVersion(eventVersion: number): void {
+    if (!Number.isInteger(eventVersion) || eventVersion <= 0) {
+      throw new Error('Invalid eventVersion');
+    }
+  }
+
   private applyValidatedEvent(eventEnvelope: EventEnvelope): ProjectionEngineResult {
     if (this.lastAppliedEventVersion === null) {
       return {
         status: 'EVENT_IGNORED_SNAPSHOT_NOT_APPLIED',
         lastAppliedEventVersion: this.lastAppliedEventVersion,
-        state: this.getProjectionState(),
+        state: this.state,
       };
     }
 
     console.log(`EVENT_APPLY version=${eventEnvelope.eventVersion}`);
     console.log(`EVENT_APPLY eventVersion=${eventEnvelope.eventVersion} lastApplied=${this.lastAppliedEventVersion}`);
 
-    this.state = this.vaultDomainProjection.applyEvent(eventEnvelope);
+    this._state = this.freezeProjectionState(this.vaultDomainProjection.applyEvent(eventEnvelope));
     this.lastAppliedEventVersion = eventEnvelope.eventVersion;
 
     return {
       status: 'EVENT_APPLIED',
       lastAppliedEventVersion: eventEnvelope.eventVersion,
-      state: this.getProjectionState(),
+      state: this.state,
     };
   }
 
@@ -352,7 +376,7 @@ export class ProjectionEngine {
     return {
       status: 'EVENT_IGNORED_DUPLICATE',
       lastAppliedEventVersion: this.lastAppliedEventVersion,
-      state: this.getProjectionState(),
+      state: this.state,
     };
   }
 
@@ -364,19 +388,23 @@ export class ProjectionEngine {
       return {
         status: 'EVENT_BUFFERED',
         lastAppliedEventVersion: this.lastAppliedEventVersion,
-        state: this.getProjectionState(),
+        state: this.state,
       };
     }
 
     return this.applyEvent(eventEnvelope);
   }
 
-  getProjectionState(): ProjectionState {
-    return {
-      folders: this.state.folders.map((folder) => ({ ...folder })),
-      threads: this.state.threads.map((thread) => ({ ...thread })),
-      records: this.state.records.map((record) => ({ ...record })),
-    };
+  get state(): ProjectionState {
+    return this._state;
+  }
+
+  private freezeProjectionState(state: ProjectionState): ProjectionState {
+    return Object.freeze({
+      folders: Object.freeze(state.folders.map((folder) => Object.freeze({ ...folder }))),
+      threads: Object.freeze(state.threads.map((thread) => Object.freeze({ ...thread }))),
+      records: Object.freeze(state.records.map((record) => Object.freeze({ ...record }))),
+    });
   }
 
   getLastAppliedEventVersion(): number | null {
@@ -391,7 +419,7 @@ export class ProjectionEngine {
     return {
       lastAppliedEventVersion: this.lastAppliedEventVersion,
       resyncRequired: this.resyncRequired,
-      state: this.getProjectionState(),
+      state: this.state,
     };
   }
 
@@ -456,7 +484,7 @@ export class ProjectionEngine {
 
     return {
       lastAppliedEventVersion,
-      state: this.getProjectionState(),
+      state: this.state,
       appliedBufferedEventVersions,
     };
   }
@@ -488,7 +516,7 @@ export class ProjectionEngine {
     return {
       status: 'SNAPSHOT_RESYNC_REQUIRED',
       lastAppliedEventVersion: this.lastAppliedEventVersion,
-      state: this.getProjectionState(),
+      state: this.state,
       reason: 'EVENT_GAP',
       expectedEventVersion,
       receivedEventVersion,

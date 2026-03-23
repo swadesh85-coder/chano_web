@@ -215,10 +215,11 @@ function parseSentEnvelope(index: number): TransportEnvelope<MutationCommand> {
 }
 
 function captureProjectionState(projection: ProjectionStore) {
+  const state = projection.state();
   return {
-    folders: projection.folders().map((folder) => ({ ...folder })),
-    threads: projection.threads().map((thread) => ({ ...thread })),
-    records: projection.records().map((record) => ({ ...record })),
+    folders: state.folders.map((folder) => ({ ...folder })),
+    threads: state.threads.map((thread) => ({ ...thread })),
+    records: state.records.map((record) => ({ ...record })),
     lastAppliedEventVersion: projection.lastAppliedEventVersion(),
   };
 }

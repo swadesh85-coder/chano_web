@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import type { EventEnvelope, ProjectionSnapshotDocument } from './projection.models';
 import { ProjectionEngine } from './projection_engine';
 import { VaultDomainProjection } from './vault_domain_projection';
@@ -46,6 +47,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'record',
         entityUuid: 'record:0001',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'record:0001',
@@ -101,10 +103,10 @@ describe('VaultDomainProjection', () => {
     expect(state.records.map((record) => record.id)).toEqual(['record:0001']);
     expect(state).toEqual({
       folders: [
-        { id: 'folder:0001', name: 'Root', parentId: null },
-        { id: 'folder:0002', name: 'Child', parentId: 'folder:0001' },
+        { id: 'folder:0001', name: 'Root', parentId: null, entityVersion: 1 },
+        { id: 'folder:0002', name: 'Child', parentId: 'folder:0001', entityVersion: 1 },
       ],
-      threads: [{ id: 'thread:0001', folderId: 'folder:0002', title: 'Thread A' }],
+      threads: [{ id: 'thread:0001', folderId: 'folder:0002', title: 'Thread A', entityVersion: 1 }],
       records: [
         {
           id: 'record:0001',
@@ -116,6 +118,8 @@ describe('VaultDomainProjection', () => {
           orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
+          entityVersion: 1,
+          lastEventVersion: 1,
         },
       ],
     });
@@ -149,6 +153,8 @@ describe('VaultDomainProjection', () => {
         orderIndex: 0,
         isStarred: false,
         imageGroupId: null,
+        entityVersion: 1,
+        lastEventVersion: 1,
       },
       {
         id: 'record:0002',
@@ -160,6 +166,8 @@ describe('VaultDomainProjection', () => {
         orderIndex: null,
         isStarred: false,
         imageGroupId: null,
+        entityVersion: 101,
+        lastEventVersion: 101,
       },
     ]);
   });
@@ -189,6 +197,8 @@ describe('VaultDomainProjection', () => {
       orderIndex: 0,
       isStarred: false,
       imageGroupId: null,
+      entityVersion: 102,
+      lastEventVersion: 102,
     });
   });
 
@@ -216,6 +226,7 @@ describe('VaultDomainProjection', () => {
           entityType: 'record',
           entityUuid: 'record:0002',
           entityVersion: 1,
+          lastEventVersion: 1,
           ownerUserId: 'owner-1',
           data: {
             uuid: 'record:0002',
@@ -251,12 +262,14 @@ describe('VaultDomainProjection', () => {
       orderIndex: 0,
       isStarred: false,
       imageGroupId: null,
+      entityVersion: 103,
+      lastEventVersion: 103,
     });
   });
 
   it('duplicate_event_ignore', () => {
     const engine = new ProjectionEngine();
-    engine.applySnapshot(JSON.stringify(createSnapshotDocument()), 100);
+    engine.applySnapshot(createSnapshotDocument(), 100);
     engine.applyEvent(createEventEnvelope(101));
 
     const duplicateResult = engine.applyEvent(createEventEnvelope(101));

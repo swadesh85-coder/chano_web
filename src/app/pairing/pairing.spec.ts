@@ -706,9 +706,9 @@ describe('PairingComponent', () => {
       fixture.detectChanges();
 
       expect(store.phase()).toBe('ready');
-      expect(store.folders().length).toBe(1);
-      expect(store.threads().length).toBe(1);
-      expect(store.records().length).toBe(1);
+      expect(store.state().folders.length).toBe(1);
+      expect(store.state().threads.length).toBe(1);
+      expect(store.state().records.length).toBe(1);
 
       qrSpy.mockRestore();
     });

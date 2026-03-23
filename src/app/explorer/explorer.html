@@ -15,7 +15,7 @@
           <button
             type="button"
             class="panel-action-button"
-            (click)="promptCreateThread(selectedFolder()!.entityUuid, $event)"
+            (click)="promptCreateThread(selectedFolder()!.id, $event)"
             [disabled]="isCreateThreadDisabled()"
             aria-label="Create thread"
           >
@@ -40,123 +40,50 @@
         @if (folderTree().length === 0) {
           <p class="empty-text panel-empty">No folders in projection</p>
         } @else {
-          <ng-container
-            *ngTemplateOutlet="folderTreeNodes; context: { $implicit: folderTree(), depth: 0 }"
-          ></ng-container>
+          <app-folder-tree
+            [nodes]="folderTree()"
+            [selectedFolderId]="selectedFolderId()"
+            (folderSelected)="selectFolder($event)"
+          ></app-folder-tree>
         }
       </div>
     </section>
 
-    <section class="panel" aria-label="Thread list panel">
+    <section class="panel panel--content" aria-label="Content pane panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">Threads</h2>
+          <h2 class="panel-title">Content</h2>
           <p class="panel-subtitle">
-            @if (selectedFolderId() === null) {
-              Root selection
+            @if (selectedThreadId() !== null) {
+              Thread contents
+            } @else if (selectedFolderId() === null) {
+              Root folder contents
             } @else {
-              {{ selectedFolder()?.data?.name ?? 'Selected folder' }}
+              {{ selectedFolder()?.name ?? 'Selected folder' }}
             }
           </p>
         </div>
       </div>
 
-      <div class="panel-body" role="list" aria-label="Thread list">
-        @if (threadList().length === 0) {
-          <p class="empty-text panel-empty">No threads visible for this folder</p>
-        } @else {
-          @for (thread of threadList(); track trackThread($index, thread)) {
-            <div
-              class="panel-item panel-item--thread"
-              data-testid="thread-item"
-              [class.panel-item--selected]="selectedThreadId() === thread.entityUuid"
-            >
-              <button
-                type="button"
-                class="panel-item-button"
-                (click)="handleSelection('thread', thread.entityUuid)"
-                [attr.aria-label]="'Select thread ' + thread.data.title"
-              >
-                <span class="panel-item-title">{{ thread.data.title }}</span>
-                <span class="panel-item-meta">{{ thread.entityUuid }}</span>
-              </button>
-              <span class="panel-actions">
-                <button
-                  type="button"
-                  class="panel-action-button"
-                  (click)="promptRenameEntity('thread', thread.entityUuid, thread.data.title, $event)"
-                  [disabled]="isActionDisabled(thread.entityUuid)"
-                  aria-label="Rename thread"
-                >
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  class="panel-action-button"
-                  (click)="promptMoveEntity('thread', thread.entityUuid, thread.data.title, $event)"
-                  [disabled]="isActionDisabled(thread.entityUuid)"
-                  aria-label="Move thread"
-                >
-                  Move
-                </button>
-                <button
-                  type="button"
-                  class="panel-action-button panel-action-button--danger"
-                  (click)="triggerSoftDelete('thread', thread.entityUuid, $event)"
-                  [disabled]="isActionDisabled(thread.entityUuid)"
-                  aria-label="Delete thread"
-                >
-                  Delete
-                </button>
-              </span>
-            </div>
-          }
-        }
-      </div>
-    </section>
-
-    <section class="panel" aria-label="Record list panel">
-      <div class="panel-header">
-        <div>
-          <h2 class="panel-title">Records</h2>
-          <p class="panel-subtitle">
-            @if (selectedThreadId() === null) {
-              Select a thread to inspect records
-            } @else {
-              Projection-bound record list
-            }
-          </p>
-        </div>
-      </div>
-
-      <div class="panel-body" role="list" aria-label="Record list">
-        <app-thread-view [threadId]="selectedThreadId()"></app-thread-view>
+      <div class="panel-body" role="region" aria-label="Content pane">
+        <app-content-pane
+          [content]="contentPane()"
+          [selectedThreadId]="selectedThreadId()"
+          [activeThreadId]="selectedThreadId()"
+          [disabledThreadIds]="disabledThreadIds()"
+          [disabledRecordIds]="disabledRecordIds()"
+          [createRecordDisabled]="isCreateRecordDisabled()"
+          (threadSelected)="selectThread($event)"
+          (threadRenameRequested)="promptRenameEntity('thread', $event.id, $event.title, $event.event)"
+          (threadMoveRequested)="promptMoveEntity('thread', $event.id, $event.title, $event.event)"
+          (threadDeleteRequested)="triggerSoftDelete('thread', $event.id, $event.event)"
+          (createRecordRequested)="promptCreateRecord($event)"
+          (recordEditRequested)="promptEditRecord($event.record, $event.event)"
+          (recordRenameRequested)="promptRenameRecord($event.record, $event.event)"
+          (recordMoveRequested)="promptMoveRecord($event.record, $event.event)"
+          (recordDeleteRequested)="triggerSoftDeleteRecord($event.record, $event.event)"
+        ></app-content-pane>
       </div>
     </section>
   </div>
 </section>
-
-<ng-template #folderTreeNodes let-nodes let-depth="depth">
-  @for (node of nodes; track trackFolder($index, node)) {
-    <div class="folder-tree-node" role="treeitem">
-      <button
-        type="button"
-        class="panel-item panel-item--folder"
-        data-testid="folder-item"
-        [class.panel-item--selected]="selectedFolderId() === node.entity.entityUuid"
-        [style.padding-left.rem]="0.75 + depth * 1.1"
-        (click)="handleSelection('folder', node.entity.entityUuid)"
-        [attr.aria-label]="'Select folder ' + node.entity.data.name"
-      >
-        <span class="panel-item-title">{{ node.entity.data.name }}</span>
-        <span class="panel-item-meta">{{ node.entity.entityUuid }}</span>
-      </button>
-
-      @if (node.children.length > 0) {
-        <ng-container
-          *ngTemplateOutlet="folderTreeNodes; context: { $implicit: node.children, depth: depth + 1 }"
-        ></ng-container>
-      }
-    </div>
-  }
-</ng-template>

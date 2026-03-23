@@ -57,7 +57,7 @@ export async function auditEventStream(
     }
   }
 
-  const state = engine.getProjectionState();
+  const state = engine.state;
 
   return {
     eventLog,

@@ -2,12 +2,14 @@ export interface Folder {
   readonly id: string;
   readonly name: string;
   readonly parentId: string | null;
+  readonly entityVersion: number;
 }
 
 export interface Thread {
   readonly id: string;
   readonly folderId: string;
   readonly title: string;
+  readonly entityVersion: number;
 }
 
 export interface RecordEntry {
@@ -20,6 +22,8 @@ export interface RecordEntry {
   readonly orderIndex: number | null;
   readonly isStarred: boolean;
   readonly imageGroupId: string | null;
+  readonly entityVersion: number;
+  readonly lastEventVersion: number;
   readonly mediaId?: string;
   readonly mimeType?: string;
   readonly title?: string;
@@ -41,66 +45,10 @@ export interface ProjectionState {
   readonly records: readonly RecordEntry[];
 }
 
-export interface FolderProjectionData {
-  readonly uuid: string;
-  readonly name: string;
-  readonly parentFolderUuid: string | null;
-}
-
-export interface ThreadProjectionData {
-  readonly uuid: string;
-  readonly folderUuid: string | null;
-  readonly title: string;
-}
-
-export interface RecordProjectionData {
-  readonly uuid: string;
-  readonly threadUuid: string;
-  readonly type: string;
-  readonly body: string;
-  readonly createdAt: number;
-  readonly editedAt: number;
-  readonly orderIndex: number;
-  readonly isStarred: boolean;
-  readonly imageGroupId: string | null;
-  readonly lastEventVersion: number | null;
-  readonly mediaId?: string;
-  readonly mimeType?: string;
-  readonly title?: string;
-  readonly size?: number | null;
-}
-
-export interface ProjectionEntity<TType extends 'folder' | 'thread' | 'record', TData> {
-  readonly entityType: TType;
-  readonly entityUuid: string;
-  readonly entityVersion: number;
-  readonly data: Readonly<TData>;
-}
-
-export type FolderProjectionEntity = ProjectionEntity<'folder', FolderProjectionData>;
-export type ThreadProjectionEntity = ProjectionEntity<'thread', ThreadProjectionData>;
-export type RecordProjectionEntity = ProjectionEntity<'record', RecordProjectionData>;
-
-export interface ProjectionSnapshotState {
-  readonly folders: ReadonlyMap<string, FolderProjectionEntity>;
-  readonly threads: ReadonlyMap<string, ThreadProjectionEntity>;
-  readonly records: ReadonlyMap<string, RecordProjectionEntity>;
-  readonly imageGroups: ReadonlyMap<string, readonly RecordProjectionEntity[]>;
-}
-
 export interface ProjectionUpdate {
   readonly reason: 'snapshot_loaded' | 'event_applied';
   readonly entityType: EventEntity | null;
   readonly eventVersion: number | null;
-}
-
-export function createEmptyProjectionSnapshotState(): ProjectionSnapshotState {
-  return {
-    folders: new Map<string, FolderProjectionEntity>(),
-    threads: new Map<string, ThreadProjectionEntity>(),
-    records: new Map<string, RecordProjectionEntity>(),
-    imageGroups: new Map<string, readonly RecordProjectionEntity[]>(),
-  };
 }
 
 // ── Event stream types ─────────────────────────────────────
@@ -108,18 +56,35 @@ export function createEmptyProjectionSnapshotState(): ProjectionSnapshotState {
 export type EventOperation = 'create' | 'update' | 'rename' | 'move' | 'delete' | 'softDelete' | 'restore';
 export type EventEntity = 'folder' | 'thread' | 'record' | 'imageGroup';
 
-export interface SnapshotEntity {
+interface BaseSnapshotEntity {
   readonly entityType: EventEntity;
   readonly entityUuid: string;
   readonly entityVersion: number;
   readonly ownerUserId: string;
+}
+
+export interface FolderSnapshotEntity extends BaseSnapshotEntity {
+  readonly entityType: 'folder';
   readonly data: Record<string, unknown>;
 }
 
+export interface ThreadSnapshotEntity extends BaseSnapshotEntity {
+  readonly entityType: 'thread';
+  readonly data: Record<string, unknown>;
+}
+
+export interface RecordSnapshotEntity extends BaseSnapshotEntity {
+  readonly entityType: 'record';
+  readonly lastEventVersion: number;
+  readonly data: Record<string, unknown>;
+}
+
+export type SnapshotEntity = FolderSnapshotEntity | ThreadSnapshotEntity | RecordSnapshotEntity;
+
 export interface ProjectionSnapshotDocument {
-  readonly folders?: readonly SnapshotEntity[];
-  readonly threads?: readonly SnapshotEntity[];
-  readonly records?: readonly SnapshotEntity[];
+  readonly folders?: readonly FolderSnapshotEntity[];
+  readonly threads?: readonly ThreadSnapshotEntity[];
+  readonly records?: readonly RecordSnapshotEntity[];
 }
 
 export interface EventEnvelope {
