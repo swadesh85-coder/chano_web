@@ -113,7 +113,19 @@ describe('ThreadViewComponent', () => {
 
   function getTextValues(selector: string): string[] {
     return Array.from<HTMLElement>(fixture.nativeElement.querySelectorAll(selector))
-      .map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim());
+      .map((element) => {
+        const textParts = Array.from<HTMLElement>(
+          element.querySelectorAll('.ui-list-row__title, .ui-list-row__supporting, .ui-list-row__meta'),
+        )
+          .map((node) => (node.textContent ?? '').replace(/\s+/g, ' ').trim())
+          .filter((value) => value.length > 0);
+
+        if (textParts.length > 0) {
+          return textParts.join(' ');
+        }
+
+        return (element.textContent ?? '').replace(/\s+/g, ' ').trim();
+      });
   }
 
   function getOrderedThreadViewText(): string[] {
@@ -172,10 +184,10 @@ describe('ThreadViewComponent', () => {
     render('thread:0001');
 
     expect(getTextValues('[data-testid="image-group-item"]')).toEqual([
-      'imageGroup:img-123 → [rec-1, rec-2]',
+      'imageGroup:img-123 Media bundle [rec-1, rec-2]',
     ]);
     expect(getTextValues('[data-testid="record-item"]')).toEqual([
-      'record:text-2 record:text-2 · v202',
+      'record:text-2 Text record record:text-2 · thread=thread:0001 · v202',
     ]);
   });
 
@@ -191,9 +203,9 @@ describe('ThreadViewComponent', () => {
     render('thread:0001');
 
     expect(getOrderedThreadViewText()).toEqual([
-      'record:text-1 record:text-1 · v200',
-      'imageGroup:img-123 → [rec-1, rec-2]',
-      'record:text-2 record:text-2 · v202',
+      'record:text-1 Text record record:text-1 · thread=thread:0001 · v200',
+      'imageGroup:img-123 Media bundle [rec-1, rec-2]',
+      'record:text-2 Text record record:text-2 · thread=thread:0001 · v202',
     ]);
   });
 
@@ -338,7 +350,7 @@ describe('ThreadViewComponent', () => {
       },
     });
     expect(getTextValues('[data-testid="record-item"]')).toEqual([
-      'Original body record:text-1 · v200',
+      'Original body Text record record:text-1 · thread=thread:0001 · v200',
     ]);
   });
 
@@ -355,7 +367,7 @@ describe('ThreadViewComponent', () => {
     fixture.detectChanges();
 
     expect(getTextValues('[data-testid="record-item"]')).toEqual([
-      'Original body record:text-1 · v200',
+      'Original body Text record record:text-1 · thread=thread:0001 · v200',
     ]);
 
     projectionStateSignals.records.set([
@@ -366,8 +378,8 @@ describe('ThreadViewComponent', () => {
     render('thread:0001');
 
     expect(getTextValues('[data-testid="record-item"]')).toEqual([
-      'Original body record:text-1 · v200',
-      'Created body record:text-2 · v201',
+      'Original body Text record record:text-1 · thread=thread:0001 · v200',
+      'Created body Text record record:text-2 · thread=thread:0001 · v201',
     ]);
   });
 

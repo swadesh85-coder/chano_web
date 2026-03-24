@@ -60,6 +60,7 @@ function normalizeEntities(
           entityType: 'folder',
           entityUuid: entity['uuid'] ?? entity['id'],
           entityVersion: 1,
+          lastEventVersion: 1,
           ownerUserId: 'owner-1',
           data: {
             uuid: entity['uuid'] ?? entity['id'],
@@ -72,6 +73,7 @@ function normalizeEntities(
           entityType: 'thread',
           entityUuid: entity['uuid'] ?? entity['id'],
           entityVersion: 1,
+          lastEventVersion: 1,
           ownerUserId: 'owner-1',
           data: {
             uuid: entity['uuid'] ?? entity['id'],
@@ -84,6 +86,7 @@ function normalizeEntities(
           entityType: 'record',
           entityUuid: entity['uuid'] ?? entity['id'],
           entityVersion: 1,
+          lastEventVersion: 1,
           ownerUserId: 'owner-1',
           data: {
             uuid: entity['uuid'] ?? entity['id'],
@@ -608,6 +611,7 @@ describe('PairingComponent', () => {
             entityType: 'folder',
             entityUuid: 'f1',
             entityVersion: 1,
+            lastEventVersion: 1,
             ownerUserId: 'owner-1',
             data: { uuid: 'f1', name: 'Work', parentFolderUuid: null },
           },
@@ -652,6 +656,7 @@ describe('PairingComponent', () => {
             entityType: 'folder',
             entityUuid: 'f1',
             entityVersion: 1,
+            lastEventVersion: 1,
             ownerUserId: 'owner-1',
             data: { uuid: 'f1', name: 'Work', parentFolderUuid: null },
           },
@@ -661,6 +666,7 @@ describe('PairingComponent', () => {
             entityType: 'thread',
             entityUuid: 't1',
             entityVersion: 1,
+            lastEventVersion: 1,
             ownerUserId: 'owner-1',
             data: { uuid: 't1', folderUuid: 'f1', title: 'Log' },
           },
@@ -670,6 +676,7 @@ describe('PairingComponent', () => {
             entityType: 'record',
             entityUuid: 'r1',
             entityVersion: 1,
+            lastEventVersion: 1,
             ownerUserId: 'owner-1',
             data: {
               uuid: 'r1',

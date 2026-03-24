@@ -8,17 +8,17 @@
   z-index: 40;
   display: grid;
   place-items: center;
-  padding: 1.5rem;
+  padding: var(--explorer-media-viewer-backdrop-padding);
   background: rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(10px);
 }
 
 .media-viewer-dialog {
-  width: min(42rem, 100%);
-  max-height: min(44rem, calc(100dvh - 3rem));
+  width: min(var(--explorer-media-viewer-width), 100%);
+  max-height: var(--explorer-media-viewer-max-height);
   overflow: auto;
   border: 1px solid rgba(94, 234, 212, 0.22);
-  border-radius: 1.25rem;
+  border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at top right, rgba(20, 184, 166, 0.18), transparent 35%),
     linear-gradient(180deg, rgba(8, 16, 20, 0.98), rgba(6, 11, 16, 0.98));
@@ -29,8 +29,8 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1.25rem 1.25rem 1rem;
+  gap: var(--space-4);
+  padding: var(--explorer-media-viewer-padding) var(--explorer-media-viewer-padding) var(--space-4);
   border-bottom: 1px solid rgba(94, 234, 212, 0.12);
 }
 
@@ -66,30 +66,30 @@
 }
 
 .media-viewer-stage {
-  padding: 1.25rem;
+  padding: var(--explorer-media-viewer-padding);
 }
 
 .media-preview {
   display: grid;
-  gap: 0.5rem;
+  gap: var(--space-2);
   border: 1px solid rgba(153, 246, 228, 0.12);
-  border-radius: 1rem;
+  border-radius: var(--radius-md);
   background: rgba(8, 16, 20, 0.82);
-  padding: 1rem;
+  padding: var(--space-4);
 }
 
 .media-preview--image {
-  min-height: 18rem;
+  min-height: var(--explorer-media-preview-min-height);
 }
 
 .media-preview-frame {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 0.55rem;
-  min-height: 16rem;
+  gap: var(--space-2);
+  min-height: var(--explorer-media-frame-min-height);
   border: 1px dashed rgba(94, 234, 212, 0.3);
-  border-radius: 0.9rem;
+  border-radius: var(--radius-md);
   background: linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(15, 23, 42, 0.32));
 }
 
@@ -110,29 +110,29 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: 0.85rem;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
 }
 
 .media-audio-shell {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 0.75rem;
+  gap: var(--space-3);
   align-items: center;
 }
 
 .media-audio-button,
 .media-audio-time {
-  padding: 0.35rem 0.6rem;
+  padding: var(--space-1) calc(var(--space-3) - var(--space-1));
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.45);
   color: rgba(240, 253, 250, 0.65);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
 }
 
 .media-audio-track {
   display: block;
-  height: 0.4rem;
+  height: var(--space-1);
   border-radius: 999px;
   background: linear-gradient(90deg, rgba(94, 234, 212, 0.18), rgba(148, 163, 184, 0.18));
 }
@@ -140,20 +140,20 @@
 .media-viewer-metadata {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: 0.75rem;
+  gap: var(--space-3);
   margin: 0;
-  padding: 0 1.25rem 1.25rem;
+  padding: 0 var(--explorer-media-viewer-padding) var(--explorer-media-viewer-padding);
 }
 
 .media-viewer-metadata div {
   border: 1px solid rgba(153, 246, 228, 0.12);
-  border-radius: 0.9rem;
+  border-radius: var(--radius-md);
   background: rgba(8, 16, 20, 0.72);
-  padding: 0.85rem;
+  padding: var(--space-3);
 }
 
 .media-viewer-metadata dt {
-  margin: 0 0 0.35rem;
+  margin: 0 0 var(--space-1);
 }
 
 .media-viewer-metadata dd {
@@ -164,14 +164,14 @@
 
 @media (max-width: 640px) {
   .media-viewer-backdrop {
-    padding: 0.75rem;
+    padding: var(--space-3);
   }
 
   .media-viewer-header,
   .media-viewer-stage,
   .media-viewer-metadata {
-    padding-left: 1rem;
-    padding-right: 1rem;
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
   }
 
   .media-viewer-nav {

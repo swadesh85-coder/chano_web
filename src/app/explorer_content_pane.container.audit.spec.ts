@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { computed, signal } from '@angular/core';
@@ -20,7 +22,14 @@ function ensureAngularTestEnvironment(): void {
     return;
   }
 
-  TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  try {
+    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
+      throw error;
+    }
+  }
+
   angularTestEnvironmentInitialized = true;
 }
 
@@ -30,7 +39,7 @@ function createProjectionState(): ProjectionState {
       {
         id: 'folder-a',
         name: 'Folder A',
-        parentFolderId: null,
+        parentId: null,
         entityVersion: 1,
         lastEventVersion: 1,
       },
@@ -196,6 +205,8 @@ describe('ExplorerContentPaneContainer audit', () => {
     expect(folderContent.threadList.map((thread) => thread.id)).toEqual(['thread-a', 'thread-b']);
     expect(threadContent.mode).toBe('records');
     expect(threadContent.recordList.map((record) => record.id)).toEqual(['record-a', 'record-b']);
+    expect(threadContent.recordNodes.map((node) => node.key)).toEqual(['record:record-a', 'record:record-b']);
+    expect(emptyContent.recordNodes).toEqual([]);
     expect(emptyContent.mode).toBe('empty');
     expect(JSON.stringify(state())).toBe(before);
 

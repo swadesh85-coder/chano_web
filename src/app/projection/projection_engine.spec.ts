@@ -318,11 +318,13 @@ function createUnorderedSnapshotDocument(): ProjectionSnapshotDocument {
 
 function createSnapshotMissingLastEventVersion(entityType: 'folder' | 'thread'): ProjectionSnapshotDocument {
   const snapshot = createSnapshotDocument();
+  const folders = snapshot.folders ?? [];
+  const threads = snapshot.threads ?? [];
 
   if (entityType === 'folder') {
     return {
       ...snapshot,
-      folders: snapshot.folders.map((folder, index) => {
+      folders: folders.map((folder, index) => {
         if (index !== 0) {
           return folder;
         }
@@ -335,7 +337,7 @@ function createSnapshotMissingLastEventVersion(entityType: 'folder' | 'thread'):
 
   return {
     ...snapshot,
-    threads: snapshot.threads.map((thread, index) => {
+    threads: threads.map((thread, index) => {
       if (index !== 0) {
         return thread;
       }
@@ -1377,7 +1379,7 @@ describe('ProjectionEngine', () => {
       entityType: 'thread',
       expectedError: 'Missing thread lastEventVersion in snapshot',
     },
-  ])('snapshot_missing_lastEventVersion_should_fail for $entityType', ({ entityType, expectedError }) => {
+  ] as const)('snapshot_missing_lastEventVersion_should_fail for $entityType', ({ entityType, expectedError }) => {
     const engine = new ProjectionEngine();
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const invalidSnapshot = createSnapshotMissingLastEventVersion(entityType);

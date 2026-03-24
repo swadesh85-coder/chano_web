@@ -14,13 +14,16 @@ import { ThreadListComponent } from './thread_list';
 @Component({
   selector: 'app-content-pane',
   imports: [RecordListComponent, ThreadListComponent],
+  host: {
+    class: 'explorer-view-surface',
+  },
   template: `
     @if (content().mode === 'empty') {
-      <p class="empty-text panel-empty">Select a folder or thread to inspect content</p>
+      <p class="explorer-state-empty panel-empty">Select a folder or thread to inspect content</p>
     } @else if (content().mode === 'records') {
       <app-record-list
         [threadId]="activeThreadId()"
-        [records]="content().recordList"
+        [nodes]="content().recordNodes"
         [disabledRecordIds]="disabledRecordIds()"
         [createDisabled]="createRecordDisabled()"
         (createRecordRequested)="createRecordRequested.emit($event)"

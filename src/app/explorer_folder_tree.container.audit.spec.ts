@@ -13,9 +13,9 @@ import type {
 function createProjectionState(): ProjectionState {
   return {
     folders: [
-      { id: 'folder-root', name: 'Root', parentId: null, entityVersion: 2 },
-      { id: 'folder-a', name: 'Folder A', parentId: 'folder-root', entityVersion: 3 },
-      { id: 'folder-b', name: 'Folder B', parentId: 'folder-root', entityVersion: 4 },
+      { id: 'folder-root', name: 'Root', parentId: null, entityVersion: 2, lastEventVersion: 2 },
+      { id: 'folder-a', name: 'Folder A', parentId: 'folder-root', entityVersion: 3, lastEventVersion: 3 },
+      { id: 'folder-b', name: 'Folder B', parentId: 'folder-root', entityVersion: 4, lastEventVersion: 4 },
     ],
     threads: [],
     records: [],

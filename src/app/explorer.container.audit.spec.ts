@@ -18,7 +18,14 @@ function ensureAngularTestEnvironment(): void {
     return;
   }
 
-  TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  try {
+    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
+      throw error;
+    }
+  }
+
   angularTestEnvironmentInitialized = true;
 }
 
@@ -28,7 +35,7 @@ function createProjectionState(): ProjectionState {
       {
         id: 'folder-a',
         name: 'Folder A',
-        parentFolderId: null,
+        parentId: null,
         entityVersion: 1,
         lastEventVersion: 1,
       },

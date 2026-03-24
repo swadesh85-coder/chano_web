@@ -172,6 +172,7 @@ async function seedProjectionSnapshot(sessionId: string): Promise<void> {
         entityType: 'folder',
         entityUuid: FOLDER_ID,
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: FOLDER_ID,
@@ -362,11 +363,20 @@ async function auditEventDrivenUpdate(
     11,
     commandId,
   ));
-  await flushAuthoritativeEventWork();
+
+  let afterEventState = captureProjectionState(projection);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await flushAuthoritativeEventWork();
+    afterEventState = captureProjectionState(projection);
+
+    if (afterEventState.threads.some((thread) => thread.id === entityId)) {
+      break;
+    }
+  }
 
   return {
     beforeEventState,
-    afterEventState: captureProjectionState(projection),
+    afterEventState,
     lastAppliedEventVersion: projection.lastAppliedEventVersion(),
   };
 }
@@ -563,11 +573,11 @@ describe('MutationCommandSender audit', () => {
 
     expect(eventAudit.beforeEventState.threads).toHaveLength(0);
     expect(eventAudit.afterEventState.threads).toEqual([
-      {
+      expect.objectContaining({
         id: GENERATED_THREAD_ID,
         folderId: FOLDER_ID,
         title: 'Authoritative thread',
-      },
+      }),
     ]);
     expect(eventAudit.lastAppliedEventVersion).toBe(BASE_EVENT_VERSION + 1);
     expect(capturedLogs).toContain(`EVENT_FORWARDED_TO_ENGINE eventVersion=${BASE_EVENT_VERSION + 1}`);

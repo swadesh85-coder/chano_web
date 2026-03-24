@@ -11,7 +11,7 @@ import { WebRelayClient } from './web-relay-client';
 
 const FOLDER_ID = 'folder-root-001';
 const THREAD_ID = 'thread-seeded-001';
-const GENERATED_RECORD_ID = 'record-generated-201';
+const GENERATED_RECORD_ID = '123e4567-e89b-42d3-a456-426614174201';
 const BASE_EVENT_VERSION = 200;
 const RELAY_URL = 'ws://relay.audit.local/relay';
 const COMMAND_ID_101 = '123e4567-e89b-42d3-a456-426614174101';
@@ -137,6 +137,7 @@ async function seedProjectionSnapshot(sessionId: string): Promise<void> {
         entityType: 'folder',
         entityUuid: FOLDER_ID,
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: FOLDER_ID,
@@ -150,6 +151,7 @@ async function seedProjectionSnapshot(sessionId: string): Promise<void> {
         entityType: 'thread',
         entityUuid: THREAD_ID,
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-1',
         data: {
           uuid: THREAD_ID,

@@ -119,6 +119,7 @@ async function createSnapshotProtocol(sessionId: string): Promise<{
         entityType: 'folder',
         entityUuid: 'folder-audit-1',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'folder-audit-1',
@@ -132,6 +133,7 @@ async function createSnapshotProtocol(sessionId: string): Promise<{
         entityType: 'thread',
         entityUuid: 'thread-audit-1',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: 'thread-audit-1',
@@ -213,9 +215,11 @@ async function waitForProjectionReady(projectionStore: ProjectionStore): Promise
       return;
     }
 
+    await Promise.resolve();
     await new Promise<void>((resolve) => {
       setTimeout(() => resolve(), 0);
     });
+    await Promise.resolve();
   }
 }
 

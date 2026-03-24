@@ -32,6 +32,10 @@ export function buildThreadListViewModel(
   });
 }
 
+export function getThreadListVirtualKey(thread: ThreadListViewModel): string {
+  return thread.id;
+}
+
 function buildThreadSelectorView(
   state: ProjectionState,
   folderId: string | null,

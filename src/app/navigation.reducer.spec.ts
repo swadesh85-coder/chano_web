@@ -12,12 +12,12 @@ import {
 function createProjectionState(): ProjectionState {
   return {
     folders: [
-      { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 1 },
-      { id: 'folder-b', name: 'Folder B', parentId: 'folder-a', entityVersion: 2 },
+      { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 1, lastEventVersion: 1 },
+      { id: 'folder-b', name: 'Folder B', parentId: 'folder-a', entityVersion: 2, lastEventVersion: 2 },
     ],
     threads: [
-      { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 3 },
-      { id: 'thread-root', folderId: 'root', title: 'Root Thread', entityVersion: 4 },
+      { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 3, lastEventVersion: 3 },
+      { id: 'thread-root', folderId: 'root', title: 'Root Thread', entityVersion: 4, lastEventVersion: 4 },
     ],
     records: [],
   };

@@ -3,13 +3,11 @@ import {
   computed,
   effect,
   inject,
-  signal,
   untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { WebRelayClient } from '../../transport/web-relay-client';
-import { ContentPaneComponent } from './content_pane';
-import { FolderTreeComponent } from './folder_tree';
+import { ExplorerLayoutContainerComponent } from '../explorer.layout.container';
 import type { ProjectionUpdate } from '../projection/projection.models';
 import { ExplorerActions } from './explorer_actions';
 import { RecordEditor } from './record_editor';
@@ -25,9 +23,42 @@ import {
 
 @Component({
   selector: 'app-explorer',
-  imports: [ContentPaneComponent, FolderTreeComponent],
-  templateUrl: './explorer.html',
-  styleUrl: './explorer.css',
+  standalone: true,
+  imports: [ExplorerLayoutContainerComponent],
+  template: `
+    <app-explorer-layout-container
+      [folderTree]="folderTree()"
+      [selectedFolderId]="selectedFolderId()"
+      [selectedThreadId]="selectedThreadId()"
+      [selectedFolder]="selectedFolder()"
+      [activePane]="activePane()"
+      [content]="contentPane()"
+      [disabledThreadIds]="disabledThreadIds()"
+      [disabledRecordIds]="disabledRecordIds()"
+      [createThreadDisabled]="isCreateThreadDisabled()"
+      [createRecordDisabled]="isCreateRecordDisabled()"
+      (folderSelected)="selectFolder($event)"
+      (threadSelected)="selectThread($event)"
+      (createThreadRequested)="promptCreateThread($event)"
+      (threadRenameRequested)="promptRenameEntity('thread', $event.id, $event.title, $event.event)"
+      (threadMoveRequested)="promptMoveEntity('thread', $event.id, $event.title, $event.event)"
+      (threadDeleteRequested)="triggerSoftDelete('thread', $event.id, $event.event)"
+      (createRecordRequested)="promptCreateRecord($event)"
+      (recordEditRequested)="promptEditRecord($event.record, $event.event)"
+      (recordRenameRequested)="promptRenameRecord($event.record, $event.event)"
+      (recordMoveRequested)="promptMoveRecord($event.record, $event.event)"
+      (recordDeleteRequested)="triggerSoftDeleteRecord($event.record, $event.event)"
+    ></app-explorer-layout-container>
+  `,
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100dvh;
+        width: 100%;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExplorerComponent {
@@ -150,8 +181,13 @@ export class ExplorerComponent {
     return this.recordEditor.isCreatePending();
   }
 
-  promptCreateThread(folderId: string, event: Event): void {
+  promptCreateThread(event: Event): void {
     event.stopPropagation();
+
+    const folderId = this.selectedFolderId();
+    if (folderId === null) {
+      return;
+    }
 
     const title = globalThis.prompt('Thread title');
     if (typeof title !== 'string') {

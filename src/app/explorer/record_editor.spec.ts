@@ -1,10 +1,10 @@
 import { TestBed } from '@angular/core/testing';
-import { ProjectionStore } from '../projection/projection.store';
 import { CommandResultHandler } from '../../transport/command-result-handler';
 import { MutationCommandSender } from '../../transport/mutation-command-sender';
 import { WebDeviceIdentity } from '../../transport/web-device-identity';
 import { WebRelayClient } from '../../transport/web-relay-client';
 import { PendingCommandStore } from './pending_command_store';
+import { ProjectionStateContainer } from '../projection/projection_state.container';
 import { RecordEditor } from './record_editor';
 
 describe('RecordEditor', () => {
@@ -42,7 +42,7 @@ describe('RecordEditor', () => {
         RecordEditor,
         MutationCommandSender,
         { provide: PendingCommandStore, useValue: pendingStore },
-        { provide: ProjectionStore, useValue: projection },
+        { provide: ProjectionStateContainer, useValue: projection },
         { provide: CommandResultHandler, useValue: {} },
         { provide: WebDeviceIdentity, useValue: { deviceId: 'web-device-1' } },
         {

@@ -10,6 +10,8 @@ import {
 import { ExplorerActions } from './explorer_actions';
 import { RecordEditor } from './record_editor';
 import { MediaViewerComponent } from './media_viewer';
+import { ContentItemRowComponent } from '../ui/content_item_row.component';
+import { type ExplorerRecordType } from '../ui/explorer_visual.tokens';
 import type { ProjectionUpdate } from '../projection/projection.models';
 import {
   type RecordViewModel,
@@ -21,9 +23,11 @@ export type ThreadViewNode = ThreadRecordNodeViewModel;
 
 @Component({
   selector: 'app-thread-view',
-  imports: [MediaViewerComponent],
+  imports: [MediaViewerComponent, ContentItemRowComponent],
+  host: {
+    class: 'explorer-view-surface',
+  },
   templateUrl: './thread_view.html',
-  styleUrl: './thread_view.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThreadViewComponent {
@@ -145,6 +149,34 @@ export class ThreadViewComponent {
 
   getRecordLabel(record: RecordViewModel): string {
     return record.displayLabel;
+  }
+
+  recordType(record: RecordViewModel): ExplorerRecordType {
+    if (record.type === 'image' || record.type === 'file' || record.type === 'audio') {
+      return record.type;
+    }
+
+    return 'text';
+  }
+
+  recordSupportingText(record: RecordViewModel): string {
+    return this.isMediaRecord(record) ? `${record.type} record` : 'Text record';
+  }
+
+  recordMetaText(record: RecordViewModel): string {
+    if (this.isMediaRecord(record)) {
+      return `${record.id} · ${record.type} · v${record.eventVersion}`;
+    }
+
+    return `${record.id} · thread=${record.threadId} · v${record.eventVersion}`;
+  }
+
+  recordAriaLabel(record: RecordViewModel): string {
+    if (this.isMediaRecord(record)) {
+      return `Open media record ${record.displayLabel}`;
+    }
+
+    return `Inspect record ${record.displayLabel}`;
   }
 
   private logProjectionUpdate(

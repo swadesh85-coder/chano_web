@@ -77,7 +77,7 @@ describe('FolderTreeComponent', () => {
     }]);
     fixture.detectChanges();
 
-    const folderButton = fixture.nativeElement.querySelector('[data-testid="folder-item"]') as HTMLButtonElement;
+    const folderButton = fixture.nativeElement.querySelector('[data-testid="folder-item"] button') as HTMLButtonElement;
     folderButton.click();
 
     expect(emitted).toEqual(['folder-a']);

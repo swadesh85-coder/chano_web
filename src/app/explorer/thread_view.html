@@ -1,99 +1,102 @@
 @if (activeThreadId() === null) {
-  <p class="thread-view-empty">No thread selected</p>
+  <p class="explorer-state-empty panel-empty">No thread selected</p>
 } @else {
   @let nodes = viewNodes();
 
-  <div class="thread-view-toolbar">
-    <button
-      type="button"
-      class="thread-view-action thread-view-action--primary"
-      (click)="triggerCreateRecord($event)"
-      [disabled]="isCreateDisabled()"
-      data-testid="create-record-button"
-      aria-label="Create text record"
-    >
-      Create Text Record
-    </button>
-  </div>
+  <div class="explorer-view-shell">
+    <div class="explorer-action-bar">
+      <button
+        type="button"
+        class="panel-action-button panel-action-button--primary"
+        (click)="triggerCreateRecord($event)"
+        [disabled]="isCreateDisabled()"
+        data-testid="create-record-button"
+        aria-label="Create text record"
+      >
+        Create Text Record
+      </button>
+    </div>
 
-  @if (nodes.length === 0) {
-    <p class="thread-view-empty">No records visible for this thread</p>
-  } @else {
-    <app-media-viewer #mediaViewer [threadId]="activeThreadId()"></app-media-viewer>
+    @if (nodes.length === 0) {
+      <p class="explorer-state-empty panel-empty">No records visible for this thread</p>
+    } @else {
+      <app-media-viewer #mediaViewer [threadId]="activeThreadId()"></app-media-viewer>
 
-    @for (node of nodes; track trackNode($index, node)) {
-      @if (node.kind === 'record') {
-        <div class="thread-view-item" data-testid="thread-view-node">
-          @if (isMediaRecord(node.record)) {
-            <button
-              type="button"
-              class="thread-view-item-body thread-view-content thread-view-open-button"
-              data-testid="record-item"
-              aria-haspopup="dialog"
-              (click)="mediaViewer.openMedia(node.record.id)"
-            >
-              <span class="thread-view-title">{{ getRecordLabel(node.record) }}</span>
-              <span class="thread-view-meta"> {{ node.record.id }} · {{ node.record.type }} · v{{ node.record.eventVersion }}</span>
-            </button>
+      <div class="explorer-static-list">
+        @for (node of nodes; track trackNode($index, node)) {
+          @if (node.kind === 'record') {
+            <div class="explorer-list-row" data-testid="thread-view-node">
+              <app-content-item-row
+                [title]="getRecordLabel(node.record)"
+                [supportingText]="recordSupportingText(node.record)"
+                [metaText]="recordMetaText(node.record)"
+                [mainClass]="'thread-view-content'"
+                [mainTestId]="'record-item'"
+                [kind]="'record'"
+                [recordType]="recordType(node.record)"
+                [density]="'record'"
+                [interactive]="isMediaRecord(node.record)"
+                [ariaLabel]="recordAriaLabel(node.record)"
+                (activated)="isMediaRecord(node.record) && mediaViewer.openMedia(node.record.id)"
+              >
+                <span row-actions class="panel-actions">
+                  <button
+                    type="button"
+                    class="panel-action-button"
+                    (click)="promptEditRecord(node.record, $event)"
+                    [disabled]="isActionDisabled(node.record.id)"
+                    aria-label="Edit record body"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    class="panel-action-button"
+                    (click)="promptRenameRecord(node.record, $event)"
+                    [disabled]="isActionDisabled(node.record.id)"
+                    aria-label="Rename record"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    class="panel-action-button"
+                    (click)="promptMoveRecord(node.record, $event)"
+                    [disabled]="isActionDisabled(node.record.id)"
+                    aria-label="Move record"
+                  >
+                    Move
+                  </button>
+                  <button
+                    type="button"
+                    class="panel-action-button panel-action-button--danger"
+                    (click)="triggerSoftDeleteRecord(node.record, $event)"
+                    [disabled]="isActionDisabled(node.record.id)"
+                    aria-label="Delete record"
+                  >
+                    Delete
+                  </button>
+                </span>
+              </app-content-item-row>
+            </div>
           } @else {
-            <div class="thread-view-item-body thread-view-content" data-testid="record-item">
-              <span class="thread-view-title">{{ getRecordLabel(node.record) }}</span>
-              <span class="thread-view-meta"> {{ node.record.id }} · v{{ node.record.eventVersion }}</span>
+            <div class="explorer-list-row" data-testid="thread-view-node">
+              <app-content-item-row
+                [title]="'imageGroup:' + node.imageGroupId"
+                [supportingText]="'Media bundle'"
+                [metaText]="node.recordIdsSummary"
+                [mainClass]="'thread-view-content'"
+                [mainTestId]="'image-group-item'"
+                [kind]="'group'"
+                [density]="'record'"
+                [interactive]="node.leadRecordId !== null"
+                [ariaLabel]="'Open image group ' + node.imageGroupId"
+                (activated)="node.leadRecordId !== null && mediaViewer.openMedia(node.leadRecordId)"
+              ></app-content-item-row>
             </div>
           }
-          <span class="thread-view-actions">
-            <button
-              type="button"
-              class="thread-view-action"
-              (click)="promptEditRecord(node.record, $event)"
-              [disabled]="isActionDisabled(node.record.id)"
-              aria-label="Edit record body"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              class="thread-view-action"
-              (click)="promptRenameRecord(node.record, $event)"
-              [disabled]="isActionDisabled(node.record.id)"
-              aria-label="Rename record"
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              class="thread-view-action"
-              (click)="promptMoveRecord(node.record, $event)"
-              [disabled]="isActionDisabled(node.record.id)"
-              aria-label="Move record"
-            >
-              Move
-            </button>
-            <button
-              type="button"
-              class="thread-view-action thread-view-action--danger"
-              (click)="triggerSoftDeleteRecord(node.record, $event)"
-              [disabled]="isActionDisabled(node.record.id)"
-              aria-label="Delete record"
-            >
-              Delete
-            </button>
-          </span>
-        </div>
-      } @else {
-        <div class="thread-view-item thread-view-item--group" data-testid="thread-view-node">
-          <button
-            type="button"
-            class="thread-view-item-body thread-view-content thread-view-open-button"
-            data-testid="image-group-item"
-            aria-haspopup="dialog"
-            (click)="node.leadRecordId !== null && mediaViewer.openMedia(node.leadRecordId)"
-          >
-            <span class="thread-view-title">{{ 'imageGroup:' + node.imageGroupId }}</span>
-            <span class="thread-view-meta">{{ ' → ' + node.recordIdsSummary }}</span>
-          </button>
-        </div>
-      }
+        }
+      </div>
     }
-  }
+  </div>
 }

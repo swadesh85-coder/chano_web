@@ -1,91 +1,23 @@
-<section class="explorer-screen" role="main" aria-label="Vault explorer">
-  <header class="explorer-header">
-    <h1 class="explorer-title">Chano</h1>
-    <p class="explorer-subtitle">Your vault</p>
-  </header>
-
-  <div class="explorer-layout">
-    <section class="panel" aria-label="Folder tree panel">
-      <div class="panel-header">
-        <div>
-          <h2 class="panel-title">Folders</h2>
-          <p class="panel-subtitle">Projection hierarchy</p>
-        </div>
-        @if (selectedFolder() !== null) {
-          <button
-            type="button"
-            class="panel-action-button"
-            (click)="promptCreateThread(selectedFolder()!.id, $event)"
-            [disabled]="isCreateThreadDisabled()"
-            aria-label="Create thread"
-          >
-            New Thread
-          </button>
-        }
-      </div>
-
-      <div class="panel-body" role="tree">
-        <button
-          type="button"
-          class="panel-item panel-item--folder"
-          data-testid="folder-root"
-          [class.panel-item--selected]="activePane() === 'folder' && selectedFolderId() === rootFolderId"
-          (click)="handleSelection('folder', rootFolderId)"
-          aria-label="Select root folder"
-        >
-          <span class="panel-item-title">Root</span>
-          <span class="panel-item-meta">folderUuid=null</span>
-        </button>
-
-        @if (folderTree().length === 0) {
-          <p class="empty-text panel-empty">No folders in projection</p>
-        } @else {
-          <app-folder-tree
-            [nodes]="folderTree()"
-            [selectedFolderId]="selectedFolderId()"
-            (folderSelected)="selectFolder($event)"
-          ></app-folder-tree>
-        }
-      </div>
-    </section>
-
-    <section class="panel panel--content" aria-label="Content pane panel">
-      <div class="panel-header">
-        <div>
-          <h2 class="panel-title">Content</h2>
-          <p class="panel-subtitle">
-            @if (activePane() === 'thread') {
-              Thread contents
-            } @else if (activePane() === 'folder' && selectedFolderId() === null) {
-              Root folder contents
-            } @else if (activePane() === 'folder') {
-              {{ selectedFolder()?.name ?? 'Selected folder' }}
-            } @else {
-              No selection
-            }
-          </p>
-        </div>
-      </div>
-
-      <div class="panel-body" role="region" aria-label="Content pane">
-        <app-content-pane
-          [content]="contentPane()"
-          [selectedThreadId]="selectedThreadId()"
-          [activeThreadId]="selectedThreadId()"
-          [disabledThreadIds]="disabledThreadIds()"
-          [disabledRecordIds]="disabledRecordIds()"
-          [createRecordDisabled]="isCreateRecordDisabled()"
-          (threadSelected)="selectThread($event)"
-          (threadRenameRequested)="promptRenameEntity('thread', $event.id, $event.title, $event.event)"
-          (threadMoveRequested)="promptMoveEntity('thread', $event.id, $event.title, $event.event)"
-          (threadDeleteRequested)="triggerSoftDelete('thread', $event.id, $event.event)"
-          (createRecordRequested)="promptCreateRecord($event)"
-          (recordEditRequested)="promptEditRecord($event.record, $event.event)"
-          (recordRenameRequested)="promptRenameRecord($event.record, $event.event)"
-          (recordMoveRequested)="promptMoveRecord($event.record, $event.event)"
-          (recordDeleteRequested)="triggerSoftDeleteRecord($event.record, $event.event)"
-        ></app-content-pane>
-      </div>
-    </section>
-  </div>
-</section>
+<app-explorer-layout-container
+  [folderTree]="folderTree()"
+  [selectedFolderId]="selectedFolderId()"
+  [selectedThreadId]="selectedThreadId()"
+  [selectedFolder]="selectedFolder()"
+  [activePane]="activePane()"
+  [content]="contentPane()"
+  [disabledThreadIds]="disabledThreadIds()"
+  [disabledRecordIds]="disabledRecordIds()"
+  [createThreadDisabled]="isCreateThreadDisabled()"
+  [createRecordDisabled]="isCreateRecordDisabled()"
+  (folderSelected)="selectFolder($event)"
+  (threadSelected)="selectThread($event)"
+  (createThreadRequested)="promptCreateThread($event)"
+  (threadRenameRequested)="promptRenameEntity('thread', $event.id, $event.title, $event.event)"
+  (threadMoveRequested)="promptMoveEntity('thread', $event.id, $event.title, $event.event)"
+  (threadDeleteRequested)="triggerSoftDelete('thread', $event.id, $event.event)"
+  (createRecordRequested)="promptCreateRecord($event)"
+  (recordEditRequested)="promptEditRecord($event.record, $event.event)"
+  (recordRenameRequested)="promptRenameRecord($event.record, $event.event)"
+  (recordMoveRequested)="promptMoveRecord($event.record, $event.event)"
+  (recordDeleteRequested)="triggerSoftDeleteRecord($event.record, $event.event)"
+></app-explorer-layout-container>

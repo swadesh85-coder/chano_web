@@ -6,26 +6,25 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import type { FolderTreeViewModel } from '../../viewmodels';
+import { SidebarItemComponent } from '../ui/sidebar_item.component';
 
 @Component({
   selector: 'app-folder-tree',
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, SidebarItemComponent],
   template: `
     <ng-template #folderTreeNodes let-nodes let-depth="depth">
       @for (node of nodes; track trackFolder($index, node)) {
         <div class="folder-tree-node" role="treeitem" [attr.aria-level]="depth + 1">
-          <button
-            type="button"
-            class="panel-item panel-item--folder"
+          <app-sidebar-item
             data-testid="folder-item"
-            [class.panel-item--selected]="selectedFolderId() === node.id"
-            [style.padding-left.rem]="0.75 + depth * 1.1"
-            (click)="selectFolder(node.id)"
-            [attr.aria-label]="'Select folder ' + node.name"
+            [title]="node.name"
+            [metaText]="node.id"
+            [depth]="depth"
+            [selected]="selectedFolderId() === node.id"
+            [ariaLabel]="'Select folder ' + node.name"
+            (activated)="selectFolder(node.id)"
           >
-            <span class="panel-item-title">{{ node.name }}</span>
-            <span class="panel-item-meta">{{ node.id }}</span>
-          </button>
+          </app-sidebar-item>
 
           @if (node.children.length > 0) {
             <div role="group">

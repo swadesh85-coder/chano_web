@@ -1,0 +1,45 @@
+<section class="chano-explorer explorer-layout-shell" role="main" aria-label="Vault explorer">
+  <app-explorer-toolbar (viewToggleRequested)="toggleSidebar()"></app-explorer-toolbar>
+
+  <div class="explorer-layout-shell__body">
+    <app-split-pane
+      [ratio]="splitRatio()"
+      [collapsed]="sidebarCollapsed()"
+      (ratioChanged)="updateSplitRatio($event)"
+    >
+      <app-folder-tree-pane
+        pane-left
+        [nodes]="folderTree()"
+        [selectedFolderId]="selectedFolderId()"
+        [selectedFolder]="selectedFolder()"
+        [activePane]="activePane()"
+        [createThreadDisabled]="createThreadDisabled()"
+        (folderSelected)="folderSelected.emit($event)"
+        (createThreadRequested)="createThreadRequested.emit($event)"
+      ></app-folder-tree-pane>
+
+      <app-explorer-content-pane
+        pane-right
+        [activePane]="activePane()"
+        [content]="content()"
+        [childFolders]="visibleFolders()"
+        [selectedThreadId]="selectedThreadId()"
+        [selectedFolderId]="selectedFolderId()"
+        [selectedFolder]="selectedFolder()"
+        [disabledThreadIds]="disabledThreadIds()"
+        [disabledRecordIds]="disabledRecordIds()"
+        [createRecordDisabled]="createRecordDisabled()"
+        (folderSelected)="folderSelected.emit($event)"
+        (threadSelected)="threadSelected.emit($event)"
+        (threadRenameRequested)="threadRenameRequested.emit($event)"
+        (threadMoveRequested)="threadMoveRequested.emit($event)"
+        (threadDeleteRequested)="threadDeleteRequested.emit($event)"
+        (createRecordRequested)="createRecordRequested.emit($event)"
+        (recordEditRequested)="recordEditRequested.emit($event)"
+        (recordRenameRequested)="recordRenameRequested.emit($event)"
+        (recordMoveRequested)="recordMoveRequested.emit($event)"
+        (recordDeleteRequested)="recordDeleteRequested.emit($event)"
+      ></app-explorer-content-pane>
+    </app-split-pane>
+  </div>
+</section>

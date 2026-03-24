@@ -5,18 +5,22 @@ import type {
   ContentPaneViewModel,
   RecordListViewModel,
   ThreadListViewModel,
+  ThreadRecordNodeViewModel,
 } from '../viewmodels';
 import {
   selectRecordListViewModel,
+  selectThreadRecordNodeViewModel,
   selectThreadListViewModel,
 } from '../viewmodels';
 
 const EMPTY_THREADS: readonly ThreadListViewModel[] = [];
 const EMPTY_RECORDS: readonly RecordListViewModel[] = [];
+const EMPTY_RECORD_NODES: readonly ThreadRecordNodeViewModel[] = [];
 const EMPTY_CONTENT_PANE: ContentPaneViewModel = Object.freeze({
   mode: 'empty',
   threadList: EMPTY_THREADS,
   recordList: EMPTY_RECORDS,
+  recordNodes: EMPTY_RECORD_NODES,
 });
 
 @Injectable({ providedIn: 'root' })
@@ -34,6 +38,10 @@ export class ExplorerContentPaneContainer {
     return selectRecordListViewModel(this.projectionState(), threadId);
   }
 
+  recordNodes(threadId: string | null): readonly ThreadRecordNodeViewModel[] {
+    return selectThreadRecordNodeViewModel(this.projectionState(), threadId);
+  }
+
   contentPane(
     folderId: string | null,
     selectedThreadId: string | null,
@@ -49,12 +57,16 @@ export class ExplorerContentPaneContainer {
     const orderedRecordList = activePane === 'thread' && selectedThreadId !== null
       ? this.recordList(selectedThreadId)
       : EMPTY_RECORDS;
+    const orderedRecordNodes = activePane === 'thread' && selectedThreadId !== null
+      ? this.recordNodes(selectedThreadId)
+      : EMPTY_RECORD_NODES;
 
     if (activePane === 'thread' && selectedThreadId !== null) {
       return {
         mode: 'records',
         threadList: EMPTY_THREADS,
         recordList: orderedRecordList,
+        recordNodes: orderedRecordNodes,
       };
     }
 
@@ -66,6 +78,7 @@ export class ExplorerContentPaneContainer {
       mode: 'threads',
       threadList: orderedThreadList,
       recordList: EMPTY_RECORDS,
+      recordNodes: EMPTY_RECORD_NODES,
     };
   }
 

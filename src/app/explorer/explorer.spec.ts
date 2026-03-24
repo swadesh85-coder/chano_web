@@ -1,13 +1,14 @@
-import { signal } from '@angular/core';
+import fs from 'node:fs';
+import path from 'node:path';
+import { computed, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProjectionStore } from '../projection/projection.store';
-import { ExplorerActions } from './explorer_actions';
-import { PendingCommandStore } from './pending_command_store';
-import { ExplorerComponent } from './explorer';
-import { MutationCommandSender } from '../../transport';
-import { WebRelayClient } from '../../transport/web-relay-client';
+import { ExplorerContentPaneContainer } from '../explorer_content_pane.container';
+import { ExplorerFolderTreeContainer } from '../explorer_folder_tree.container';
+import { ExplorerLayoutContainerComponent } from '../explorer.layout.container';
+import { NavigationContainer } from '../navigation.container';
+import { ProjectionStateContainer } from '../projection/projection_state.container';
 import type {
   Folder,
   ProjectionState,
@@ -23,32 +24,40 @@ function ensureAngularTestEnvironment(): void {
     return;
   }
 
-  TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  try {
+    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
+      throw error;
+    }
+  }
+
   angularTestEnvironmentInitialized = true;
 }
 
-describe('ExplorerComponent', () => {
-  let fixture: ComponentFixture<ExplorerComponent>;
-  let component: ExplorerComponent;
-  let sendCommand: ReturnType<typeof vi.fn>;
-  let consoleLog: ReturnType<typeof vi.spyOn>;
-  let pendingStore: {
-    isPending: ReturnType<typeof vi.fn>;
-    isCreatePending: ReturnType<typeof vi.fn>;
-    setPending: ReturnType<typeof vi.fn>;
-  };
-  let projectionUpdateSignal: ReturnType<typeof signal<ProjectionUpdate | null>>;
-  let projectionStateSignals: {
-    folders: ReturnType<typeof signal<Folder[]>>;
-    threads: ReturnType<typeof signal<Thread[]>>;
-    records: ReturnType<typeof signal<RecordEntry[]>>;
-  };
+describe('Explorer layout contract', () => {
+  let localStorageGetItem: ReturnType<typeof vi.fn>;
+  let localStorageSetItem: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorageGetItem = vi.fn(() => null);
+    localStorageSetItem = vi.fn();
+    vi.stubGlobal('localStorage', {
+      getItem: localStorageGetItem,
+      setItem: localStorageSetItem,
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    });
+  });
 
   const folderEntity = (id: string, name: string, parentId: string | null = null): Folder => ({
     id,
     name,
     parentId,
     entityVersion: 1,
+    lastEventVersion: 1,
   });
 
   const threadEntity = (id: string, title: string, folderId: string): Thread => ({
@@ -56,13 +65,13 @@ describe('ExplorerComponent', () => {
     folderId,
     title,
     entityVersion: 1,
+    lastEventVersion: 1,
   });
 
   const recordEntity = (
     id: string,
     name: string,
     threadId: string,
-    imageGroupId: string | null = null,
     orderIndex = 0,
   ): RecordEntry => ({
     id,
@@ -73,300 +82,229 @@ describe('ExplorerComponent', () => {
     editedAt: 1,
     orderIndex,
     isStarred: false,
-    imageGroupId,
+    imageGroupId: null,
     entityVersion: 1,
     lastEventVersion: 1,
   });
 
-  function deepFreeze<T>(value: T): T {
-    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) {
-      return value;
-    }
-
-    for (const entry of Object.values(value as Record<string, unknown>)) {
-      deepFreeze(entry);
-    }
-
-    return Object.freeze(value);
-  }
-
-  beforeEach(async () => {
-    ensureAngularTestEnvironment();
-
-    sendCommand = vi.fn(() => null);
-    consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    pendingStore = {
-      isPending: vi.fn(() => false),
-      isCreatePending: vi.fn(() => false),
-      setPending: vi.fn(),
-    };
-    projectionUpdateSignal = signal<ProjectionUpdate | null>(null);
-    projectionStateSignals = {
-      folders: signal<Folder[]>([]),
-      threads: signal<Thread[]>([]),
-      records: signal<RecordEntry[]>([]),
-    };
-
-    await TestBed.configureTestingModule({
-      imports: [ExplorerComponent],
-      providers: [
-        ExplorerActions,
-        { provide: PendingCommandStore, useValue: pendingStore },
-        { provide: MutationCommandSender, useValue: { sendCommand } },
-        {
-          provide: WebRelayClient,
-          useValue: {
-            sessionId: signal('session-explorer-spec').asReadonly(),
-          },
-        },
-        {
-          provide: ProjectionStore,
-          useValue: {
-            state: (): ProjectionState => ({
-              folders: projectionStateSignals.folders(),
-              threads: projectionStateSignals.threads(),
-              records: projectionStateSignals.records(),
-            }),
-            lastProjectionUpdate: projectionUpdateSignal.asReadonly(),
-          },
-        },
-      ],
-    }).compileComponents();
-
-    fixture = TestBed.createComponent(ExplorerComponent);
-    component = fixture.componentInstance;
-  });
-
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
     TestBed.resetTestingModule();
   });
 
-  function render(): void {
-    fixture.detectChanges();
+  async function createLayoutFixture(): Promise<ComponentFixture<ExplorerLayoutContainerComponent>> {
+    ensureAngularTestEnvironment();
+
+    TestBed.overrideComponent(ExplorerLayoutContainerComponent, {
+      set: {
+        template: '',
+        styles: [],
+      },
+    });
+
+    TestBed.configureTestingModule({
+      imports: [ExplorerLayoutContainerComponent],
+    });
+
+    await TestBed.compileComponents();
+
+    return TestBed.createComponent(ExplorerLayoutContainerComponent);
   }
 
-  function getTextValues(selector: string): string[] {
-    return Array.from<HTMLElement>(fixture.nativeElement.querySelectorAll(selector))
-      .map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim());
-  }
-
-  function hashProjectionInputs(): string {
+  function projectionHash(state: {
+    folders: ReturnType<typeof signal<Folder[]>>;
+    threads: ReturnType<typeof signal<Thread[]>>;
+    records: ReturnType<typeof signal<RecordEntry[]>>;
+  }): string {
     return JSON.stringify({
-      folders: projectionStateSignals.folders(),
-      threads: projectionStateSignals.threads(),
-      records: projectionStateSignals.records(),
+      folders: state.folders(),
+      threads: state.threads(),
+      records: state.records(),
     });
   }
 
-  it('command_sent_on_user_action', () => {
-    projectionStateSignals.folders.set([folderEntity('folder-1', 'Inbox')]);
+  it('declares_toolbar_split_and_both_panes_in_layout_source', () => {
+    const source = fs.readFileSync(path.resolve(process.cwd(), 'src/app/explorer.layout.container.ts'), 'utf8');
+    const template = fs.readFileSync(path.resolve(process.cwd(), 'src/app/explorer.layout.html'), 'utf8');
 
-    vi.spyOn(globalThis, 'prompt').mockReturnValue('Inbox Thread');
-    sendCommand.mockReturnValue({
-      protocolVersion: 2,
-      type: 'mutation_command',
-      sessionId: 'session-1',
-      timestamp: 1,
-      sequence: 1,
-      payload: {
-        commandId: 'cmd-401',
-        originDeviceId: 'web-device-1',
-        entityType: 'thread',
-        entityId: null,
-        operation: 'create',
-        expectedVersion: 0,
-        timestamp: 1,
-        payload: {
-          title: 'Inbox Thread',
-          kind: 'manual',
-          folderId: 'folder-1',
+    expect(template).toContain('app-explorer-toolbar');
+    expect(template).toContain('app-split-pane');
+    expect(template).toContain('app-folder-tree-pane');
+    expect(template).toContain('app-explorer-content-pane');
+    expect(source).toContain('LAYOUT_INIT ratio=');
+    expect(source).toContain('LAYOUT_PERSIST_LOAD ratio=');
+    expect(source).toContain('LAYOUT_PERSIST_SAVE ratio=');
+    expect(source).toContain('DEFAULT_SPLIT_RATIO');
+    expect(source).toContain('chano.layout.splitRatio');
+    expect(source).not.toContain('NavigationContainer');
+    expect(source).not.toContain('ProjectionStateContainer');
+  });
+
+  it('uses_navigation_selection_to_switch_folder_and_thread_content_without_projection_mutation', () => {
+    ensureAngularTestEnvironment();
+    const projectionStateSignals = {
+      folders: signal<Folder[]>([
+        folderEntity('folder-root', 'Root'),
+        folderEntity('folder-child', 'Child', 'folder-root'),
+      ]),
+      threads: signal<Thread[]>([
+        threadEntity('thread-a', 'Thread A', 'folder-root'),
+        threadEntity('thread-b', 'Thread B', 'folder-root'),
+      ]),
+      records: signal<RecordEntry[]>([
+        recordEntity('record-a', 'Record A', 'thread-a', 0),
+      ]),
+    };
+    const projectionUpdate = signal<ProjectionUpdate | null>(null);
+
+    TestBed.configureTestingModule({
+      providers: [
+        NavigationContainer,
+        ExplorerFolderTreeContainer,
+        ExplorerContentPaneContainer,
+        {
+          provide: ProjectionStateContainer,
+          useValue: {
+            state: computed<ProjectionState>(() => ({
+              folders: projectionStateSignals.folders(),
+              threads: projectionStateSignals.threads(),
+              records: projectionStateSignals.records(),
+            })),
+            projectionUpdate: projectionUpdate.asReadonly(),
+            phase: signal<'idle' | 'receiving' | 'ready'>('ready').asReadonly(),
+          },
         },
-      },
+      ],
     });
 
-    component.handleSelection('folder', 'folder-1');
-    render();
+    const navigation = TestBed.inject(NavigationContainer);
+    const folderTree = TestBed.inject(ExplorerFolderTreeContainer);
+    const contentPane = TestBed.inject(ExplorerContentPaneContainer);
+    const before = projectionHash(projectionStateSignals);
 
-    const createButton = fixture.nativeElement.querySelector('button[aria-label="Create thread"]') as HTMLButtonElement;
-    createButton.click();
+    navigation.selectFolder('folder-root');
+    const folderMode = contentPane.contentPane(
+      navigation.selectedFolderId(),
+      navigation.selectedThreadId(),
+      navigation.activePane(),
+    );
 
-    expect(sendCommand).toHaveBeenCalledWith({
-      entityType: 'thread',
-      operation: 'create',
-      payload: {
-        title: 'Inbox Thread',
-        kind: 'manual',
-        folderId: 'folder-1',
-      },
+    expect(navigation.activePane()).toBe('folder');
+    expect(folderTree.folderTree()[0]?.id).toBe('folder-root');
+    expect(folderMode.mode).toBe('threads');
+    expect(folderMode.threadList.map((thread) => thread.id)).toEqual(['thread-a', 'thread-b']);
+
+    navigation.selectThread('thread-a');
+    const threadMode = contentPane.contentPane(
+      navigation.selectedFolderId(),
+      navigation.selectedThreadId(),
+      navigation.activePane(),
+    );
+
+    expect(navigation.activePane()).toBe('thread');
+    expect(threadMode.mode).toBe('records');
+    expect(threadMode.recordList.map((record) => record.id)).toEqual(['record-a']);
+    expect(projectionHash(projectionStateSignals)).toBe(before);
+  });
+
+  it('produces_identical_viewmodel_outputs_for_the_same_state', () => {
+    ensureAngularTestEnvironment();
+    const projectionStateSignals = {
+      folders: signal<Folder[]>([folderEntity('folder-root', 'Root')]),
+      threads: signal<Thread[]>([threadEntity('thread-a', 'Thread A', 'folder-root')]),
+      records: signal<RecordEntry[]>([recordEntity('record-a', 'Record A', 'thread-a')]),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [
+        NavigationContainer,
+        ExplorerFolderTreeContainer,
+        ExplorerContentPaneContainer,
+        {
+          provide: ProjectionStateContainer,
+          useValue: {
+            state: computed<ProjectionState>(() => ({
+              folders: projectionStateSignals.folders(),
+              threads: projectionStateSignals.threads(),
+              records: projectionStateSignals.records(),
+            })),
+            projectionUpdate: signal<ProjectionUpdate | null>(null).asReadonly(),
+            phase: signal<'idle' | 'receiving' | 'ready'>('ready').asReadonly(),
+          },
+        },
+      ],
     });
+
+    const navigation = TestBed.inject(NavigationContainer);
+    const folderTree = TestBed.inject(ExplorerFolderTreeContainer);
+    const contentPane = TestBed.inject(ExplorerContentPaneContainer);
+
+    navigation.selectFolder('folder-root');
+    navigation.selectThread('thread-a');
+
+    const first = {
+      tree: folderTree.folderTree(),
+      content: contentPane.contentPane(
+        navigation.selectedFolderId(),
+        navigation.selectedThreadId(),
+        navigation.activePane(),
+      ),
+    };
+    const second = {
+      tree: folderTree.folderTree(),
+      content: contentPane.contentPane(
+        navigation.selectedFolderId(),
+        navigation.selectedThreadId(),
+        navigation.activePane(),
+      ),
+    };
+
+    expect(first).toEqual(second);
   });
 
-  it('ui_disabled_during_pending', () => {
-    projectionStateSignals.folders.set([folderEntity('folder-1', 'Inbox')]);
-    pendingStore.isCreatePending.mockReturnValue(true);
+  it('loads_a_valid_persisted_split_ratio_on_init', async () => {
+    localStorageGetItem.mockReturnValue('0.420');
 
-    component.handleSelection('folder', 'folder-1');
-    render();
+    const fixture = await createLayoutFixture();
+    const component = fixture.componentInstance;
 
-    const createButton = fixture.nativeElement.querySelector('button[aria-label="Create thread"]') as HTMLButtonElement;
-    expect(createButton.disabled).toBe(true);
+    expect(component.splitRatio()).toBe(0.42);
+    expect(localStorageGetItem).toHaveBeenCalledWith('chano.layout.splitRatio');
   });
 
-  it('explorer_render_snapshot', () => {
-    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
-    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
-    projectionStateSignals.records.set([recordEntity('record:0001', 'Record 0001', 'thread:0001')]);
-    projectionUpdateSignal.set({ reason: 'snapshot_loaded', entityType: null, eventVersion: 100 });
+  it('falls_back_to_default_when_persisted_split_ratio_is_invalid', async () => {
+    localStorageGetItem.mockReturnValue('0.91');
 
-    render();
-    component.handleSelection('folder', 'folder:0001');
-    render();
-    expect(getTextValues('[data-testid="thread-item"]')[0]).toContain('Thread 0001');
+    const fixture = await createLayoutFixture();
+    const component = fixture.componentInstance;
 
-    component.handleSelection('thread', 'thread:0001');
-    render();
-
-    expect(getTextValues('[data-testid="folder-item"]')[0]).toContain('Vault');
-    expect(getTextValues('[data-testid="record-item"]')[0]).toContain('Record 0001');
-    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER snapshot_loaded');
-    expect(component.folderTree().some((folder) => folder.id === 'folder:0001')).toBe(true);
-    expect(component.threadList().some((thread) => thread.id === 'thread:0001')).toBe(true);
-    expect(component.recordList().some((record) => record.id === 'record:0001')).toBe(true);
+    expect(component.splitRatio()).toBe(0.3);
   });
 
-  it('explorer_render_event_update', () => {
-    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
-    projectionUpdateSignal.set({ reason: 'snapshot_loaded', entityType: null, eventVersion: 100 });
-    render();
+  it('persists_split_ratio_with_debounce_without_affecting_navigation_selection', async () => {
+    vi.useFakeTimers();
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const fixture = await createLayoutFixture();
+    const component = fixture.componentInstance;
+    const selectedFolderId = signal<string | null>('folder-root');
+    const selectedThreadId = signal<string | null>('thread-a');
 
-    component.handleSelection('folder', 'folder:0001');
-    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
-    projectionUpdateSignal.set({ reason: 'event_applied', entityType: 'thread', eventVersion: 101 });
-    render();
+    fixture.componentRef.setInput('selectedFolderId', selectedFolderId());
+    fixture.componentRef.setInput('selectedThreadId', selectedThreadId());
 
-    expect(getTextValues('[data-testid="thread-item"]')[0]).toContain('Thread 0001');
-    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER event_applied entity=thread');
-  });
+    component.updateSplitRatio(0.44);
+    component.updateSplitRatio(0.46);
 
-  it('explorer_no_local_mutation', () => {
-    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
-    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
-    projectionStateSignals.records.set([recordEntity('record:0001', 'Record 0001', 'thread:0001')]);
-    const beforeHash = hashProjectionInputs();
+    expect(localStorageSetItem).not.toHaveBeenCalled();
+    expect(selectedFolderId()).toBe('folder-root');
+    expect(selectedThreadId()).toBe('thread-a');
 
-    render();
-    component.handleSelection('folder', 'folder:0001');
-    component.handleSelection('thread', 'thread:0001');
-    render();
+    vi.advanceTimersByTime(150);
 
-    expect(hashProjectionInputs()).toBe(beforeHash);
-  });
-
-  it('explorer_accepts_frozen_projection_input_without_mutation', () => {
-    projectionStateSignals.folders.set(deepFreeze([folderEntity('folder:0001', 'Vault')]));
-    projectionStateSignals.threads.set(
-      deepFreeze([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]),
-    );
-    projectionStateSignals.records.set(
-      deepFreeze([recordEntity('record:0001', 'Record 0001', 'thread:0001')]),
-    );
-
-    component.handleSelection('folder', 'folder:0001');
-    component.handleSelection('thread', 'thread:0001');
-
-    expect(() => render()).not.toThrow();
-    expect(component.folderTree()[0]?.id).toBe('folder:0001');
-    expect(component.threadList()[0]?.id).toBe('thread:0001');
-    expect(component.recordList()[0]?.id).toBe('record:0001');
-  });
-
-  it('explorer_selection_state', () => {
-    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
-    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
-
-    render();
-    component.handleSelection('folder', 'folder:0001');
-    component.handleSelection('thread', 'thread:0001');
-
-    expect(component.selectedFolderId()).toBe('folder:0001');
-    expect(component.selectedThreadId()).toBe('thread:0001');
-    expect(component.selectedFolder()?.parentId).toBeNull();
-    expect(component.threadList().find((thread) => thread.id === 'thread:0001')).toBeDefined();
-  });
-
-  it('explorer_render_is_deterministic_for_same_projection_input', () => {
-    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
-    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
-    projectionStateSignals.records.set([recordEntity('record:0001', 'Record 0001', 'thread:0001')]);
-
-    component.handleSelection('folder', 'folder:0001');
-    component.handleSelection('thread', 'thread:0001');
-    render();
-    const firstRender = fixture.nativeElement.querySelector('.explorer-layout')?.textContent?.replace(/\s+/g, ' ').trim();
-
-    render();
-    const secondRender = fixture.nativeElement.querySelector('.explorer-layout')?.textContent?.replace(/\s+/g, ' ').trim();
-
-    expect(firstRender).toBe(secondRender);
-  });
-
-  it('explorer_projection_sync', () => {
-    projectionStateSignals.folders.set([folderEntity('folder:0001', 'Vault')]);
-    projectionUpdateSignal.set({ reason: 'snapshot_loaded', entityType: null, eventVersion: 100 });
-    render();
-
-    component.handleSelection('folder', 'folder:0001');
-    projectionStateSignals.threads.set([threadEntity('thread:0001', 'Thread 0001', 'folder:0001')]);
-    projectionUpdateSignal.set({ reason: 'event_applied', entityType: 'thread', eventVersion: 101 });
-    render();
-
-    component.handleSelection('thread', 'thread:0001');
-    projectionStateSignals.records.set([recordEntity('record:0001', 'Record 0001', 'thread:0001', null, 0)]);
-    projectionUpdateSignal.set({ reason: 'event_applied', entityType: 'record', eventVersion: 102 });
-    render();
-
-    expect(component.threadList()).toHaveLength(1);
-    expect(getTextValues('[data-testid="record-item"]')).toHaveLength(1);
-    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER snapshot_loaded');
-    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER event_applied entity=thread');
-    expect(consoleLog).toHaveBeenCalledWith('EXPLORER_RENDER event_applied entity=record');
-  });
-
-  it('folder_selection_shows_thread_content_and_thread_selection_shows_record_content', () => {
-    projectionStateSignals.folders.set([folderEntity('folder-content', 'Inbox')]);
-    projectionStateSignals.threads.set([
-      threadEntity('thread-content-a', 'Thread A', 'folder-content'),
-      threadEntity('thread-content-b', 'Thread B', 'folder-content'),
-    ]);
-    projectionStateSignals.records.set([
-      recordEntity('record-content-a', 'Record A', 'thread-content-a', null, 0),
-    ]);
-
-    component.selectFolder('folder-content');
-    render();
-
-    expect(getTextValues('[data-testid="thread-item"]')).toHaveLength(2);
-    expect(getTextValues('[data-testid="record-item"]')).toHaveLength(0);
-
-    component.selectThread('thread-content-a');
-    render();
-
-    expect(getTextValues('[data-testid="record-item"]')).toHaveLength(1);
-    expect(getTextValues('[data-testid="record-item"]')[0]).toContain('Record A');
-  });
-
-  it('navigation_state_is_ui_only_and_does_not_mutate_projection', () => {
-    projectionStateSignals.folders.set([folderEntity('folder-nav', 'Inbox')]);
-    projectionStateSignals.threads.set([threadEntity('thread-nav', 'Thread Nav', 'folder-nav')]);
-    projectionStateSignals.records.set([recordEntity('record-nav', 'Record Nav', 'thread-nav')]);
-    const before = hashProjectionInputs();
-
-    component.selectFolder('folder-nav');
-    component.selectThread('thread-nav');
-    component.selectFolder(null);
-    render();
-
-    expect(hashProjectionInputs()).toBe(before);
+    expect(localStorageSetItem).toHaveBeenCalledTimes(1);
+    expect(localStorageSetItem).toHaveBeenLastCalledWith('chano.layout.splitRatio', '0.460');
+    expect(consoleLog).toHaveBeenCalledWith('LAYOUT_PERSIST_SAVE ratio=0.460');
+    consoleLog.mockRestore();
   });
 });

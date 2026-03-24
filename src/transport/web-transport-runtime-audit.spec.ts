@@ -41,6 +41,12 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
+async function flushAuthoritativeEventWork(): Promise<void> {
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
+}
+
 type WsHandler = ((ev: { data: string }) => void) | null;
 
 class MockWebSocket {
@@ -201,6 +207,7 @@ describe('Web transport runtime audit', () => {
           entityType: 'folder',
           entityUuid: 'folder-1',
           entityVersion: 1,
+          lastEventVersion: 1,
           ownerUserId: 'owner-1',
           data: {
             uuid: 'folder-1',
@@ -256,7 +263,39 @@ describe('Web transport runtime audit', () => {
     });
 
     await fixture.whenStable();
-    await Promise.resolve();
+    await flushAuthoritativeEventWork();
+  }
+
+  async function createThreadEventEnvelope(
+    sessionId: string,
+    sequence: number,
+    entityId: string,
+    title: string,
+  ): Promise<TransportEnvelope> {
+    const payload = {
+      uuid: entityId,
+      folderUuid: 'folder-1',
+      title,
+    };
+
+    return {
+      protocolVersion: 2,
+      type: 'event_stream',
+      sessionId,
+      timestamp: 1_710_000_006,
+      sequence,
+      payload: {
+        eventId: `evt-${sequence}`,
+        originDeviceId: 'mobile-1',
+        eventVersion: 6,
+        entityType: 'thread',
+        entityId,
+        operation: 'create',
+        timestamp: 1_710_000_006,
+        payload,
+        checksum: await sha256Hex(encodeUtf8(JSON.stringify(payload))),
+      },
+    };
   }
 
   it('web_relay_client_connection_runtime', async () => {
@@ -302,22 +341,14 @@ describe('Web transport runtime audit', () => {
     const sessionId = await establishRelaySession();
     await seedProjectionSnapshot(sessionId);
 
-    MockWebSocket.last.simulateEnvelope({
-      protocolVersion: 2,
-      type: 'event_stream',
+    const eventEnvelope = await createThreadEventEnvelope(
       sessionId,
-      timestamp: 1_710_000_006,
-      sequence: 7,
-      payload: {
-        operation: 'create',
-        entity: 'thread',
-        data: {
-          uuid: 'thread-43',
-          folderUuid: 'folder-1',
-          title: 'From event stream',
-        },
-      },
-    });
+      7,
+      '123e4567-e89b-42d3-a456-426614174043',
+      'From event stream',
+    );
+
+    MockWebSocket.last.simulateEnvelope(eventEnvelope);
 
     expect(parsedEnvelope('snapshot_start')).toEqual({
       protocolVersion: 2,
@@ -357,13 +388,19 @@ describe('Web transport runtime audit', () => {
       timestamp: 1_710_000_006,
       sequence: 7,
       payload: {
+        eventId: 'evt-7',
+        originDeviceId: 'mobile-1',
+        eventVersion: 6,
+        entityType: 'thread',
+        entityId: '123e4567-e89b-42d3-a456-426614174043',
         operation: 'create',
-        entity: 'thread',
-        data: {
-          uuid: 'thread-43',
+        timestamp: 1_710_000_006,
+        payload: {
+          uuid: '123e4567-e89b-42d3-a456-426614174043',
           folderUuid: 'folder-1',
           title: 'From event stream',
         },
+        checksum: expect.any(String),
       },
     });
     expect(capturedLogs).toContainEqual(['MESSAGE_ROUTED type=snapshot_start target=projection']);
@@ -464,7 +501,7 @@ describe('Web transport runtime audit', () => {
   it('no_optimistic_update', async () => {
     const sessionId = await establishRelaySession();
     await seedProjectionSnapshot(sessionId);
-    const generatedEntityId = 'generated-by-mobile';
+    const generatedEntityId = '123e4567-e89b-42d3-a456-426614174099';
     const commandId = '123e4567-e89b-42d3-a456-426614174001';
 
     const beforeMutation = {
@@ -502,25 +539,12 @@ describe('Web transport runtime audit', () => {
     expect(localStateMutation).toBe(false);
     expect(projection.state().threads.length).toBe(0);
 
-    MockWebSocket.last.simulateEnvelope({
-      protocolVersion: 2,
-      type: 'event_stream',
-      sessionId,
-      timestamp: 1_710_000_007,
-      sequence: 7,
-      payload: {
-        operation: 'create',
-        entity: 'thread',
-        data: {
-          uuid: generatedEntityId,
-          folderUuid: 'folder-1',
-          title: 'Awaiting authority',
-        },
-      },
-    });
+    MockWebSocket.last.simulateEnvelope(
+      await createThreadEventEnvelope(sessionId, 7, generatedEntityId, 'Awaiting authority'),
+    );
 
     await fixture.whenStable();
-    await Promise.resolve();
+    await flushAuthoritativeEventWork();
 
     expect(projection.state().threads.map(({ id, folderId, title }) => ({ id, folderId, title }))).toEqual([
       {

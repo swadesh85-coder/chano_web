@@ -43,16 +43,19 @@ export type ContentPaneViewModel =
       readonly mode: 'empty';
       readonly threadList: readonly ThreadListViewModel[];
       readonly recordList: readonly RecordListViewModel[];
+      readonly recordNodes: readonly ThreadRecordNodeViewModel[];
     }
   | {
       readonly mode: 'threads';
       readonly threadList: readonly ThreadListViewModel[];
       readonly recordList: readonly RecordListViewModel[];
+      readonly recordNodes: readonly ThreadRecordNodeViewModel[];
     }
   | {
       readonly mode: 'records';
       readonly threadList: readonly ThreadListViewModel[];
       readonly recordList: readonly RecordListViewModel[];
+      readonly recordNodes: readonly ThreadRecordNodeViewModel[];
     };
 
 export interface MediaViewerViewModel {

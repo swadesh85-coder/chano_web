@@ -34,6 +34,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-identity-1',
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-identity',
         data: {
           uuid: 'folder-identity-1',
@@ -47,6 +48,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-identity-1',
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-identity',
         data: {
           uuid: 'thread-identity-1',
@@ -85,6 +87,7 @@ function createReplacementSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: 'folder-identity-2',
         entityVersion: 10,
+        lastEventVersion: 10,
         ownerUserId: 'owner-identity',
         data: {
           uuid: 'folder-identity-2',
@@ -98,6 +101,7 @@ function createReplacementSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: 'thread-identity-2',
         entityVersion: 11,
+        lastEventVersion: 11,
         ownerUserId: 'owner-identity',
         data: {
           uuid: 'thread-identity-2',

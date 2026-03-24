@@ -48,6 +48,10 @@ export function buildRecordViewModel(record: RecordEntry): RecordListViewModel {
   };
 }
 
+export function getRecordListVirtualKey(record: RecordListViewModel): string {
+  return record.id;
+}
+
 export function selectRecordViewModel(
   state: ProjectionState,
   recordId: string | null,
@@ -104,6 +108,10 @@ export function selectThreadRecordNodeViewModel(
     emittedGroupIds: {},
     nodes: [],
   }).nodes;
+}
+
+export function getThreadRecordNodeVirtualKey(node: ThreadRecordNodeViewModel): string {
+  return node.key;
 }
 
 export function selectMediaViewerViewModel(

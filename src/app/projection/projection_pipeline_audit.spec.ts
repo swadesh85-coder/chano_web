@@ -49,6 +49,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: ROOT_FOLDER_ID,
         entityVersion: 1,
+        lastEventVersion: 1,
         ownerUserId: 'owner-1',
         data: {
           uuid: ROOT_FOLDER_ID,
@@ -60,6 +61,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'folder',
         entityUuid: CHILD_FOLDER_ID,
         entityVersion: 2,
+        lastEventVersion: 2,
         ownerUserId: 'owner-1',
         data: {
           uuid: CHILD_FOLDER_ID,
@@ -73,6 +75,7 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
         entityType: 'thread',
         entityUuid: THREAD_ID,
         entityVersion: 3,
+        lastEventVersion: 3,
         ownerUserId: 'owner-1',
         data: {
           uuid: THREAD_ID,

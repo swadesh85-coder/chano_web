@@ -14,7 +14,14 @@ function ensureAngularTestEnvironment(): void {
     return;
   }
 
-  TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  try {
+    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
+      throw error;
+    }
+  }
+
   angularTestEnvironmentInitialized = true;
 }
 
@@ -532,7 +539,7 @@ describe('ProjectionStore', () => {
     {
       entityType: 'thread',
     },
-  ])('rejects malformed snapshot pipeline when $entityType lastEventVersion is missing', async ({ entityType }) => {
+  ] as const)('rejects malformed snapshot pipeline when $entityType lastEventVersion is missing', async ({ entityType }) => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const publishProjectionStateSpy = vi.spyOn(store as never, 'publishProjectionState');
     const applySnapshotSpy = vi.spyOn((store as never)['projectionEngine'], 'applySnapshot');
@@ -570,8 +577,6 @@ describe('ProjectionStore', () => {
     expect(errorSpy.mock.calls).toContainEqual(['SCHEMA_VALIDATION_ERROR entity field mismatch']);
     expect(errorSpy.mock.calls).toContainEqual(['SNAPSHOT_ERROR invalid snapshot schema']);
 
-    applySnapshotSpy.mockRestore();
-    publishProjectionStateSpy.mockRestore();
     errorSpy.mockRestore();
   });
 });

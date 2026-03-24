@@ -15,17 +15,24 @@ function ensureAngularTestEnvironment(): void {
     return;
   }
 
-  TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  try {
+    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
+      throw error;
+    }
+  }
+
   angularTestEnvironmentInitialized = true;
 }
 
 function createProjectionState(): ProjectionState {
   return {
     folders: [
-      { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 1 },
+      { id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 1, lastEventVersion: 1 },
     ],
     threads: [
-      { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 2 },
+      { id: 'thread-a', folderId: 'folder-a', title: 'Thread A', entityVersion: 2, lastEventVersion: 2 },
     ],
     records: [],
   };
@@ -97,7 +104,7 @@ describe('NavigationContainer audit', () => {
     expect(JSON.stringify(state())).toBe(before);
 
     state.set(deepFreeze({
-      folders: [{ id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 1 }],
+      folders: [{ id: 'folder-a', name: 'Folder A', parentId: null, entityVersion: 1, lastEventVersion: 1 }],
       threads: [],
       records: [],
     }));
