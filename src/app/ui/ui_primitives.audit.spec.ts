@@ -10,8 +10,15 @@ const primitiveFiles = [
   'src/app/ui/explorer_visual.tokens.ts',
 ] as const;
 
-const tokenizedExplorerFiles = [
+const centralizedStyledComponentFiles = [
   'src/app/split_pane.component.ts',
+  'src/app/content_pane.component.ts',
+  'src/app/virtual_list.component.ts',
+  'src/app/explorer/explorer.ts',
+  'src/app/explorer/media_viewer.ts',
+] as const;
+
+const tokenizedExplorerFiles = [
   'src/app/explorer.layout.css',
   'src/app/explorer/media_viewer.css',
   'src/app/explorer/content_pane.ts',
@@ -47,6 +54,10 @@ describe('Explorer UI primitives audit', () => {
     expect(tokenSource).toContain("image: 'IMG'");
     expect(tokenSource).toContain("file: 'FIL'");
     expect(tokenSource).toContain("audio: 'AUD'");
+    expect(tokenSource).toContain('EXPLORER_VISUAL_DIMENSIONS = Object.freeze({');
+    expect(tokenSource).toContain('sidebarIndentStepPx: 20');
+    expect(tokenSource).toContain('threadRowHeightPx: 88');
+    expect(tokenSource).toContain('recordRowHeightPx: 132');
   });
 
   it('declares_global_explorer_design_tokens_and_states', () => {
@@ -59,25 +70,41 @@ describe('Explorer UI primitives audit', () => {
     expect(source).toContain('--explorer-row-height-sidebar: 44px');
     expect(source).toContain('--explorer-row-height-thread: 88px');
     expect(source).toContain('--explorer-row-height-record: 132px');
+    expect(source).toContain('--explorer-sidebar-indent-step: 20px');
+    expect(source).toContain('--explorer-control-height: 40px');
+    expect(source).toContain('--explorer-button-height: 32px');
+    expect(source).toContain('--explorer-badge-height: 24px');
     expect(source).toContain('--color-surface-hover');
     expect(source).toContain('--color-surface-selected');
+    expect(source).toContain('--explorer-media-viewer-backdrop');
+    expect(source).toContain('--color-media-track');
     expect(source).toContain('.ui-list-row[data-selected=\'true\']');
     expect(source).toContain('.ui-list-row__main:focus-visible');
+    expect(source).toContain('.split-pane-host');
+    expect(source).toContain('.virtual-list-host');
+    expect(source).toContain('.media-viewer-host');
+    expect(source).toContain('.explorer-content-pane-shell');
     expect(source).toContain('.empty-text');
   });
 
-  it('consumes_layout_tokens_in_explorer_components_instead_of_magic_values', () => {
+  it('centralizes_component_presentation_in_global_styles_instead_of_component_metadata', () => {
+    for (const relativePath of centralizedStyledComponentFiles) {
+      const source = fs.readFileSync(path.resolve(process.cwd(), relativePath), 'utf8');
+
+      expect(source).not.toMatch(/\bstyles\s*:\s*\[/);
+      expect(source).not.toMatch(/\bstyleUrls?\s*:/);
+    }
+  });
+
+  it('keeps_explorer_visual_literals_out_of_feature_scoped_presentation_files', () => {
+    const disallowedColorLiteral = /(rgba?\(|#[0-9a-fA-F]{3,8}\b)/;
+    const disallowedRemLiteral = /\b(?:0|[1-9]\d*)(?:\.\d+)?rem\b/;
+
     for (const relativePath of tokenizedExplorerFiles) {
       const source = fs.readFileSync(path.resolve(process.cwd(), relativePath), 'utf8');
 
-      expect(source).not.toContain('0.875rem');
-      expect(source).not.toContain('0.75rem');
-      expect(source).not.toContain('0.5rem');
-      expect(source).not.toContain('200px');
-      expect(source).not.toContain('220px');
-      expect(source).not.toContain('320px');
-      expect(source).not.toContain('44rem');
-      expect(source).not.toContain('42rem');
+      expect(source).not.toMatch(disallowedColorLiteral);
+      expect(source).not.toMatch(disallowedRemLiteral);
     }
   });
 
@@ -85,7 +112,7 @@ describe('Explorer UI primitives audit', () => {
     const template = fs.readFileSync(path.resolve(process.cwd(), 'src/app/explorer/thread_view.html'), 'utf8');
     const source = fs.readFileSync(path.resolve(process.cwd(), 'src/app/explorer/thread_view.ts'), 'utf8');
 
-    expect(template).toContain('<app-content-item-row');
+    expect(template).toContain('<app-record-list');
     expect(template).not.toContain('thread-view-item-body');
     expect(template).not.toContain('thread-view-open-button');
     expect(source).toContain("class: 'explorer-view-surface'");

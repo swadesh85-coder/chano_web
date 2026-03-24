@@ -19,6 +19,9 @@ const EPSILON = 0.002;
 @Component({
   selector: 'app-split-pane',
   standalone: true,
+  host: {
+    class: 'split-pane-host',
+  },
   template: `
     <div
       class="split-pane"
@@ -45,65 +48,6 @@ const EPSILON = 0.002;
       </section>
     </div>
   `,
-  styles: [
-    `
-      :host {
-        display: block;
-        min-height: 0;
-        height: 100%;
-      }
-
-      .split-pane {
-        display: grid;
-        grid-template-columns: clamp(
-            var(--explorer-sidebar-min-width),
-            calc(var(--split-pane-ratio, 0.3) * 100%),
-            var(--explorer-sidebar-max-width)
-          ) var(--explorer-split-divider-size) minmax(0, 1fr);
-        min-height: 0;
-        height: 100%;
-        width: 100%;
-      }
-
-      .split-pane--collapsed {
-        grid-template-columns: 0 var(--explorer-split-divider-size) minmax(0, 1fr);
-      }
-
-      .split-pane__pane {
-        min-width: 0;
-        min-height: 0;
-      }
-
-      .split-pane__divider {
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: var(--explorer-split-divider-size);
-        padding: 0;
-        border: none;
-        background: transparent;
-        cursor: col-resize;
-        touch-action: none;
-      }
-
-      .split-pane__divider::before {
-        content: '';
-        position: absolute;
-        inset: 0.125rem 0.25rem;
-        border-radius: 999px;
-        background: rgba(45, 212, 191, 0.12);
-      }
-
-      .split-pane__divider-handle {
-        position: relative;
-        width: var(--explorer-split-divider-handle-width);
-        height: var(--explorer-split-divider-handle-height);
-        border-radius: 999px;
-        background: rgba(153, 246, 228, 0.45);
-      }
-    `,
-  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SplitPaneComponent {
@@ -116,7 +60,7 @@ export class SplitPaneComponent {
   readonly ratioChanged = output<number>();
 
   private activePointerId: number | null = null;
-  private pendingRatio: number | null = null;
+  private pendingClientX: number | null = null;
   private resizeFrameId: number | null = null;
   private lastEmittedRatio: number | null = null;
   private readonly boundPointerMove = (event: PointerEvent) => {
@@ -138,7 +82,7 @@ export class SplitPaneComponent {
       this.removePointerListeners();
       this.cancelScheduledResize();
       this.activePointerId = null;
-      this.pendingRatio = null;
+      this.pendingClientX = null;
       this.lastEmittedRatio = null;
     });
   }
@@ -153,7 +97,7 @@ export class SplitPaneComponent {
     this.ownerDocument.addEventListener('pointermove', this.boundPointerMove);
     this.ownerDocument.addEventListener('pointerup', this.boundPointerUp);
     this.ownerDocument.addEventListener('pointercancel', this.boundPointerCancel);
-    this.applyRatioFromPointer(event.clientX);
+    this.queueRatioFromPointer(event.clientX);
   }
 
   private finishResize(event: PointerEvent): void {
@@ -168,7 +112,7 @@ export class SplitPaneComponent {
   }
 
   private queueRatioFromPointer(clientX: number): void {
-    this.pendingRatio = this.resolveRatio(clientX);
+    this.pendingClientX = clientX;
 
     if (this.resizeFrameId !== null) {
       return;
@@ -187,19 +131,15 @@ export class SplitPaneComponent {
   }
 
   private flushPendingRatio(forceEmit: boolean): void {
-    if (this.pendingRatio === null) {
+    if (this.pendingClientX === null) {
       this.cancelScheduledResize();
       return;
     }
 
-    const nextRatio = this.pendingRatio;
-    this.pendingRatio = null;
+    const nextRatio = this.resolveRatio(this.pendingClientX);
+    this.pendingClientX = null;
     this.cancelScheduledResize();
     this.emitRatio(nextRatio, forceEmit);
-  }
-
-  private applyRatioFromPointer(clientX: number): void {
-    this.emitRatio(this.resolveRatio(clientX), true);
   }
 
   private resolveRatio(clientX: number): number {

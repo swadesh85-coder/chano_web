@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -74,7 +76,9 @@ describe('SplitPaneComponent', () => {
     const pendingCallbacks = [...rafCallbacks];
     rafCallbacks = [];
     for (const callback of pendingCallbacks) {
-      callback(16);
+      if (typeof callback === 'function') {
+        callback(16);
+      }
     }
   }
 
@@ -82,8 +86,10 @@ describe('SplitPaneComponent', () => {
     const divider = fixture.nativeElement.querySelector('[data-testid="split-pane-divider"]') as HTMLButtonElement;
 
     divider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 40, pointerId: 1 }));
+    flushAnimationFrame();
     document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 120, pointerId: 1 }));
     document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 700, pointerId: 1 }));
+    flushAnimationFrame();
     document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 700, pointerId: 1 }));
 
     expect(emittedRatios[0]).toBe(0.25);
@@ -99,11 +105,11 @@ describe('SplitPaneComponent', () => {
     document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 280, pointerId: 7 }));
     document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 320, pointerId: 7 }));
 
-    expect(emittedRatios).toEqual([0.25]);
+    expect(emittedRatios).toEqual([]);
 
     flushAnimationFrame();
 
-    expect(emittedRatios).toEqual([0.25, 0.4]);
+    expect(emittedRatios).toEqual([0.4]);
   });
 
   it('applies_the_final_ratio_on_pointerup_even_before_animation_frame_flush', () => {
@@ -114,12 +120,17 @@ describe('SplitPaneComponent', () => {
     document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 700, pointerId: 9 }));
 
     expect(emittedRatios[emittedRatios.length - 1]).toBe(0.5);
+
+    flushAnimationFrame();
+
+    expect(emittedRatios).toEqual([0.5]);
   });
 
   it('filters_micro_movements_below_epsilon_during_throttled_updates', () => {
     const divider = fixture.nativeElement.querySelector('[data-testid="split-pane-divider"]') as HTMLButtonElement;
 
     divider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 240, pointerId: 11 }));
+    flushAnimationFrame();
     document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 241, pointerId: 11 }));
     document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 241.4, pointerId: 11 }));
 
@@ -132,6 +143,7 @@ describe('SplitPaneComponent', () => {
     const divider = fixture.nativeElement.querySelector('[data-testid="split-pane-divider"]') as HTMLButtonElement;
 
     divider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 240, pointerId: 12 }));
+    flushAnimationFrame();
     document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 242, pointerId: 12 }));
 
     flushAnimationFrame();
@@ -143,6 +155,7 @@ describe('SplitPaneComponent', () => {
     const divider = fixture.nativeElement.querySelector('[data-testid="split-pane-divider"]') as HTMLButtonElement;
 
     divider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 240, pointerId: 13 }));
+    flushAnimationFrame();
     document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 241, pointerId: 13 }));
     document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 241, pointerId: 13 }));
 
@@ -155,6 +168,7 @@ describe('SplitPaneComponent', () => {
     const runSequence = (): number => {
       emittedRatios = [];
       divider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 240, pointerId: 15 }));
+      flushAnimationFrame();
       document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 320, pointerId: 15 }));
       document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 321, pointerId: 15 }));
       document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 500, pointerId: 15 }));

@@ -1,102 +1,14 @@
 @if (activeThreadId() === null) {
   <p class="explorer-state-empty panel-empty">No thread selected</p>
 } @else {
-  @let nodes = viewNodes();
-
-  <div class="explorer-view-shell">
-    <div class="explorer-action-bar">
-      <button
-        type="button"
-        class="panel-action-button panel-action-button--primary"
-        (click)="triggerCreateRecord($event)"
-        [disabled]="isCreateDisabled()"
-        data-testid="create-record-button"
-        aria-label="Create text record"
-      >
-        Create Text Record
-      </button>
-    </div>
-
-    @if (nodes.length === 0) {
-      <p class="explorer-state-empty panel-empty">No records visible for this thread</p>
-    } @else {
-      <app-media-viewer #mediaViewer [threadId]="activeThreadId()"></app-media-viewer>
-
-      <div class="explorer-static-list">
-        @for (node of nodes; track trackNode($index, node)) {
-          @if (node.kind === 'record') {
-            <div class="explorer-list-row" data-testid="thread-view-node">
-              <app-content-item-row
-                [title]="getRecordLabel(node.record)"
-                [supportingText]="recordSupportingText(node.record)"
-                [metaText]="recordMetaText(node.record)"
-                [mainClass]="'thread-view-content'"
-                [mainTestId]="'record-item'"
-                [kind]="'record'"
-                [recordType]="recordType(node.record)"
-                [density]="'record'"
-                [interactive]="isMediaRecord(node.record)"
-                [ariaLabel]="recordAriaLabel(node.record)"
-                (activated)="isMediaRecord(node.record) && mediaViewer.openMedia(node.record.id)"
-              >
-                <span row-actions class="panel-actions">
-                  <button
-                    type="button"
-                    class="panel-action-button"
-                    (click)="promptEditRecord(node.record, $event)"
-                    [disabled]="isActionDisabled(node.record.id)"
-                    aria-label="Edit record body"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    class="panel-action-button"
-                    (click)="promptRenameRecord(node.record, $event)"
-                    [disabled]="isActionDisabled(node.record.id)"
-                    aria-label="Rename record"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    class="panel-action-button"
-                    (click)="promptMoveRecord(node.record, $event)"
-                    [disabled]="isActionDisabled(node.record.id)"
-                    aria-label="Move record"
-                  >
-                    Move
-                  </button>
-                  <button
-                    type="button"
-                    class="panel-action-button panel-action-button--danger"
-                    (click)="triggerSoftDeleteRecord(node.record, $event)"
-                    [disabled]="isActionDisabled(node.record.id)"
-                    aria-label="Delete record"
-                  >
-                    Delete
-                  </button>
-                </span>
-              </app-content-item-row>
-            </div>
-          } @else {
-            <div class="explorer-list-row" data-testid="thread-view-node">
-              <app-content-item-row
-                [title]="'imageGroup:' + node.imageGroupId"
-                [supportingText]="'Media bundle'"
-                [metaText]="node.recordIdsSummary"
-                [mainClass]="'thread-view-content'"
-                [mainTestId]="'image-group-item'"
-                [kind]="'group'"
-                [density]="'record'"
-                [interactive]="node.leadRecordId !== null"
-                [ariaLabel]="'Open image group ' + node.imageGroupId"
-                (activated)="node.leadRecordId !== null && mediaViewer.openMedia(node.leadRecordId)"
-              ></app-content-item-row>
-            </div>
-          }
-        }
-      </div>
-    }
-  </div>
+  <app-record-list
+    [threadId]="activeThreadId()"
+    [isRecordDisabled]="isActionDisabled"
+    [createDisabled]="isCreateDisabled()"
+    (createRecordRequested)="triggerCreateRecord($event)"
+    (recordEditRequested)="promptEditRecord($event.record, $event.event)"
+    (recordRenameRequested)="promptRenameRecord($event.record, $event.event)"
+    (recordMoveRequested)="promptMoveRecord($event.record, $event.event)"
+    (recordDeleteRequested)="triggerSoftDeleteRecord($event.record, $event.event)"
+  ></app-record-list>
 }

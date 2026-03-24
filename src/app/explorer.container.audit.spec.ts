@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { computed, signal } from '@angular/core';
@@ -152,6 +154,9 @@ describe('ExplorerContainer audit', () => {
     };
 
     expect(first).toEqual(second);
+    expect(second.threads).toBe(first.threads);
+    expect(second.records).toBe(first.records);
+    expect(second.nodes).toBe(first.nodes);
     expect(first.threads.map((thread) => thread.id)).toEqual(['thread-a', 'thread-b']);
     expect(first.records.map((record) => record.id)).toEqual(['record-a', 'record-b']);
     expect(JSON.stringify(state())).toBe(before);

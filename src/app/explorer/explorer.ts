@@ -3,7 +3,6 @@ import {
   computed,
   effect,
   inject,
-  untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { WebRelayClient } from '../../transport/web-relay-client';
@@ -16,15 +15,16 @@ import { ExplorerFolderTreeContainer } from '../explorer_folder_tree.container';
 import { NavigationContainer } from '../navigation.container';
 import type { MutationEntityType } from '../../transport';
 import {
-  type FolderTreeViewModel,
   type RecordViewModel,
-  type ThreadListViewModel,
 } from '../../viewmodels';
 
 @Component({
   selector: 'app-explorer',
   standalone: true,
   imports: [ExplorerLayoutContainerComponent],
+  host: {
+    class: 'explorer-shell-host',
+  },
   template: `
     <app-explorer-layout-container
       [folderTree]="folderTree()"
@@ -33,8 +33,8 @@ import {
       [selectedFolder]="selectedFolder()"
       [activePane]="activePane()"
       [content]="contentPane()"
-      [disabledThreadIds]="disabledThreadIds()"
-      [disabledRecordIds]="disabledRecordIds()"
+      [isThreadDisabled]="isThreadActionDisabled"
+      [isRecordDisabled]="isRecordActionDisabledFn"
       [createThreadDisabled]="isCreateThreadDisabled()"
       [createRecordDisabled]="isCreateRecordDisabled()"
       (folderSelected)="selectFolder($event)"
@@ -50,15 +50,6 @@ import {
       (recordDeleteRequested)="triggerSoftDeleteRecord($event.record, $event.event)"
     ></app-explorer-layout-container>
   `,
-  styles: [
-    `
-      :host {
-        display: block;
-        height: 100dvh;
-        width: 100%;
-      }
-    `,
-  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExplorerComponent {
@@ -96,27 +87,14 @@ export class ExplorerComponent {
       ? null
       : this.folderTreeContainer.findFolder(this.selectedFolderId()),
   );
-  readonly disabledThreadIds = computed<Readonly<Record<string, boolean>>>(() => {
-    return Object.fromEntries(
-      this.threadList().map((thread) => [thread.id, this.isActionDisabled(thread.id)]),
-    );
-  });
-  readonly disabledRecordIds = computed<Readonly<Record<string, boolean>>>(() => {
-    return Object.fromEntries(
-      this.recordList().map((record) => [record.id, this.isRecordActionDisabled(record.id)]),
-    );
-  });
+  readonly isThreadActionDisabled = (entityId: string): boolean => this.actions.isPending(entityId);
+  readonly isRecordActionDisabledFn = (entityId: string): boolean =>
+    this.actions.isPending(entityId) || this.recordEditor.isPending(entityId);
 
   constructor() {
     effect(() => {
-      const folderCount = this.countFolderNodes(this.folderTree());
-      const threads = this.threadList();
-      const records = this.recordList();
       console.log(
-        `EXPLORER_RENDER folders=${folderCount} threads=${threads.length} records=${records.length}`,
-      );
-      console.log(
-        `EXPLORER_RENDER folders=${folderCount} threads=${threads.length} records=${records.length} type=projection_render sessionId=${this.relay.sessionId() ?? 'null'}`,
+        `EXPLORER_RENDER type=projection_render sessionId=${this.relay.sessionId() ?? 'null'}`,
       );
     });
   }
@@ -167,10 +145,6 @@ export class ExplorerComponent {
 
   onRestore(entityType: MutationEntityType, entityId: string): void {
     this.actions.onRestore(entityType, entityId);
-  }
-
-  isActionDisabled(entityId: string): boolean {
-    return this.actions.isPending(entityId);
   }
 
   isCreateThreadDisabled(): boolean {
@@ -280,26 +254,7 @@ export class ExplorerComponent {
     this.actions.onSoftDelete('record', record.id);
   }
 
-  isRecordActionDisabled(entityId: string): boolean {
-    return this.actions.isPending(entityId) || this.recordEditor.isPending(entityId);
-  }
-
-  trackFolder(_index: number, node: FolderTreeViewModel): string {
-    return node.id;
-  }
-
-  trackThread(_index: number, thread: ThreadListViewModel): string {
-    return thread.id;
-  }
-
-  trackRecord(_index: number, record: RecordViewModel): string {
-    return record.id;
-  }
-
   private readonly projectionEffect = effect(() => {
-    this.folderTree();
-    this.threadList();
-    this.recordList();
     const projectionUpdate = this.contentPaneContainer.projectionUpdate();
 
     this.refreshOnSnapshotAndEvents(projectionUpdate);
@@ -318,15 +273,5 @@ export class ExplorerComponent {
     if (projectionUpdate.entityType !== null) {
       console.log(`EXPLORER_RENDER event_applied entity=${projectionUpdate.entityType}`);
     }
-  }
-
-  private countFolderNodes(nodes: readonly FolderTreeViewModel[]): number {
-    let count = 0;
-    for (const node of nodes) {
-      count += 1;
-      count += this.countFolderNodes(node.children);
-    }
-
-    return count;
   }
 }

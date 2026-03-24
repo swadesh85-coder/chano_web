@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
 
-import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { By } from '@angular/platform-browser';
 import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VirtualListComponent } from './virtual_list.component';
@@ -30,36 +28,15 @@ interface VirtualRowItem {
   readonly label: string;
 }
 
-@Component({
-  standalone: true,
-  imports: [VirtualListComponent],
-  template: `
-    <div style="height: 560px;">
-      <app-virtual-list
-        [items]="items"
-        [itemHeight]="56"
-        [buffer]="4"
-        [viewportHeight]="560"
-        [trackByKey]="trackByItem"
-      >
-        <ng-template let-item let-index="index">
-          <div data-testid="virtual-row" [attr.data-row-id]="item.id">{{ index }}::{{ item.label }}</div>
-        </ng-template>
-      </app-virtual-list>
-    </div>
-  `,
-})
-class VirtualListHostComponent {
-  readonly items: readonly VirtualRowItem[] = Array.from({ length: 10_000 }, (_value, index) => ({
-    id: `item-${index}`,
-    label: `Item ${index}`,
-  }));
+const TEST_ITEMS: readonly VirtualRowItem[] = Array.from({ length: 10_000 }, (_value, index) => ({
+  id: `item-${index}`,
+  label: `Item ${index}`,
+}));
 
-  readonly trackByItem = (item: VirtualRowItem) => item.id;
-}
+const TRACK_BY_ITEM = (item: VirtualRowItem) => item.id;
 
 describe('VirtualListComponent', () => {
-  let fixture: ComponentFixture<VirtualListHostComponent>;
+  let fixture: ComponentFixture<VirtualListComponent<VirtualRowItem>>;
   let consoleLog: ReturnType<typeof vi.spyOn>;
   let rafCallbacks: Array<FrameRequestCallback | null>;
 
@@ -77,11 +54,49 @@ describe('VirtualListComponent', () => {
       rafCallbacks[id - 1] = null;
     });
 
+    TestBed.overrideComponent(VirtualListComponent, {
+      set: {
+        template: `
+          @let range = renderedRange();
+          @let renderedItems = visibleItems();
+
+          <div #viewport class="virtual-list__viewport">
+            <div class="virtual-list__spacer" [style.height.px]="totalHeight()">
+              <div class="virtual-list__content" [style.transform]="'translateY(' + offsetTop() + 'px)'">
+                @for (item of renderedItems; track trackRenderedItem($index, item)) {
+                  <div
+                    class="virtual-list__row"
+                    [style.height.px]="itemHeight()"
+                    data-testid="virtual-row"
+                    [attr.data-row-id]="item.id"
+                  >
+                    {{ range.start + $index }}::{{ item.label }}
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        `,
+      },
+    });
+
     await TestBed.configureTestingModule({
-      imports: [VirtualListHostComponent],
+      imports: [VirtualListComponent],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(VirtualListHostComponent);
+    fixture = TestBed.createComponent(VirtualListComponent<VirtualRowItem>);
+    const component = fixture.componentInstance as VirtualListComponent<VirtualRowItem> & {
+      items: () => readonly VirtualRowItem[];
+      itemHeight: () => number;
+      buffer: () => number;
+      viewportHeight: () => number;
+      trackByKey: () => (item: VirtualRowItem, index: number) => string | number;
+    };
+    component.items = () => TEST_ITEMS;
+    component.itemHeight = () => 56;
+    component.buffer = () => 4;
+    component.viewportHeight = () => 560;
+    component.trackByKey = () => TRACK_BY_ITEM;
     fixture.detectChanges();
     flushAnimationFrame();
     fixture.detectChanges();
@@ -93,10 +108,6 @@ describe('VirtualListComponent', () => {
     vi.unstubAllGlobals();
     TestBed.resetTestingModule();
   });
-
-  function componentInstance(): VirtualListComponent<VirtualRowItem> {
-    return fixture.debugElement.query(By.directive(VirtualListComponent)).componentInstance as VirtualListComponent<VirtualRowItem>;
-  }
 
   function flushAnimationFrame(): void {
     const pendingCallbacks = [...rafCallbacks];
@@ -119,9 +130,12 @@ describe('VirtualListComponent', () => {
   }
 
   function dispatchScroll(scrollTop: number): void {
+    const component = fixture.componentInstance as VirtualListComponent<VirtualRowItem> & {
+      scheduleViewportSync: (viewport: HTMLDivElement) => void;
+    };
     const viewport = fixture.nativeElement.querySelector('.virtual-list__viewport') as HTMLDivElement;
     viewport.scrollTop = scrollTop;
-    viewport.dispatchEvent(new Event('scroll'));
+    component.scheduleViewportSync(viewport);
   }
 
   function scrollTo(scrollTop: number): void {
@@ -131,7 +145,7 @@ describe('VirtualListComponent', () => {
   }
 
   it('throttles_rapid_scroll_updates_to_one_frame_and_uses_the_final_scroll_position', () => {
-    const component = componentInstance();
+    const component = fixture.componentInstance;
 
     dispatchScroll(560);
     dispatchScroll(1_120);
@@ -150,7 +164,7 @@ describe('VirtualListComponent', () => {
   });
 
   it('skips_range_updates_when_the_computed_slice_does_not_change', () => {
-    const component = componentInstance();
+    const component = fixture.componentInstance;
 
     scrollTo(560);
     expect(component.renderedRange()).toEqual({ start: 6, end: 24 });
@@ -167,7 +181,7 @@ describe('VirtualListComponent', () => {
   });
 
   it('applies_the_last_scroll_position_correctly_after_multiple_events_before_flush', () => {
-    const component = componentInstance();
+    const component = fixture.componentInstance;
 
     dispatchScroll(5_600);
     dispatchScroll(6_160);

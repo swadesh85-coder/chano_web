@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   input,
   output,
 } from '@angular/core';
@@ -18,38 +19,9 @@ import { SectionHeaderComponent } from './ui/section_header.component';
   selector: 'app-explorer-content-pane',
   standalone: true,
   imports: [ExplorerContentPaneComponent, ContentItemRowComponent, SectionHeaderComponent],
-  styles: [
-    `
-      :host {
-        display: block;
-        height: 100%;
-        min-height: 0;
-      }
-
-      .layout-pane__body {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-4);
-        overflow: hidden;
-      }
-
-      .content-main-section {
-        flex: 1;
-        min-height: 0;
-      }
-
-      app-content-pane {
-        display: block;
-        height: 100%;
-        min-height: 0;
-      }
-
-      .content-folder-list {
-        display: grid;
-        gap: var(--space-3);
-      }
-    `,
-  ],
+  host: {
+    class: 'explorer-content-pane-shell',
+  },
   template: `
     <section class="layout-pane layout-pane--content" aria-label="Content pane panel">
       <app-section-header
@@ -88,8 +60,8 @@ import { SectionHeaderComponent } from './ui/section_header.component';
             [content]="content()"
             [selectedThreadId]="selectedThreadId()"
             [activeThreadId]="selectedThreadId()"
-            [disabledThreadIds]="disabledThreadIds()"
-            [disabledRecordIds]="disabledRecordIds()"
+            [isThreadDisabled]="isThreadDisabled()"
+            [isRecordDisabled]="isRecordDisabled()"
             [createRecordDisabled]="createRecordDisabled()"
             (threadSelected)="threadSelected.emit($event)"
             (threadRenameRequested)="threadRenameRequested.emit($event)"
@@ -114,8 +86,8 @@ export class ExplorerContentPaneShellComponent {
   readonly selectedThreadId = input<string | null>(null);
   readonly selectedFolderId = input<string | null>(null);
   readonly selectedFolder = input<FolderTreeViewModel | null>(null);
-  readonly disabledThreadIds = input<Readonly<Record<string, boolean>>>({});
-  readonly disabledRecordIds = input<Readonly<Record<string, boolean>>>({});
+  readonly isThreadDisabled = input<(threadId: string) => boolean>(() => false);
+  readonly isRecordDisabled = input<(recordId: string) => boolean>(() => false);
   readonly createRecordDisabled = input(false);
 
   readonly folderSelected = output<string>();
@@ -129,7 +101,7 @@ export class ExplorerContentPaneShellComponent {
   readonly recordMoveRequested = output<{ readonly record: RecordViewModel; readonly event: Event }>();
   readonly recordDeleteRequested = output<{ readonly record: RecordViewModel; readonly event: Event }>();
 
-  subtitle(): string {
+  readonly subtitle = computed(() => {
     if (this.activePane() === 'thread') {
       return 'Thread contents';
     }
@@ -143,5 +115,5 @@ export class ExplorerContentPaneShellComponent {
     }
 
     return 'No selection';
-  }
+  });
 }

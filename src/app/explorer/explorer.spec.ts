@@ -40,6 +40,7 @@ describe('Explorer layout contract', () => {
   let localStorageSetItem: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    ensureAngularTestEnvironment();
     localStorageGetItem = vi.fn(() => null);
     localStorageSetItem = vi.fn();
     vi.stubGlobal('localStorage', {
@@ -204,7 +205,7 @@ describe('Explorer layout contract', () => {
 
     expect(navigation.activePane()).toBe('thread');
     expect(threadMode.mode).toBe('records');
-    expect(threadMode.recordList.map((record) => record.id)).toEqual(['record-a']);
+    expect(contentPane.recordList('thread-a').map((record) => record.id)).toEqual(['record-a']);
     expect(projectionHash(projectionStateSignals)).toBe(before);
   });
 

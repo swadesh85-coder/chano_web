@@ -7,6 +7,7 @@ import {
   contentChild,
   effect,
   input,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
@@ -22,10 +23,15 @@ export interface VirtualListItemContext<TItem> {
   readonly index: number;
 }
 
+const MAX_RENDERED_ITEMS = 200;
+
 @Component({
   selector: 'app-virtual-list',
   standalone: true,
   imports: [NgTemplateOutlet],
+  host: {
+    class: 'virtual-list-host',
+  },
   template: `
     @let range = renderedRange();
     @let renderedItems = visibleItems();
@@ -45,46 +51,17 @@ export interface VirtualListItemContext<TItem> {
       </div>
     </div>
   `,
-  styles: [
-    `
-      :host {
-        display: block;
-        height: 100%;
-        min-height: 0;
-      }
-
-      .virtual-list__viewport {
-        height: 100%;
-        min-height: 0;
-        overflow: auto;
-        overscroll-behavior: contain;
-      }
-
-      .virtual-list__spacer {
-        position: relative;
-        width: 100%;
-      }
-
-      .virtual-list__content {
-        position: absolute;
-        inset: 0 0 auto;
-        will-change: transform;
-      }
-
-      .virtual-list__row {
-        box-sizing: border-box;
-        width: 100%;
-      }
-    `,
-  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class VirtualListComponent<TItem> {
-  readonly items = input.required<readonly TItem[]>();
+  readonly items = input<readonly TItem[]>([]);
+  readonly totalItems = input<number | null>(null);
+  readonly renderedItems = input<readonly TItem[] | null>(null);
   readonly itemHeight = input(56);
   readonly buffer = input(4);
   readonly viewportHeight = input(560);
   readonly trackByKey = input<(item: TItem, index: number) => string | number>((_item, index) => index);
+  readonly rangeChanged = output<VirtualListRange>();
 
   private readonly viewport = viewChild<ElementRef<HTMLDivElement>>('viewport');
   readonly itemTemplate = contentChild.required<TemplateRef<VirtualListItemContext<TItem>>>(TemplateRef);
@@ -92,21 +69,37 @@ export class VirtualListComponent<TItem> {
   private readonly measuredViewportHeight = signal(0);
   private readonly visibleRange = signal<VirtualListRange>({ start: 0, end: 0 });
   private animationFrameId: number | ReturnType<typeof globalThis.setTimeout> | null = null;
-  private latestScrollOffset = 0;
-  private latestViewportHeight = 0;
+  private pendingViewport: HTMLDivElement | null = null;
+  private previousStartIndex = -1;
+  private previousEndIndex = -1;
 
   readonly resolvedViewportHeight = computed(() => {
-    return this.measuredViewportHeight() > 0 ? this.measuredViewportHeight() : this.viewportHeight();
+    const fallbackViewportHeight = this.viewportHeight();
+    const measuredViewportHeight = this.measuredViewportHeight();
+    const browserViewportHeight = typeof globalThis.innerHeight === 'number' && globalThis.innerHeight > 0
+      ? globalThis.innerHeight
+      : fallbackViewportHeight;
+
+    if (measuredViewportHeight <= 0) {
+      return fallbackViewportHeight;
+    }
+
+    return Math.min(measuredViewportHeight, browserViewportHeight);
   });
 
   readonly renderedRange = computed(() => this.visibleRange());
 
   readonly visibleItems = computed(() => {
+    const renderedItems = this.renderedItems();
+    if (renderedItems !== null) {
+      return renderedItems;
+    }
+
     const range = this.renderedRange();
     return this.items().slice(range.start, range.end);
   });
 
-  readonly totalHeight = computed(() => this.items().length * Math.max(1, this.itemHeight()));
+  readonly totalHeight = computed(() => this.itemCount() * Math.max(1, this.itemHeight()));
   readonly offsetTop = computed(() => this.renderedRange().start * Math.max(1, this.itemHeight()));
 
   constructor() {
@@ -118,15 +111,15 @@ export class VirtualListComponent<TItem> {
 
       const viewport = viewportRef.nativeElement;
       const handleScroll = () => {
-        this.scheduleViewportSync(viewport.scrollTop, viewport.clientHeight);
+        this.scheduleViewportSync(viewport);
       };
       const handleResize = () => {
-        this.scheduleViewportSync(viewport.scrollTop, viewport.clientHeight);
+        this.scheduleViewportSync(viewport);
       };
 
       viewport.addEventListener('scroll', handleScroll, { passive: true });
       globalThis.addEventListener?.('resize', handleResize, { passive: true });
-      this.scheduleViewportSync(viewport.scrollTop, viewport.clientHeight);
+      this.scheduleViewportSync(viewport);
 
       onCleanup(() => {
         viewport.removeEventListener('scroll', handleScroll);
@@ -145,7 +138,15 @@ export class VirtualListComponent<TItem> {
 
     effect(() => {
       const range = this.renderedRange();
+      this.rangeChanged.emit(range);
       console.log(`VIRTUAL_RANGE (guarded) start=${range.start} end=${range.end}`);
+    });
+
+    effect(() => {
+      const renderedItems = this.visibleItems();
+      if (isVirtualizationGuardEnabled() && renderedItems.length > 200) {
+        throw new Error(`VIRTUALIZATION_GUARD_EXCEEDED renderedItems=${renderedItems.length}`);
+      }
     });
   }
 
@@ -164,7 +165,7 @@ export class VirtualListComponent<TItem> {
     scrollOffset: number,
     viewportHeight: number,
   ): VirtualListRange {
-    const totalItems = this.items().length;
+    const totalItems = this.itemCount();
     if (totalItems === 0) {
       return { start: 0, end: 0 };
     }
@@ -172,7 +173,8 @@ export class VirtualListComponent<TItem> {
     const itemHeight = Math.max(1, this.itemHeight());
     const bufferedStart = Math.max(0, Math.floor(scrollOffset / itemHeight) - this.buffer());
     const visibleCount = Math.max(1, Math.ceil(viewportHeight / itemHeight));
-    const bufferedEnd = Math.min(totalItems, bufferedStart + visibleCount + (this.buffer() * 2));
+    const requestedCount = visibleCount + (this.buffer() * 2);
+    const bufferedEnd = Math.min(totalItems, bufferedStart + Math.min(requestedCount, MAX_RENDERED_ITEMS));
 
     return {
       start: bufferedStart,
@@ -180,9 +182,8 @@ export class VirtualListComponent<TItem> {
     };
   }
 
-  private scheduleViewportSync(scrollOffset: number, measuredViewportHeight: number): void {
-    this.latestScrollOffset = scrollOffset;
-    this.latestViewportHeight = measuredViewportHeight > 0 ? measuredViewportHeight : this.viewportHeight();
+  private scheduleViewportSync(viewport: HTMLDivElement): void {
+    this.pendingViewport = viewport;
 
     if (this.animationFrameId !== null) {
       return;
@@ -190,28 +191,43 @@ export class VirtualListComponent<TItem> {
 
     this.animationFrameId = this.requestFrame(() => {
       this.animationFrameId = null;
+      const pendingViewport = this.pendingViewport;
+      this.pendingViewport = null;
+      if (pendingViewport === null) {
+        return;
+      }
+
       console.log('VIRTUAL_SCROLL frameUpdate');
-      this.scrollOffset.set(this.latestScrollOffset);
-      this.measuredViewportHeight.set(this.latestViewportHeight);
+      this.scrollOffset.set(pendingViewport.scrollTop);
+      this.measuredViewportHeight.set(
+        pendingViewport.clientHeight > 0 ? pendingViewport.clientHeight : this.viewportHeight(),
+      );
     });
   }
 
   private applyVisibleRange(nextRange: VirtualListRange): void {
-    const currentRange = this.visibleRange();
-    if (currentRange.start === nextRange.start && currentRange.end === nextRange.end) {
+    if (this.previousStartIndex === nextRange.start && this.previousEndIndex === nextRange.end) {
       return;
     }
 
+    this.previousStartIndex = nextRange.start;
+    this.previousEndIndex = nextRange.end;
     this.visibleRange.set(nextRange);
+  }
+
+  private itemCount(): number {
+    return this.totalItems() ?? this.items().length;
   }
 
   private cancelScheduledSync(): void {
     if (this.animationFrameId === null) {
+      this.pendingViewport = null;
       return;
     }
 
     this.cancelFrame(this.animationFrameId);
     this.animationFrameId = null;
+    this.pendingViewport = null;
   }
 
   private requestFrame(callback: FrameRequestCallback): number | ReturnType<typeof globalThis.setTimeout> {
@@ -230,4 +246,8 @@ export class VirtualListComponent<TItem> {
 
     globalThis.clearTimeout(frameId);
   }
+}
+
+function isVirtualizationGuardEnabled(): boolean {
+  return Boolean((globalThis as { ngDevMode?: boolean }).ngDevMode);
 }

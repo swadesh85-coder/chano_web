@@ -24,7 +24,7 @@
   }
 
   .split-pane__divider::before {
-    inset: 0.25rem 0.125rem;
+    inset: var(--explorer-split-divider-mobile-inset-block) var(--explorer-split-divider-mobile-inset-inline);
   }
 
   .split-pane__divider-handle {

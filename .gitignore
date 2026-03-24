@@ -39,6 +39,9 @@ yarn-error.log
 testem.log
 /typings
 __screenshots__/
+/reports/visual-regression/current/
+/reports/visual-regression/diff/
+/reports/visual-regression/report.json
 
 # System files
 .DS_Store

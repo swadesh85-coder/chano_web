@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ProjectionEngine } from './projection/projection_engine';
 import { ExplorerContentPaneContainer } from './explorer_content_pane.container';
 import { ProjectionStateContainer } from './projection/projection_state.container';
+import type { VirtualListRange } from './virtual_list.component';
 import type {
   ProjectionSnapshotDocument,
   ProjectionState,
@@ -198,16 +199,22 @@ describe('ExplorerContentPaneContainer audit', () => {
     const before = JSON.stringify(state());
 
     const folderContent = container.contentPane('folder-a', null, 'folder');
+    const folderContentRepeat = container.contentPane('folder-a', null, 'folder');
     const threadContent = container.contentPane('folder-a', 'thread-a', 'thread');
+    const threadContentRepeat = container.contentPane('folder-a', 'thread-a', 'thread');
     const emptyContent = container.contentPane(null, null, 'empty');
+    const emptyContentRepeat = container.contentPane(null, null, 'empty');
 
     expect(folderContent.mode).toBe('threads');
+    expect(folderContentRepeat).toBe(folderContent);
     expect(folderContent.threadList.map((thread) => thread.id)).toEqual(['thread-a', 'thread-b']);
     expect(threadContent.mode).toBe('records');
-    expect(threadContent.recordList.map((record) => record.id)).toEqual(['record-a', 'record-b']);
-    expect(threadContent.recordNodes.map((node) => node.key)).toEqual(['record:record-a', 'record:record-b']);
-    expect(emptyContent.recordNodes).toEqual([]);
+    expect(threadContentRepeat).toBe(threadContent);
+    expect(container.recordList('thread-a').map((record) => record.id)).toEqual(['record-a', 'record-b']);
+    expect(container.visibleRecordNodes('thread-a', { start: 0, end: 2 } satisfies VirtualListRange).map((node) => node.key)).toEqual(['record:record-a', 'record:record-b']);
+    expect(container.visibleRecordNodes(null, { start: 0, end: 2 } satisfies VirtualListRange)).toEqual([]);
     expect(emptyContent.mode).toBe('empty');
+    expect(emptyContentRepeat).toBe(emptyContent);
     expect(JSON.stringify(state())).toBe(before);
 
   });
@@ -284,5 +291,29 @@ describe('ExplorerContentPaneContainer audit', () => {
     const secondContent = secondContainer.contentPane('folder-a', 'thread-a', 'thread');
 
     expect(firstContent).toEqual(secondContent);
+  });
+
+  it('slices_record_nodes_deterministically_before_render', () => {
+    const state = signal<ProjectionState>(deepFreeze(createProjectionState()));
+
+    TestBed.configureTestingModule({
+      providers: [
+        ExplorerContentPaneContainer,
+        {
+          provide: ProjectionStateContainer,
+          useValue: {
+            state: computed(() => state()),
+            projectionUpdate: signal<ProjectionUpdate | null>(null).asReadonly(),
+          },
+        },
+      ],
+    });
+
+    const container = TestBed.inject(ExplorerContentPaneContainer);
+    const first = container.visibleRecordNodes('thread-a', { start: 0, end: 1 });
+    const second = container.visibleRecordNodes('thread-a', { start: 0, end: 1 });
+
+    expect(first).toEqual(second);
+    expect(first.map((node) => node.key)).toEqual(['record:record-a']);
   });
 });

@@ -9,8 +9,7 @@ import {
 } from '@angular/core';
 import { ExplorerActions } from './explorer_actions';
 import { RecordEditor } from './record_editor';
-import { MediaViewerComponent } from './media_viewer';
-import { ContentItemRowComponent } from '../ui/content_item_row.component';
+import { RecordListComponent } from './record_list';
 import { type ExplorerRecordType } from '../ui/explorer_visual.tokens';
 import type { ProjectionUpdate } from '../projection/projection.models';
 import {
@@ -23,11 +22,26 @@ export type ThreadViewNode = ThreadRecordNodeViewModel;
 
 @Component({
   selector: 'app-thread-view',
-  imports: [MediaViewerComponent, ContentItemRowComponent],
+  imports: [RecordListComponent],
   host: {
     class: 'explorer-view-surface',
   },
-  templateUrl: './thread_view.html',
+  template: `
+    @if (activeThreadId() === null) {
+      <p class="explorer-state-empty panel-empty">No thread selected</p>
+    } @else {
+      <app-record-list
+        [threadId]="activeThreadId()"
+        [isRecordDisabled]="isActionDisabled"
+        [createDisabled]="isCreateDisabled()"
+        (createRecordRequested)="triggerCreateRecord($event)"
+        (recordEditRequested)="promptEditRecord($event.record, $event.event)"
+        (recordRenameRequested)="promptRenameRecord($event.record, $event.event)"
+        (recordMoveRequested)="promptMoveRecord($event.record, $event.event)"
+        (recordDeleteRequested)="triggerSoftDeleteRecord($event.record, $event.event)"
+      ></app-record-list>
+    }
+  `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThreadViewComponent {

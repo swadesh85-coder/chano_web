@@ -43,8 +43,8 @@ export class ExplorerLayoutContainerComponent {
   readonly selectedFolder = input<FolderTreeViewModel | null>(null);
   readonly activePane = input<NavigationPane>('empty');
   readonly content = input.required<ContentPaneViewModel>();
-  readonly disabledThreadIds = input<Readonly<Record<string, boolean>>>({});
-  readonly disabledRecordIds = input<Readonly<Record<string, boolean>>>({});
+  readonly isThreadDisabled = input<(threadId: string) => boolean>(() => false);
+  readonly isRecordDisabled = input<(recordId: string) => boolean>(() => false);
   readonly createThreadDisabled = input(false);
   readonly createRecordDisabled = input(false);
 

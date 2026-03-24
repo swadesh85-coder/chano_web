@@ -88,7 +88,7 @@ import {
 export class ThreadListComponent {
   readonly threads = input.required<readonly ThreadListViewModel[]>();
   readonly selectedThreadId = input<string | null>(null);
-  readonly disabledThreadIds = input<Readonly<Record<string, boolean>>>({});
+  readonly isThreadDisabled = input<(threadId: string) => boolean>(() => false);
   readonly itemHeight = EXPLORER_THREAD_ROW_HEIGHT_PX;
   readonly buffer = EXPLORER_VIRTUAL_LIST_BUFFER;
   readonly trackThread = (thread: ThreadListViewModel, _index: number) => getThreadListVirtualKey(thread);
@@ -99,6 +99,6 @@ export class ThreadListComponent {
   readonly threadDeleteRequested = output<{ readonly id: string; readonly event: Event }>();
 
   isDisabled(threadId: string): boolean {
-    return this.disabledThreadIds()[threadId] ?? false;
+    return this.isThreadDisabled()(threadId);
   }
 }

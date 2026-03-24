@@ -23,8 +23,7 @@ import { ThreadListComponent } from './thread_list';
     } @else if (content().mode === 'records') {
       <app-record-list
         [threadId]="activeThreadId()"
-        [nodes]="content().recordNodes"
-        [disabledRecordIds]="disabledRecordIds()"
+        [isRecordDisabled]="isRecordDisabled()"
         [createDisabled]="createRecordDisabled()"
         (createRecordRequested)="createRecordRequested.emit($event)"
         (recordEditRequested)="recordEditRequested.emit($event)"
@@ -36,7 +35,7 @@ import { ThreadListComponent } from './thread_list';
       <app-thread-list
         [threads]="content().threadList"
         [selectedThreadId]="selectedThreadId()"
-        [disabledThreadIds]="disabledThreadIds()"
+        [isThreadDisabled]="isThreadDisabled()"
         (threadSelected)="threadSelected.emit($event)"
         (threadRenameRequested)="threadRenameRequested.emit($event)"
         (threadMoveRequested)="threadMoveRequested.emit($event)"
@@ -50,8 +49,8 @@ export class ContentPaneComponent {
   readonly content = input.required<ContentPaneViewModel>();
   readonly selectedThreadId = input<string | null>(null);
   readonly activeThreadId = input<string | null>(null);
-  readonly disabledThreadIds = input<Readonly<Record<string, boolean>>>({});
-  readonly disabledRecordIds = input<Readonly<Record<string, boolean>>>({});
+  readonly isThreadDisabled = input<(threadId: string) => boolean>(() => false);
+  readonly isRecordDisabled = input<(recordId: string) => boolean>(() => false);
   readonly createRecordDisabled = input(false);
 
   readonly threadSelected = output<string>();

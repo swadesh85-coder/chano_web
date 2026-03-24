@@ -1,16 +1,20 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
+  inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 import {
   type RecordViewModel,
   type ThreadRecordNodeViewModel,
   getThreadRecordNodeVirtualKey,
 } from '../../viewmodels';
+import { ExplorerContentPaneContainer } from '../explorer_content_pane.container';
 import { MediaViewerComponent } from './media_viewer';
-import { VirtualListComponent } from '../virtual_list.component';
+import { VirtualListComponent, type VirtualListRange } from '../virtual_list.component';
 import { ContentItemRowComponent } from '../ui/content_item_row.component';
 import {
   EXPLORER_RECORD_ROW_HEIGHT_PX,
@@ -41,17 +45,19 @@ import {
           </button>
         </div>
 
-        @if (nodes().length === 0) {
+        @if (totalItems() === 0) {
           <p class="explorer-state-empty panel-empty">No records visible for this thread</p>
         } @else {
           <app-media-viewer #mediaViewer [threadId]="threadId()"></app-media-viewer>
 
           <app-virtual-list
             class="explorer-list-viewport"
-            [items]="nodes()"
+            [totalItems]="totalItems()"
+            [renderedItems]="visibleNodes()"
             [itemHeight]="itemHeight"
             [buffer]="buffer"
             [trackByKey]="trackNode"
+            (rangeChanged)="updateVisibleRange($event)"
           >
             <ng-template let-node>
               <div class="explorer-list-row" data-testid="thread-view-node" [attr.data-node-key]="node.key">
@@ -130,13 +136,17 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RecordListComponent {
+  private readonly contentPane = inject(ExplorerContentPaneContainer);
+
   readonly threadId = input<string | null>(null);
-  readonly nodes = input.required<readonly ThreadRecordNodeViewModel[]>();
-  readonly disabledRecordIds = input<Readonly<Record<string, boolean>>>({});
+  readonly isRecordDisabled = input<(recordId: string) => boolean>(() => false);
   readonly createDisabled = input(false);
   readonly itemHeight = EXPLORER_RECORD_ROW_HEIGHT_PX;
   readonly buffer = EXPLORER_VIRTUAL_LIST_BUFFER;
   readonly trackNode = (node: ThreadRecordNodeViewModel, _index: number) => getThreadRecordNodeVirtualKey(node);
+  private readonly visibleRange = signal<VirtualListRange>({ start: 0, end: 0 });
+  readonly totalItems = computed(() => this.contentPane.recordNodeCount(this.threadId()));
+  readonly visibleNodes = computed(() => this.contentPane.visibleRecordNodes(this.threadId(), this.visibleRange()));
 
   readonly createRecordRequested = output<Event>();
   readonly recordEditRequested = output<{ readonly record: RecordViewModel; readonly event: Event }>();
@@ -144,8 +154,17 @@ export class RecordListComponent {
   readonly recordMoveRequested = output<{ readonly record: RecordViewModel; readonly event: Event }>();
   readonly recordDeleteRequested = output<{ readonly record: RecordViewModel; readonly event: Event }>();
 
+  updateVisibleRange(range: VirtualListRange): void {
+    const currentRange = this.visibleRange();
+    if (currentRange.start === range.start && currentRange.end === range.end) {
+      return;
+    }
+
+    this.visibleRange.set(range);
+  }
+
   isDisabled(recordId: string): boolean {
-    return this.disabledRecordIds()[recordId] ?? false;
+    return this.isRecordDisabled()(recordId);
   }
 
   isMediaRecord(record: RecordViewModel): boolean {

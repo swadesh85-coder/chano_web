@@ -1,0 +1,264 @@
+{
+  "generatedAt": "2026-03-24T09:44:36.626Z",
+  "appUrl": "http://127.0.0.1:4173",
+  "browserMode": "local",
+  "dataset": {
+    "folderCount": 22,
+    "threadCount": 72,
+    "recordCount": 13704,
+    "heavyThreadRecordCount": 12000,
+    "targetFolderId": "folder-target-leaf-01",
+    "targetFolderName": "Target Leaf 01",
+    "secondaryFolderId": "folder-target-leaf-02",
+    "secondaryFolderName": "Target Leaf 02",
+    "heavyThreadId": "thread-target-leaf-01-heavy",
+    "heavyThreadTitle": "Target Thread Heavy"
+  },
+  "visibleItemValidation": {
+    "renderedNodes": 16,
+    "renderedRecords": 16,
+    "renderedGroups": 0,
+    "renderedRows": 16,
+    "viewportClientHeight": 1584002,
+    "viewportScrollHeight": 1584002,
+    "viewportOffsetHeight": 1584002
+  },
+  "determinism": {
+    "signaturesMatch": true,
+    "screenshotHashesMatch": true,
+    "firstSignature": "{\"selectedFolder\":\"Target Leaf 01\",\"selectedThread\":null,\"renderedNodes\":[\"record:record-thread-target-leaf-01-heavy-00000\",\"record:record-thread-target-leaf-01-heavy-00001\",\"record:record-thread-target-leaf-01-heavy-00002\",\"record:record-thread-target-leaf-01-heavy-00003\",\"record:record-thread-target-leaf-01-heavy-00004\",\"record:record-thread-target-leaf-01-heavy-00005\",\"record:record-thread-target-leaf-01-heavy-00006\",\"record:record-thread-target-leaf-01-heavy-00007\",\"record:record-thread-target-leaf-01-heavy-00008\",\"record:record-thread-target-leaf-01-heavy-00009\",\"record:record-thread-target-leaf-01-heavy-00010\",\"record:record-thread-target-leaf-01-heavy-00011\",\"record:record-thread-target-leaf-01-heavy-00012\",\"record:record-thread-target-leaf-01-heavy-00013\",\"record:record-thread-target-leaf-01-heavy-00014\",\"record:record-thread-target-leaf-01-heavy-00015\"],\"gridTemplateColumns\":\"422.391px 14px 971.609px\"}",
+    "secondSignature": "{\"selectedFolder\":\"Target Leaf 01\",\"selectedThread\":null,\"renderedNodes\":[\"record:record-thread-target-leaf-01-heavy-00000\",\"record:record-thread-target-leaf-01-heavy-00001\",\"record:record-thread-target-leaf-01-heavy-00002\",\"record:record-thread-target-leaf-01-heavy-00003\",\"record:record-thread-target-leaf-01-heavy-00004\",\"record:record-thread-target-leaf-01-heavy-00005\",\"record:record-thread-target-leaf-01-heavy-00006\",\"record:record-thread-target-leaf-01-heavy-00007\",\"record:record-thread-target-leaf-01-heavy-00008\",\"record:record-thread-target-leaf-01-heavy-00009\",\"record:record-thread-target-leaf-01-heavy-00010\",\"record:record-thread-target-leaf-01-heavy-00011\",\"record:record-thread-target-leaf-01-heavy-00012\",\"record:record-thread-target-leaf-01-heavy-00013\",\"record:record-thread-target-leaf-01-heavy-00014\",\"record:record-thread-target-leaf-01-heavy-00015\"],\"gridTemplateColumns\":\"422.391px 14px 971.609px\"}",
+    "firstScreenshotHash": "5fde9b57a177f0fe8fe61ebad194eb8f26c12d8aca33a9ee2afea4951dbe118c",
+    "secondScreenshotHash": "5fde9b57a177f0fe8fe61ebad194eb8f26c12d8aca33a9ee2afea4951dbe118c"
+  },
+  "interactions": [
+    {
+      "name": "folder-selection",
+      "tracePath": "C:\\Users\\Taboo\\chano_web\\reports\\browser-performance\\folder-selection.trace.json",
+      "frameMetrics": {
+        "sampledFrames": 60,
+        "fps": {
+          "min": 3.082614056720098,
+          "max": 123.45679012345818,
+          "average": 114.507643624825
+        },
+        "droppedFrameCount": 2,
+        "longTasks": []
+      },
+      "traceMetrics": {
+        "totalDurationMs": 680.472,
+        "scriptEventCount": 121,
+        "layoutEventCount": 20,
+        "layoutTimeMs": 10.488999999999999,
+        "maxScriptingTimePerFrame": 14.283666666666676,
+        "averageScriptingTimePerFrame": 0.8583414634146385,
+        "topLevelLongTasks": [
+          {
+            "startMs": 704766780.85,
+            "durationMs": 56.126
+          },
+          {
+            "startMs": 704766895.703,
+            "durationMs": 182.192
+          },
+          {
+            "startMs": 704767077.901,
+            "durationMs": 104.423
+          }
+        ]
+      }
+    },
+    {
+      "name": "thread-selection",
+      "tracePath": "C:\\Users\\Taboo\\chano_web\\reports\\browser-performance\\thread-selection.trace.json",
+      "frameMetrics": {
+        "sampledFrames": 97,
+        "fps": {
+          "min": 7.082152974504258,
+          "max": 128.2051282051327,
+          "average": 118.22096026543544
+        },
+        "droppedFrameCount": 2,
+        "longTasks": [
+          {
+            "name": "self",
+            "startTime": 2843.2999999523163,
+            "duration": 142
+          }
+        ]
+      },
+      "traceMetrics": {
+        "totalDurationMs": 733.642,
+        "scriptEventCount": 190,
+        "layoutEventCount": 12,
+        "layoutTimeMs": 8.316,
+        "maxScriptingTimePerFrame": 16.66666666666667,
+        "averageScriptingTimePerFrame": 3.8102444444444448,
+        "topLevelLongTasks": [
+          {
+            "startMs": 704767699.943,
+            "durationMs": 142.573
+          }
+        ]
+      }
+    },
+    {
+      "name": "record-scroll-slow",
+      "tracePath": "C:\\Users\\Taboo\\chano_web\\reports\\browser-performance\\record-scroll-slow.trace.json",
+      "frameMetrics": {
+        "sampledFrames": 294,
+        "fps": {
+          "min": 30.030030030030275,
+          "max": 125,
+          "average": 119.3482962614144
+        },
+        "droppedFrameCount": 3,
+        "longTasks": []
+      },
+      "traceMetrics": {
+        "totalDurationMs": 1807.96,
+        "scriptEventCount": 536,
+        "layoutEventCount": 21,
+        "layoutTimeMs": 13.415000000000003,
+        "maxScriptingTimePerFrame": 16.666666666666668,
+        "averageScriptingTimePerFrame": 0.7728073394495297,
+        "topLevelLongTasks": []
+      }
+    },
+    {
+      "name": "record-scroll-fast",
+      "tracePath": "C:\\Users\\Taboo\\chano_web\\reports\\browser-performance\\record-scroll-fast.trace.json",
+      "frameMetrics": {
+        "sampledFrames": 141,
+        "fps": {
+          "min": 20,
+          "max": 125,
+          "average": 118.10524384602094
+        },
+        "droppedFrameCount": 2,
+        "longTasks": [
+          {
+            "name": "self",
+            "startTime": 6320.799999952316,
+            "duration": 55
+          }
+        ]
+      },
+      "traceMetrics": {
+        "totalDurationMs": 839.806,
+        "scriptEventCount": 277,
+        "layoutEventCount": 22,
+        "layoutTimeMs": 11.977000000000002,
+        "maxScriptingTimePerFrame": 16.666666666666668,
+        "averageScriptingTimePerFrame": 1.7648235294117687,
+        "topLevelLongTasks": [
+          {
+            "startMs": 704771177.421,
+            "durationMs": 55.022
+          }
+        ]
+      }
+    },
+    {
+      "name": "split-pane-resize",
+      "tracePath": "C:\\Users\\Taboo\\chano_web\\reports\\browser-performance\\split-pane-resize.trace.json",
+      "frameMetrics": {
+        "sampledFrames": 141,
+        "fps": {
+          "min": 19.920318725099673,
+          "max": 126.58227848101849,
+          "average": 119.54721665855611
+        },
+        "droppedFrameCount": 1,
+        "longTasks": [
+          {
+            "name": "self",
+            "startTime": 7593.699999928474,
+            "duration": 50
+          }
+        ]
+      },
+      "traceMetrics": {
+        "totalDurationMs": 924.668,
+        "scriptEventCount": 291,
+        "layoutEventCount": 0,
+        "layoutTimeMs": 0,
+        "maxScriptingTimePerFrame": 16.666666666666668,
+        "averageScriptingTimePerFrame": 1.0371607142857149,
+        "topLevelLongTasks": [
+          {
+            "startMs": 704772450.331,
+            "durationMs": 50.26
+          }
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "fpsRange": {
+      "min": 3.082614056720098,
+      "max": 128.2051282051327
+    },
+    "maxScriptingTimePerFrame": 16.66666666666667,
+    "longTaskCount": 9,
+    "longTasks": [
+      {
+        "source": "trace",
+        "interaction": "folder-selection",
+        "duration": 56.126
+      },
+      {
+        "source": "trace",
+        "interaction": "folder-selection",
+        "duration": 182.192
+      },
+      {
+        "source": "trace",
+        "interaction": "folder-selection",
+        "duration": 104.423
+      },
+      {
+        "source": "performance-observer",
+        "interaction": "thread-selection",
+        "duration": 142
+      },
+      {
+        "source": "trace",
+        "interaction": "thread-selection",
+        "duration": 142.573
+      },
+      {
+        "source": "performance-observer",
+        "interaction": "record-scroll-fast",
+        "duration": 55
+      },
+      {
+        "source": "trace",
+        "interaction": "record-scroll-fast",
+        "duration": 55.022
+      },
+      {
+        "source": "performance-observer",
+        "interaction": "split-pane-resize",
+        "duration": 50
+      },
+      {
+        "source": "trace",
+        "interaction": "split-pane-resize",
+        "duration": 50.26
+      }
+    ],
+    "layoutThrashDetected": false,
+    "visibleItemsOnly": true,
+    "deterministicReplay": true,
+    "pixelStableReplay": true,
+    "bottlenecks": [
+      "Long tasks were present during one or more interactions."
+    ],
+    "observedImprovements": [
+      "Record rendering remained bounded to the virtualized visible slice during deep scroll.",
+      "Split-pane resize stayed free of layout events during the recorded drag.",
+      "Folder and thread navigation completed without inconsistent selection state across repeated structural snapshots."
+    ]
+  }
+}
