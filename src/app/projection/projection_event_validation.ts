@@ -1,5 +1,6 @@
 import type { EventEntity, EventEnvelope, EventOperation } from './projection.models';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
+import { extractIncomingEventSchema, formatAuditJson } from './projection_schema_audit';
 
 export type EventValidationFailureReason = 'INVALID_TYPE' | 'INVALID_SCHEMA' | 'CHECKSUM_MISMATCH';
 
@@ -43,6 +44,15 @@ export type EventSequenceValidationResult =
       readonly receivedEventVersion: number;
     };
 
+type PayloadNormalizationResult =
+  | {
+      readonly status: 'VALID';
+      readonly payload: Record<string, unknown>;
+    }
+  | {
+      readonly status: 'INVALID';
+    };
+
 export async function validateEventEnvelope(
   envelope: TransportEnvelope,
 ): Promise<EventValidationResult> {
@@ -52,6 +62,11 @@ export async function validateEventEnvelope(
       status: 'INVALID',
       reason: 'INVALID_TYPE',
     };
+  }
+
+  const incomingSchema = extractIncomingEventSchema(envelope);
+  if (incomingSchema.entity !== null) {
+    console.log(formatAuditJson('EVENT_SCHEMA_INCOMING', incomingSchema));
   }
 
   const payload = envelope.payload;
@@ -117,7 +132,22 @@ export async function validateEventEnvelope(
     };
   }
 
-  const canonicalPayload = sanitizeEventPayload(rawPayload);
+  const normalizedPayload = normalizeEventPayload(entityType, entityId, rawPayload);
+  if (normalizedPayload.status !== 'VALID') {
+    console.error('EVENT_REJECTED reason=INVALID_SCHEMA');
+    return {
+      status: 'INVALID',
+      reason: 'INVALID_SCHEMA',
+    };
+  }
+
+  const canonicalPayload = normalizedPayload.payload;
+  console.log(formatAuditJson('EVENT_SCHEMA_CANONICAL', {
+    entity: entityType,
+    fields: Object.keys(canonicalPayload).sort(),
+    eventId,
+    sequence: typeof envelope.sequence === 'number' ? envelope.sequence : null,
+  }));
   if (
     !hasConsistentEntityId(entityId, canonicalPayload)
     || !isValidEventPayload(operation, entityType, canonicalPayload)
@@ -238,6 +268,158 @@ function sanitizeEventPayload(payload: Record<string, unknown>): Record<string, 
   return sanitized;
 }
 
+function normalizeEventPayload(
+  entityType: EventEntity,
+  entityId: string,
+  payload: Record<string, unknown>,
+): PayloadNormalizationResult {
+  const sanitizedPayload = sanitizeEventPayload(payload);
+
+  switch (entityType) {
+    case 'folder':
+    case 'imageGroup':
+      return normalizeFolderPayload(entityId, sanitizedPayload);
+    case 'thread':
+      return normalizeThreadPayload(entityId, sanitizedPayload);
+    case 'record':
+      return normalizeRecordPayload(entityId, sanitizedPayload);
+  }
+}
+
+function normalizeFolderPayload(
+  entityId: string,
+  payload: Record<string, unknown>,
+): PayloadNormalizationResult {
+  const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
+  const parentId = resolveCanonicalAlias(payload, 'parentId', 'parentFolderUuid');
+
+  if (id === undefined) {
+    return { status: 'INVALID' };
+  }
+
+  return {
+    status: 'VALID',
+    payload: {
+      id,
+      ...pickIfPresent(payload, 'name'),
+      ...pickCanonicalIfPresent(parentId, 'parentId'),
+    },
+  };
+}
+
+function normalizeThreadPayload(
+  entityId: string,
+  payload: Record<string, unknown>,
+): PayloadNormalizationResult {
+  const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
+  const folderId = resolveCanonicalAlias(payload, 'folderId', 'folderUuid');
+
+  if (id === undefined) {
+    return { status: 'INVALID' };
+  }
+
+  return {
+    status: 'VALID',
+    payload: {
+      id,
+      ...pickCanonicalIfPresent(folderId, 'folderId'),
+      ...pickIfPresent(payload, 'title'),
+    },
+  };
+}
+
+function normalizeRecordPayload(
+  entityId: string,
+  payload: Record<string, unknown>,
+): PayloadNormalizationResult {
+  const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
+  const threadId = resolveCanonicalAlias(payload, 'threadId', 'threadUuid');
+  const type = resolveCanonicalAlias(payload, 'type', 'recordType');
+  const name = resolveCanonicalAlias(payload, 'name', 'body');
+
+  if (id === undefined) {
+    return { status: 'INVALID' };
+  }
+
+  return {
+    status: 'VALID',
+    payload: {
+      id,
+      ...pickCanonicalIfPresent(threadId, 'threadId'),
+      ...pickCanonicalIfPresent(type, 'type'),
+      ...pickCanonicalIfPresent(name, 'name'),
+      ...pickIfPresent(payload, 'createdAt'),
+      ...pickIfPresent(payload, 'editedAt'),
+      ...pickIfPresent(payload, 'orderIndex'),
+      ...pickIfPresent(payload, 'isStarred'),
+      ...pickIfPresent(payload, 'imageGroupId'),
+      ...pickIfPresent(payload, 'mediaId'),
+      ...pickIfPresent(payload, 'mimeType'),
+      ...pickIfPresent(payload, 'title'),
+      ...pickIfPresent(payload, 'size'),
+    },
+  };
+}
+
+function resolveCanonicalIdentity(
+  payload: Record<string, unknown>,
+  fallbackEntityId: string,
+  canonicalKey: string,
+  legacyKey: string,
+): unknown {
+  const hasCanonical = canonicalKey in payload;
+  const hasLegacy = legacyKey in payload;
+  const resolved = resolveCanonicalAlias(payload, canonicalKey, legacyKey);
+
+  if (resolved === undefined && (hasCanonical || hasLegacy)) {
+    return undefined;
+  }
+
+  return resolved === undefined ? fallbackEntityId : resolved;
+}
+
+function pickIfPresent(
+  payload: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  if (!(key in payload)) {
+    return {};
+  }
+
+  return { [key]: payload[key] };
+}
+
+function pickCanonicalIfPresent(value: unknown, key: string): Record<string, unknown> {
+  if (value === undefined) {
+    return {};
+  }
+
+  return { [key]: value };
+}
+
+function resolveCanonicalAlias(
+  payload: Record<string, unknown>,
+  canonicalKey: string,
+  legacyKey: string,
+): unknown {
+  const hasCanonical = canonicalKey in payload;
+  const hasLegacy = legacyKey in payload;
+
+  if (hasCanonical && hasLegacy && payload[canonicalKey] !== payload[legacyKey]) {
+    return undefined;
+  }
+
+  if (hasCanonical) {
+    return payload[canonicalKey];
+  }
+
+  if (hasLegacy) {
+    return payload[legacyKey];
+  }
+
+  return undefined;
+}
+
 async function sha256PayloadHex(payload: Record<string, unknown>): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(payload));
   const copy = new Uint8Array(bytes.byteLength);
@@ -271,23 +453,23 @@ function isValidFolderEventData(
     case 'create':
       return isValidFolderEntityData(data);
     case 'update':
-      return hasAllowedKeys(data, ['uuid', 'name', 'parentFolderUuid'])
-        && hasRequiredKeys(data, ['uuid'])
-        && isUuid(data['uuid'])
+      return hasAllowedKeys(data, ['id', 'name', 'parentId'])
+        && hasRequiredKeys(data, ['id'])
+        && isUuid(data['id'])
         && isOptionalString(data['name'])
-        && isOptionalNullableString(data['parentFolderUuid']);
+        && isOptionalNullableString(data['parentId']);
     case 'rename':
-      return hasExactKeys(data, ['uuid', 'name'])
-        && isUuid(data['uuid'])
+      return hasExactKeys(data, ['id', 'name'])
+        && isUuid(data['id'])
         && typeof data['name'] === 'string';
     case 'move':
-      return hasExactKeys(data, ['uuid', 'parentFolderUuid'])
-        && isUuid(data['uuid'])
-        && isNullableString(data['parentFolderUuid']);
+      return hasExactKeys(data, ['id', 'parentId'])
+        && isUuid(data['id'])
+        && isNullableString(data['parentId']);
     case 'delete':
     case 'softDelete':
     case 'restore':
-      return hasExactKeys(data, ['uuid']) && isUuid(data['uuid']);
+      return hasExactKeys(data, ['id']) && isUuid(data['id']);
   }
 }
 
@@ -299,23 +481,23 @@ function isValidThreadEventData(
     case 'create':
       return isValidThreadEntityData(data);
     case 'update':
-      return hasAllowedKeys(data, ['uuid', 'folderUuid', 'title'])
-        && hasRequiredKeys(data, ['uuid'])
-        && isUuid(data['uuid'])
-        && isOptionalNullableString(data['folderUuid'])
+      return hasAllowedKeys(data, ['id', 'folderId', 'title'])
+        && hasRequiredKeys(data, ['id'])
+        && isUuid(data['id'])
+        && isOptionalNullableString(data['folderId'])
         && isOptionalString(data['title']);
     case 'rename':
-      return hasExactKeys(data, ['uuid', 'title'])
-        && isUuid(data['uuid'])
+      return hasExactKeys(data, ['id', 'title'])
+        && isUuid(data['id'])
         && typeof data['title'] === 'string';
     case 'move':
-      return hasExactKeys(data, ['uuid', 'folderUuid'])
-        && isUuid(data['uuid'])
-        && isNullableString(data['folderUuid']);
+      return hasExactKeys(data, ['id', 'folderId'])
+        && isUuid(data['id'])
+        && isNullableString(data['folderId']);
     case 'delete':
     case 'softDelete':
     case 'restore':
-      return hasExactKeys(data, ['uuid']) && isUuid(data['uuid']);
+      return hasExactKeys(data, ['id']) && isUuid(data['id']);
   }
 }
 
@@ -328,11 +510,10 @@ function isValidRecordEventData(
       return isValidRecordEventEntityData(data);
     case 'update':
       return hasAllowedKeys(data, [
-        'uuid',
-        'threadUuid',
+        'id',
+        'threadId',
         'type',
-        'recordType',
-        'body',
+        'name',
         'createdAt',
         'editedAt',
         'orderIndex',
@@ -343,11 +524,11 @@ function isValidRecordEventData(
         'title',
         'size',
       ])
-        && hasRequiredKeys(data, ['uuid'])
-        && isUuid(data['uuid'])
-        && isOptionalString(data['threadUuid'])
+        && hasRequiredKeys(data, ['id'])
+        && isUuid(data['id'])
+        && isOptionalString(data['threadId'])
         && isOptionalRecordType(data)
-        && isOptionalString(data['body'])
+        && isOptionalString(data['name'])
         && isOptionalNumber(data['createdAt'])
         && isOptionalNumber(data['editedAt'])
         && isOptionalNumber(data['orderIndex'])
@@ -358,31 +539,31 @@ function isValidRecordEventData(
         && isOptionalString(data['title'])
         && isOptionalNullableNumber(data['size']);
     case 'rename':
-      return hasExactKeys(data, ['uuid', 'body'])
-        && isUuid(data['uuid'])
-        && typeof data['body'] === 'string';
+      return hasExactKeys(data, ['id', 'name'])
+        && isUuid(data['id'])
+        && typeof data['name'] === 'string';
     case 'move':
-      return hasExactKeys(data, ['uuid', 'threadUuid'])
-        && isUuid(data['uuid'])
-        && typeof data['threadUuid'] === 'string';
+      return hasExactKeys(data, ['id', 'threadId'])
+        && isUuid(data['id'])
+        && typeof data['threadId'] === 'string';
     case 'delete':
     case 'softDelete':
     case 'restore':
-      return hasExactKeys(data, ['uuid']) && isUuid(data['uuid']);
+      return hasExactKeys(data, ['id']) && isUuid(data['id']);
   }
 }
 
 function isValidFolderEntityData(data: Record<string, unknown>): boolean {
-  return hasExactKeys(data, ['uuid', 'name', 'parentFolderUuid'])
-    && isUuid(data['uuid'])
+  return hasExactKeys(data, ['id', 'name', 'parentId'])
+    && isUuid(data['id'])
     && typeof data['name'] === 'string'
-    && isNullableString(data['parentFolderUuid']);
+    && isNullableString(data['parentId']);
 }
 
 function isValidThreadEntityData(data: Record<string, unknown>): boolean {
-  return hasExactKeys(data, ['uuid', 'folderUuid', 'title'])
-    && isUuid(data['uuid'])
-    && isNullableString(data['folderUuid'])
+  return hasExactKeys(data, ['id', 'folderId', 'title'])
+    && isUuid(data['id'])
+    && isNullableString(data['folderId'])
     && typeof data['title'] === 'string';
 }
 
@@ -430,11 +611,10 @@ function isValidRecordEntityData(data: Record<string, unknown>): boolean {
 
 function isValidRecordEventEntityData(data: Record<string, unknown>): boolean {
   return hasAllowedKeys(data, [
-    'uuid',
-    'threadUuid',
+    'id',
+    'threadId',
     'type',
-    'recordType',
-    'body',
+    'name',
     'createdAt',
     'editedAt',
     'orderIndex',
@@ -446,19 +626,20 @@ function isValidRecordEventEntityData(data: Record<string, unknown>): boolean {
     'size',
   ])
     && hasRequiredKeys(data, [
-      'uuid',
-      'threadUuid',
-      'body',
+      'id',
+      'threadId',
+      'type',
+      'name',
       'createdAt',
       'editedAt',
       'orderIndex',
       'isStarred',
       'imageGroupId',
     ])
-    && isUuid(data['uuid'])
-    && typeof data['threadUuid'] === 'string'
-    && isRecordType(data)
-    && typeof data['body'] === 'string'
+    && isUuid(data['id'])
+    && typeof data['threadId'] === 'string'
+    && typeof data['type'] === 'string'
+    && typeof data['name'] === 'string'
     && typeof data['createdAt'] === 'number'
     && typeof data['editedAt'] === 'number'
     && typeof data['orderIndex'] === 'number'
@@ -471,6 +652,10 @@ function isValidRecordEventEntityData(data: Record<string, unknown>): boolean {
 }
 
 function hasConsistentEntityId(entityId: string, payload: Record<string, unknown>): boolean {
+  if ('id' in payload && payload['id'] !== entityId) {
+    return false;
+  }
+
   return !('uuid' in payload) || payload['uuid'] === entityId;
 }
 
@@ -511,27 +696,7 @@ function isOptionalString(value: unknown): boolean {
 }
 
 function isOptionalRecordType(data: Record<string, unknown>): boolean {
-  const hasType = 'type' in data;
-  const hasRecordType = 'recordType' in data;
-
-  if (hasType && hasRecordType) {
-    return typeof data['type'] === 'string' && typeof data['recordType'] === 'string';
-  }
-
-  if (hasType) {
-    return typeof data['type'] === 'string';
-  }
-
-  if (hasRecordType) {
-    return typeof data['recordType'] === 'string';
-  }
-
-  return true;
-}
-
-function isRecordType(data: Record<string, unknown>): boolean {
-  return ('type' in data && typeof data['type'] === 'string')
-    || ('recordType' in data && typeof data['recordType'] === 'string');
+  return !('type' in data) || typeof data['type'] === 'string';
 }
 
 function isOptionalNullableString(value: unknown): boolean {

@@ -6,6 +6,13 @@ import type {
   ProjectionSnapshotDocument,
   ProjectionUpdate,
 } from './projection.models';
+import {
+  buildSnapshotSchemaBaselines,
+  diffSchemaFields,
+  extractIncomingEventSchema,
+  formatAuditJson,
+  type ProjectionAuditEntity,
+} from './projection_schema_audit';
 import { validateEventEnvelope, type EventValidationFailureReason } from './projection_event_validation';
 import { SnapshotLoader, type SnapshotLoaderEvent } from './snapshot_loader';
 
@@ -25,11 +32,13 @@ export class ProjectionStore {
 
   private authoritativeEventQueue: Promise<void> = Promise.resolve();
   private snapshotSessionId: string | null = null;
+  private readonly snapshotSchemaBaseline = new Map<ProjectionAuditEntity, readonly string[]>();
   private readonly _stateRevision = signal(0);
   private readonly _phase = signal<SnapshotPhase>('idle');
   private readonly _baseEventVersion = signal<number | null>(null);
   private readonly _lastAppliedEventVersion = signal<number | null>(null);
   private readonly _lastProjectionUpdate = signal<ProjectionUpdate | null>(null);
+  private hasRecordedFirstSchemaMismatch = false;
 
   readonly state = computed(() => {
     this._stateRevision();
@@ -86,6 +95,8 @@ export class ProjectionStore {
 
   private onSnapshotStart(message: TransportEnvelope): void {
     this.snapshotSessionId = message.sessionId;
+    this.snapshotSchemaBaseline.clear();
+    this.hasRecordedFirstSchemaMismatch = false;
     this.projectionEngine.onSnapshotStart(this.readSnapshotLogId(message.payload));
     this.snapshotLoader.handleSnapshotStart(message);
     this._phase.set('receiving');
@@ -134,6 +145,7 @@ export class ProjectionStore {
     entityCount: number,
   ): void {
     const result = this.projectionEngine.applySnapshot(snapshot, baseEventVersion);
+    this.captureSnapshotSchemaBaseline(result.state);
 
     this.publishProjectionState();
     this._lastProjectionUpdate.set({
@@ -165,7 +177,7 @@ export class ProjectionStore {
     const validationResult = await validateEventEnvelope(envelope);
     if (validationResult.status === 'INVALID') {
       if (validationResult.reason === 'INVALID_SCHEMA') {
-        this.reportSchemaValidationError();
+        this.reportSchemaValidationError(envelope);
       }
 
       this.emitValidationResyncRequired(validationResult.reason);
@@ -233,8 +245,49 @@ export class ProjectionStore {
     console.error(`SNAPSHOT_RESYNC_REQUIRED reason=${reason}`);
   }
 
-  private reportSchemaValidationError(): void {
-    console.error('SCHEMA_VALIDATION_ERROR entity field mismatch');
+  private captureSnapshotSchemaBaseline(state: ReturnType<ProjectionStore['state']>): void {
+    this.snapshotSchemaBaseline.clear();
+
+    for (const baseline of buildSnapshotSchemaBaselines(state)) {
+      this.snapshotSchemaBaseline.set(baseline.entity, baseline.fields);
+      console.log(formatAuditJson('SNAPSHOT_SCHEMA_BASELINE', baseline));
+    }
+  }
+
+  private reportSchemaValidationError(envelope: TransportEnvelope): void {
+    const incomingSchema = extractIncomingEventSchema(envelope);
+    const snapshotFields = incomingSchema.entity === null
+      ? []
+      : [...(this.snapshotSchemaBaseline.get(incomingSchema.entity) ?? [])];
+    const schemaDiff = diffSchemaFields(snapshotFields, incomingSchema.fields);
+    const entity = incomingSchema.entity ?? 'unknown';
+    const errorPayload = {
+      entity,
+      missingInEvent: schemaDiff.missingInEvent,
+      extraInEvent: schemaDiff.extraInEvent,
+      snapshotFields: schemaDiff.snapshotFields,
+      eventFields: schemaDiff.eventFields,
+      eventId: incomingSchema.eventId,
+      sequence: incomingSchema.sequence,
+    };
+
+    console.error(formatAuditJson('SCHEMA_VALIDATION_ERROR', errorPayload));
+
+    if (
+      !this.hasRecordedFirstSchemaMismatch
+      && incomingSchema.entity !== null
+      && (schemaDiff.missingInEvent.length > 0 || schemaDiff.extraInEvent.length > 0)
+    ) {
+      this.hasRecordedFirstSchemaMismatch = true;
+      console.error(formatAuditJson('SCHEMA_AUDIT_RESULT', {
+        entity: incomingSchema.entity,
+        snapshotFields: schemaDiff.snapshotFields,
+        eventFields: schemaDiff.eventFields,
+        missingInEvent: schemaDiff.missingInEvent,
+        extraInEvent: schemaDiff.extraInEvent,
+        verdict: 'SCHEMA_MISMATCH_CONFIRMED',
+      }));
+    }
   }
 
   private publishProjectionState(): void {

@@ -205,10 +205,10 @@ async function createSnapshotTransport(
 
 async function createEventStreamEnvelope(sessionId: string, eventVersion: number): Promise<Record<string, unknown>> {
   return createRecordEventStreamEnvelope(sessionId, eventVersion, {
-    uuid: 'r2',
-    threadUuid: 't1',
+    id: 'r2',
+    threadId: 't1',
     type: 'text',
-    body: 'Follow-up entry',
+    name: 'Follow-up entry',
     createdAt: Date.parse('2026-03-27T09:54:13.000Z'),
     editedAt: Date.parse('2026-03-27T09:54:13.000Z'),
     orderIndex: 1,
@@ -238,7 +238,11 @@ async function createRecordEventStreamEnvelope(
       originDeviceId: 'mobile-1',
       eventVersion,
       entityType: 'record',
-      entityId: typeof payload['uuid'] === 'string' ? payload['uuid'] : 'unknown-record',
+      entityId: typeof payload['id'] === 'string'
+        ? payload['id']
+        : typeof payload['uuid'] === 'string'
+          ? payload['uuid']
+          : 'unknown-record',
       operation: 'create',
       timestamp: eventTimestampIso,
       payload,
@@ -327,10 +331,10 @@ describe('Web Sync E2E', () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const snapshot = await createSnapshotTransport(sessionId, 25);
     const event26 = await createRecordEventStreamEnvelope(sessionId, 26, {
-      uuid: 'r2',
-      threadUuid: 't1',
+      id: 'r2',
+      threadId: 't1',
       type: 'text',
-      body: 'Second entry',
+      name: 'Second entry',
       createdAt: Date.parse('2026-03-27T09:54:13.000Z'),
       editedAt: Date.parse('2026-03-27T09:54:13.000Z'),
       orderIndex: 1,
@@ -338,10 +342,10 @@ describe('Web Sync E2E', () => {
       imageGroupId: null,
     }, 4);
     const event27 = await createRecordEventStreamEnvelope(sessionId, 27, {
-      uuid: 'r3',
-      threadUuid: 't1',
+      id: 'r3',
+      threadId: 't1',
       type: 'text',
-      body: 'Third entry',
+      name: 'Third entry',
       createdAt: Date.parse('2026-03-27T09:54:14.000Z'),
       editedAt: Date.parse('2026-03-27T09:54:14.000Z'),
       orderIndex: 2,
@@ -379,10 +383,10 @@ describe('Web Sync E2E', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const snapshot = await createSnapshotTransport(sessionId, 25);
     const gapEvent = await createRecordEventStreamEnvelope(sessionId, 28, {
-      uuid: 'r4',
-      threadUuid: 't1',
+      id: 'r4',
+      threadId: 't1',
       type: 'text',
-      body: 'Gap entry',
+      name: 'Gap entry',
       createdAt: Date.parse('2026-03-27T09:54:15.000Z'),
       editedAt: Date.parse('2026-03-27T09:54:15.000Z'),
       orderIndex: 3,
@@ -390,10 +394,10 @@ describe('Web Sync E2E', () => {
       imageGroupId: null,
     }, 4);
     const blockedFollowup = await createRecordEventStreamEnvelope(sessionId, 29, {
-      uuid: 'r5',
-      threadUuid: 't1',
+      id: 'r5',
+      threadId: 't1',
       type: 'text',
-      body: 'Blocked after gap',
+      name: 'Blocked after gap',
       createdAt: Date.parse('2026-03-27T09:54:16.000Z'),
       editedAt: Date.parse('2026-03-27T09:54:16.000Z'),
       orderIndex: 4,

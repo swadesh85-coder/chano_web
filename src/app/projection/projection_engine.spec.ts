@@ -364,12 +364,19 @@ function createEventEnvelope(
   const entityId = overrides.entityId ?? 'record-2';
   const entityType = overrides.entityType ?? 'record';
   const operation = overrides.operation ?? 'create';
-  const payload = overrides.payload ?? {
-    threadUuid: 'thread-1',
-    type: 'text',
-    body: `Body ${eventVersion}`,
-    createdAt: 1710000000 + eventVersion,
-  };
+  const payload = overrides.payload ?? (entityType === 'record'
+    ? {
+        id: entityId,
+        threadId: 'thread-1',
+        type: 'text',
+        name: `Body ${eventVersion}`,
+        createdAt: 1710000000 + eventVersion,
+        editedAt: 1710000000 + eventVersion,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      }
+    : {});
 
   return {
     eventId: overrides.eventId ?? `evt-${eventVersion}`,
@@ -391,7 +398,8 @@ function createDuplicateReplaySequence(): readonly EventEnvelope[] {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 102',
+        id: 'record-2',
+        name: 'Body 102',
       },
     }),
     createEventEnvelope(102, {
@@ -399,14 +407,16 @@ function createDuplicateReplaySequence(): readonly EventEnvelope[] {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 102 duplicate',
+        id: 'record-2',
+        name: 'Body 102 duplicate',
       },
     }),
     createEventEnvelope(103, {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 103',
+        id: 'record-2',
+        name: 'Body 103',
       },
     }),
   ];
@@ -419,14 +429,16 @@ function createNonDuplicateReplaySequence(): readonly EventEnvelope[] {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 102',
+        id: 'record-2',
+        name: 'Body 102',
       },
     }),
     createEventEnvelope(103, {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 103',
+        id: 'record-2',
+        name: 'Body 103',
       },
     }),
   ];
@@ -442,10 +454,15 @@ function createGapReplaySequence(): readonly EventEnvelope[] {
     createEventEnvelope(103, {
       entityId: 'record-3',
       payload: {
-        threadUuid: 'thread-1',
+        id: 'record-3',
+        threadId: 'thread-1',
         type: 'text',
-        body: 'Gap event',
+        name: 'Gap event',
         createdAt: 1710000103,
+        editedAt: 1710000103,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }),
   ];
@@ -491,17 +508,21 @@ describe('ProjectionEngine', () => {
     const createResult = engine.applyEvent(createEventEnvelope(101, {
       checksum: 'not-verified',
       payload: {
-        uuid: 'different-uuid-in-payload',
-        threadUuid: 'thread-1',
+        id: 'different-id-in-payload',
+        threadId: 'thread-1',
         type: 'text',
-        body: 'Created without engine validation',
+        name: 'Created without engine validation',
         createdAt: 1710000101,
+        editedAt: 1710000101,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
     const renameResult = engine.applyEvent(createEventEnvelope(102, {
       entityId: 'record-2',
       operation: 'rename',
-      payload: { body: 'Renamed body' },
+      payload: { id: 'record-2', name: 'Renamed body' },
     }));
 
     expect(createResult.status).toBe('EVENT_APPLIED');
@@ -528,7 +549,7 @@ describe('ProjectionEngine', () => {
         name: 'Renamed body',
         createdAt: 1710000101,
         editedAt: 1710000101,
-        orderIndex: null,
+        orderIndex: 0,
         isStarred: false,
         imageGroupId: null,
         entityVersion: 102,
@@ -546,10 +567,15 @@ describe('ProjectionEngine', () => {
     const gapResult = engine.applyEvent(createEventEnvelope(205, {
       entityId: 'record-5',
       payload: {
-        threadUuid: 'thread-1',
+        id: 'record-5',
+        threadId: 'thread-1',
         type: 'text',
-        body: 'Gap event',
+        name: 'Gap event',
         createdAt: 1710000205,
+        editedAt: 1710000205,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
 
@@ -591,7 +617,8 @@ describe('ProjectionEngine', () => {
         entityId: 'record-2',
         operation: 'rename',
         payload: {
-          body: 'Body 102',
+          id: 'record-2',
+          name: 'Body 102',
         },
       }),
     ]);
@@ -643,7 +670,8 @@ describe('ProjectionEngine', () => {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 102',
+        id: 'record-2',
+        name: 'Body 102',
       },
     })).status).toBe('EVENT_APPLIED');
 
@@ -654,7 +682,8 @@ describe('ProjectionEngine', () => {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 102 duplicate',
+        id: 'record-2',
+        name: 'Body 102 duplicate',
       },
     }));
 
@@ -666,7 +695,8 @@ describe('ProjectionEngine', () => {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 103',
+        id: 'record-2',
+        name: 'Body 103',
       },
     })).status).toBe('EVENT_APPLIED');
 
@@ -726,10 +756,15 @@ describe('ProjectionEngine', () => {
     const gapResult = engine.applyEvent(createEventEnvelope(103, {
       entityId: 'record-3',
       payload: {
-        threadUuid: 'thread-1',
+        id: 'record-3',
+        threadId: 'thread-1',
         type: 'text',
-        body: 'Gap event',
+        name: 'Gap event',
         createdAt: 1710000103,
+        editedAt: 1710000103,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
     const stateAfterGap = engine.trackState();
@@ -793,10 +828,15 @@ describe('ProjectionEngine', () => {
     const resumeResult = engine.applyEvent(createEventEnvelope(201, {
       entityId: 'record-10',
       payload: {
-        threadUuid: 'thread-2',
+        id: 'record-10',
+        threadId: 'thread-2',
         type: 'text',
-        body: 'Recovered 201',
+        name: 'Recovered 201',
         createdAt: 1711000201,
+        editedAt: 1711000201,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
 
@@ -835,10 +875,15 @@ describe('ProjectionEngine', () => {
     const result = engine.applyEvent(createEventEnvelope(105, {
       entityId: 'record-5',
       payload: {
-        threadUuid: 'thread-1',
+        id: 'record-5',
+        threadId: 'thread-1',
         type: 'text',
-        body: 'Gap event',
+        name: 'Gap event',
         createdAt: 1710000205,
+        editedAt: 1710000205,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
 
@@ -871,7 +916,8 @@ describe('ProjectionEngine', () => {
       entityId: 'record-2',
       operation: 'rename',
       payload: {
-        body: 'Body 102',
+        id: 'record-2',
+        name: 'Body 102',
       },
     }));
 
@@ -892,10 +938,15 @@ describe('ProjectionEngine', () => {
     const invalidBoundaryResult = engine.applyEvent(createEventEnvelope(105, {
       entityId: 'record-5',
       payload: {
-        threadUuid: 'thread-1',
+        id: 'record-5',
+        threadId: 'thread-1',
         type: 'text',
-        body: 'Should not apply',
+        name: 'Should not apply',
         createdAt: 1710000205,
+        editedAt: 1710000205,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
 
@@ -926,7 +977,8 @@ describe('ProjectionEngine', () => {
         entityId: 'record-2',
         operation: 'move',
         payload: {
-          threadUuid: 'thread-1',
+          id: 'record-2',
+          threadId: 'thread-1',
         },
       }),
       createEventEnvelope(104, {
@@ -980,7 +1032,7 @@ describe('ProjectionEngine', () => {
           name: 'Body 101',
           createdAt: 1710000101,
           editedAt: 1710000101,
-          orderIndex: null,
+          orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
           entityVersion: 103,
@@ -999,10 +1051,15 @@ describe('ProjectionEngine', () => {
     const result = engine.onEvent(createEventEnvelope(101, {
       entityId: 'record-2',
       payload: {
-        threadUuid: 'thread-1',
+        id: 'record-2',
+        threadId: 'thread-1',
         type: 'text',
-        body: 'Buffered body',
+        name: 'Buffered body',
         createdAt: 1710000101,
+        editedAt: 1710000101,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
 
@@ -1021,10 +1078,15 @@ describe('ProjectionEngine', () => {
     engine.onEvent(createEventEnvelope(102, {
       entityId: 'record-3',
       payload: {
-        threadUuid: 'thread-1',
+        id: 'record-3',
+        threadId: 'thread-1',
         type: 'text',
-        body: 'Buffered 102',
+        name: 'Buffered 102',
         createdAt: 1710000102,
+        editedAt: 1710000102,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
 
@@ -1044,29 +1106,43 @@ describe('ProjectionEngine', () => {
       entityId: 'record-10',
       operation: 'update',
       payload: {
-        threadUuid: 'thread-2',
+        id: 'record-10',
+        threadId: 'thread-2',
         type: 'text',
-        body: 'Buffered 102',
+        name: 'Buffered 102',
         createdAt: 1711000101,
         editedAt: 1711000102,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
     engine.onEvent(createEventEnvelope(101, {
       entityId: 'record-10',
       payload: {
-        threadUuid: 'thread-2',
+        id: 'record-10',
+        threadId: 'thread-2',
         type: 'text',
-        body: 'Buffered 101',
+        name: 'Buffered 101',
         createdAt: 1711000101,
+        editedAt: 1711000101,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
     engine.onEvent(createEventEnvelope(100, {
       entityId: 'record-ignored',
       payload: {
-        threadUuid: 'thread-2',
+        id: 'record-ignored',
+        threadId: 'thread-2',
         type: 'text',
-        body: 'Ignored by base version',
+        name: 'Ignored by base version',
         createdAt: 1711000100,
+        editedAt: 1711000100,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
 
@@ -1108,10 +1184,15 @@ describe('ProjectionEngine', () => {
     engine.onEvent(createEventEnvelope(101, {
       entityId: 'record-10',
       payload: {
-        threadUuid: 'thread-2',
+        id: 'record-10',
+        threadId: 'thread-2',
         type: 'text',
-        body: 'Buffered 101',
+        name: 'Buffered 101',
         createdAt: 1711000101,
+        editedAt: 1711000101,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
       },
     }));
 
@@ -1144,7 +1225,7 @@ describe('ProjectionEngine', () => {
           name: 'Buffered 101',
           createdAt: 1711000101,
           editedAt: 1711000101,
-          orderIndex: null,
+          orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
           entityVersion: 101,

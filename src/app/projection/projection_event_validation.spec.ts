@@ -54,7 +54,8 @@ async function createEnvelope(
   payloadOverrides: Record<string, unknown> = {},
   envelopeOverrides: Partial<TransportEnvelope> = {},
 ): Promise<TransportEnvelope> {
-  const eventPayload = createEventPayload(payloadOverrides['payload'] as Record<string, unknown> | undefined);
+  const payloadOverride = payloadOverrides['payload'] as Record<string, unknown> | undefined;
+  const eventPayload = payloadOverride === undefined ? createEventPayload() : payloadOverride;
   const payload = {
     eventId: 300,
     originDeviceId: 'mobile-1',
@@ -94,8 +95,152 @@ describe('EventValidation', () => {
     if (result.status === 'VALID') {
       expect(result.eventEnvelope.eventId).toBe(300);
       expect(result.eventEnvelope.eventVersion).toBe(300);
+      expect(result.eventEnvelope.payload).toEqual({
+        id: 'uuid-1',
+        threadId: 'thread-1',
+        type: 'text',
+        name: 'Body',
+        createdAt: 1710000000,
+        editedAt: 1710000000,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      });
+    }
+  });
+
+  it('event_validation_accepts_already_canonical_record_payloads', async () => {
+    const envelope = await createEnvelope({
+      payload: {
+        id: 'uuid-1',
+        threadId: 'thread-1',
+        type: 'text',
+        name: 'Body',
+        createdAt: 1710000000,
+        editedAt: 1710000000,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      },
+    });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result.status).toBe('VALID');
+    if (result.status === 'VALID') {
       expect(result.eventEnvelope.payload).toEqual(envelope.payload['payload']);
     }
+  });
+
+  it('event_validation_strips_legacy_record_transport_fields_and_injects_entity_id', async () => {
+    const envelope = await createEnvelope({
+      operation: 'update',
+      payload: {
+        threadUuid: 'thread-1',
+        type: 'text',
+        body: 'Body',
+        orderIndex: 0,
+        imageGroupId: null,
+        deviceId: 'mobile-1',
+        ownerUserId: 'owner-1',
+        fieldName: 'body',
+        spans: [],
+        text: 'Body',
+      },
+    });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result.status).toBe('VALID');
+    if (result.status === 'VALID') {
+      expect(result.eventEnvelope.payload).toEqual({
+        id: 'uuid-1',
+        threadId: 'thread-1',
+        type: 'text',
+        name: 'Body',
+        orderIndex: 0,
+        imageGroupId: null,
+      });
+    }
+  });
+
+  it('event_validation_canonicalizes_legacy_thread_transport_payloads', async () => {
+    const envelope = await createEnvelope({
+      entityType: 'thread',
+      entityId: 'thread-2',
+      payload: {
+        folderUuid: 'folder-1',
+        title: 'Backlog',
+        contactId: 'contact-1',
+        createdAt: 1710000000,
+        deviceId: 'mobile-1',
+        entityVersion: 77,
+        fieldName: 'title',
+        hasStarred: false,
+        isEmptyDraft: false,
+        isPrivate: false,
+        kind: 'direct',
+        lastUpdated: 1710000001,
+        ownerUserId: 'owner-1',
+      },
+    });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result.status).toBe('VALID');
+    if (result.status === 'VALID') {
+      expect(result.eventEnvelope.payload).toEqual({
+        id: 'thread-2',
+        folderId: 'folder-1',
+        title: 'Backlog',
+      });
+    }
+  });
+
+  it('event_validation_rejects_conflicting_alias_and_canonical_record_fields', async () => {
+    const envelope = await createEnvelope({
+      payload: {
+        uuid: 'uuid-1',
+        id: 'uuid-2',
+        threadUuid: 'thread-1',
+        body: 'Body',
+        type: 'text',
+        createdAt: 1710000000,
+        editedAt: 1710000000,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      },
+    });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result).toEqual({
+      status: 'INVALID',
+      reason: 'INVALID_SCHEMA',
+    });
+  });
+
+  it('event_validation_rejects_incomplete_record_payload_after_normalization', async () => {
+    const envelope = await createEnvelope({
+      payload: {
+        uuid: 'uuid-1',
+        type: 'text',
+        body: 'Body',
+        createdAt: 1710000000,
+        editedAt: 1710000000,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      },
+    });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result).toEqual({
+      status: 'INVALID',
+      reason: 'INVALID_SCHEMA',
+    });
   });
 
   it('event_validation_invalid_schema', async () => {

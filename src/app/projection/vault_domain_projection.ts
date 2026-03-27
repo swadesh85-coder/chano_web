@@ -294,7 +294,7 @@ export class VaultDomainProjection {
         this.folders.set(eventEnvelope.entityId, {
           id: eventEnvelope.entityId,
           name: eventEnvelope.payload['name'] as string,
-          parentId: (eventEnvelope.payload['parentFolderUuid'] as string | null | undefined) ?? null,
+          parentId: this.resolveFolderParentId(eventEnvelope.payload),
           ownerUserId: eventEnvelope.originDeviceId,
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
@@ -305,7 +305,7 @@ export class VaultDomainProjection {
       case 'thread':
         this.threads.set(eventEnvelope.entityId, {
           id: eventEnvelope.entityId,
-          folderId: (eventEnvelope.payload['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID,
+          folderId: this.resolveThreadFolderId(eventEnvelope.payload),
           title: eventEnvelope.payload['title'] as string,
           ownerUserId: eventEnvelope.originDeviceId,
           lastEventVersion: eventEnvelope.eventVersion,
@@ -315,11 +315,12 @@ export class VaultDomainProjection {
         console.log('ORDERING_VALIDATION entity=thread status=OK');
         break;
       case 'record':
+        this.assertCanonicalRecordPayload(eventEnvelope.payload);
         this.records.set(eventEnvelope.entityId, {
           id: eventEnvelope.entityId,
-          threadId: eventEnvelope.payload['threadUuid'] as string,
-          type: this.resolveRecordType(eventEnvelope.payload),
-          name: eventEnvelope.payload['body'] as string,
+          threadId: eventEnvelope.payload['threadId'] as string,
+          type: eventEnvelope.payload['type'] as string,
+          name: eventEnvelope.payload['name'] as string,
           ownerUserId: eventEnvelope.originDeviceId,
           createdAt: eventEnvelope.payload['createdAt'] as number,
           editedAt: this.resolveEditedAt(eventEnvelope.payload),
@@ -353,8 +354,8 @@ export class VaultDomainProjection {
           name: this.hasOwn(eventEnvelope.payload, 'name')
             ? eventEnvelope.payload['name'] as string
             : existing.name,
-          parentId: this.hasOwn(eventEnvelope.payload, 'parentFolderUuid')
-            ? (eventEnvelope.payload['parentFolderUuid'] as string | null)
+          parentId: this.hasOwn(eventEnvelope.payload, 'parentId') || this.hasOwn(eventEnvelope.payload, 'parentFolderUuid')
+            ? this.resolveFolderParentId(eventEnvelope.payload)
             : existing.parentId,
           ownerUserId: existing.ownerUserId,
           lastEventVersion: eventEnvelope.eventVersion,
@@ -372,8 +373,8 @@ export class VaultDomainProjection {
 
         this.threads.set(eventEnvelope.entityId, {
           id: existing.id,
-          folderId: this.hasOwn(eventEnvelope.payload, 'folderUuid')
-            ? ((eventEnvelope.payload['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID)
+          folderId: this.hasOwn(eventEnvelope.payload, 'folderId') || this.hasOwn(eventEnvelope.payload, 'folderUuid')
+            ? this.resolveThreadFolderId(eventEnvelope.payload)
             : existing.folderId,
           title: this.hasOwn(eventEnvelope.payload, 'title')
             ? eventEnvelope.payload['title'] as string
@@ -392,16 +393,18 @@ export class VaultDomainProjection {
           return;
         }
 
+        this.assertCanonicalRecordPayload(eventEnvelope.payload);
+
         this.records.set(eventEnvelope.entityId, {
           id: existing.id,
-          threadId: this.hasOwn(eventEnvelope.payload, 'threadUuid')
-            ? eventEnvelope.payload['threadUuid'] as string
+          threadId: this.hasOwn(eventEnvelope.payload, 'threadId')
+            ? eventEnvelope.payload['threadId'] as string
             : existing.threadId,
-          type: this.hasOwn(eventEnvelope.payload, 'type') || this.hasOwn(eventEnvelope.payload, 'recordType')
-            ? this.resolveRecordType(eventEnvelope.payload)
+          type: this.hasOwn(eventEnvelope.payload, 'type')
+            ? eventEnvelope.payload['type'] as string
             : existing.type,
-          name: this.hasOwn(eventEnvelope.payload, 'body')
-            ? eventEnvelope.payload['body'] as string
+          name: this.hasOwn(eventEnvelope.payload, 'name')
+            ? eventEnvelope.payload['name'] as string
             : existing.name,
           ownerUserId: existing.ownerUserId,
           createdAt: this.hasOwn(eventEnvelope.payload, 'createdAt')
@@ -480,9 +483,11 @@ export class VaultDomainProjection {
           return;
         }
 
+        this.assertCanonicalRecordPayload(eventEnvelope.payload);
+
         this.records.set(eventEnvelope.entityId, {
           ...existing,
-          name: eventEnvelope.payload['body'] as string,
+          name: eventEnvelope.payload['name'] as string,
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
@@ -503,7 +508,7 @@ export class VaultDomainProjection {
 
         this.folders.set(eventEnvelope.entityId, {
           ...existing,
-          parentId: (eventEnvelope.payload['parentFolderUuid'] as string | null | undefined) ?? null,
+          parentId: this.resolveFolderParentId(eventEnvelope.payload),
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
@@ -518,7 +523,7 @@ export class VaultDomainProjection {
 
         this.threads.set(eventEnvelope.entityId, {
           ...existing,
-          folderId: (eventEnvelope.payload['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID,
+          folderId: this.resolveThreadFolderId(eventEnvelope.payload),
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
@@ -531,9 +536,11 @@ export class VaultDomainProjection {
           return;
         }
 
+        this.assertCanonicalRecordPayload(eventEnvelope.payload);
+
         this.records.set(eventEnvelope.entityId, {
           ...existing,
-          threadId: eventEnvelope.payload['threadUuid'] as string,
+          threadId: eventEnvelope.payload['threadId'] as string,
           lastEventVersion: eventEnvelope.eventVersion,
           lastMutationVersion: eventEnvelope.eventVersion,
         });
@@ -851,13 +858,15 @@ export class VaultDomainProjection {
     return Object.prototype.hasOwnProperty.call(payload, key);
   }
 
-  private resolveRecordType(payload: Record<string, unknown>): string {
-    const recordType = payload['recordType'];
-    if (typeof recordType === 'string') {
-      return recordType;
+  private assertCanonicalRecordPayload(payload: Record<string, unknown>): void {
+    if (
+      this.hasOwn(payload, 'uuid')
+      || this.hasOwn(payload, 'threadUuid')
+      || this.hasOwn(payload, 'body')
+      || this.hasOwn(payload, 'recordType')
+    ) {
+      throw new Error('Record event payload must be canonical');
     }
-
-    return payload['type'] as string;
   }
 
   private resolveImageGroupId(payload: Record<string, unknown>): string | null {
@@ -894,6 +903,26 @@ export class VaultDomainProjection {
     }
 
     return payload['createdAt'] as number;
+  }
+
+  private resolveFolderParentId(payload: Record<string, unknown>): string | null {
+    const parentId = payload['parentId'];
+    if (typeof parentId === 'string' || parentId === null) {
+      return parentId;
+    }
+
+    const legacyParentId = payload['parentFolderUuid'];
+    return typeof legacyParentId === 'string' || legacyParentId === null ? legacyParentId : null;
+  }
+
+  private resolveThreadFolderId(payload: Record<string, unknown>): string {
+    const folderId = payload['folderId'];
+    if (typeof folderId === 'string') {
+      return folderId;
+    }
+
+    const legacyFolderId = payload['folderUuid'];
+    return typeof legacyFolderId === 'string' ? legacyFolderId : ROOT_FOLDER_ID;
   }
 
   private resolveIsStarred(payload: Record<string, unknown>): boolean {

@@ -30,6 +30,10 @@ export class WebRelayClient {
 
   private ws: WebSocket | null = null;
   private outboundSequence = 1;
+  private readonly projectionAuditMetadata = new WeakMap<TransportEnvelope, {
+    readonly ingressHash: string;
+    readonly payloadRef: Record<string, unknown>;
+  }>();
   private readonly currentSessionId = signal<string | null>(null);
   private readonly currentSessionToken = signal<string | null>(null);
 
@@ -65,6 +69,7 @@ export class WebRelayClient {
 
             if (envelope !== null) {
               this.captureSession(envelope);
+              this.captureProjectionIngressAudit(envelope);
               console.log(
                 `WS_MESSAGE_PARSED type=${envelope.type} sessionId=${formatSessionId(envelope.sessionId)}`,
               );
@@ -320,6 +325,7 @@ export class WebRelayClient {
     }
 
     if (isProjectionMessageType(envelope.type)) {
+      this.emitProjectionEgressAudit(envelope);
       console.log(`MESSAGE_ROUTED type=${envelope.type} target=projection`);
       for (const handler of this.projectionHandlers) {
         handler(envelope);
@@ -329,6 +335,34 @@ export class WebRelayClient {
     for (const handler of this.envelopeHandlers) {
       handler(envelope);
     }
+  }
+
+  private captureProjectionIngressAudit(envelope: TransportEnvelope): void {
+    if (!isProjectionMessageType(envelope.type)) {
+      return;
+    }
+
+    const payloadRef = envelope.payload as Record<string, unknown>;
+    const ingressHash = hashObjectForAudit(payloadRef);
+    this.projectionAuditMetadata.set(envelope, {
+      ingressHash,
+      payloadRef,
+    });
+    console.log(`RELAY_INGRESS_HASH ${JSON.stringify({ type: envelope.type, sequence: envelope.sequence, hash: ingressHash })}`);
+  }
+
+  private emitProjectionEgressAudit(envelope: TransportEnvelope): void {
+    const metadata = this.projectionAuditMetadata.get(envelope);
+    const egressHash = hashObjectForAudit(envelope.payload as Record<string, unknown>);
+
+    console.log(`RELAY_EGRESS_HASH ${JSON.stringify({ type: envelope.type, sequence: envelope.sequence, hash: egressHash })}`);
+    console.log(`PAYLOAD_REFERENCE_EQUALITY ${String(metadata?.payloadRef === envelope.payload)}`);
+
+    if (metadata && metadata.ingressHash !== egressHash) {
+      console.error(`RELAY_PAYLOAD_HASH_MISMATCH ${JSON.stringify({ type: envelope.type, sequence: envelope.sequence, ingressHash: metadata.ingressHash, egressHash })}`);
+    }
+
+    this.projectionAuditMetadata.delete(envelope);
   }
 }
 
@@ -396,4 +430,18 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isUuidV4(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function hashObjectForAudit(value: Record<string, unknown>): string {
+  return hashStringForAudit(JSON.stringify(value));
+}
+
+function hashStringForAudit(value: string): string {
+  let hash = 5381;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+  }
+
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
