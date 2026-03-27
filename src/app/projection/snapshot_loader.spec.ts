@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SnapshotLoader, type SnapshotLoaderEvent } from './snapshot_loader';
+import type { ProjectionSnapshotDocument } from './projection.models';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 
 function createEnvelope(
@@ -59,6 +60,7 @@ async function createSnapshotProtocol(snapshotJson: string, baseEventVersion = 4
   const midpoint = Math.max(1, Math.floor(bytes.length / 2));
   const chunkBytes = [bytes.slice(0, midpoint), bytes.slice(midpoint)].filter((chunk) => chunk.byteLength > 0);
   const checksum = await sha256Hex(bytes);
+  const parsedSnapshot = JSON.parse(snapshotJson) as { readonly entities?: readonly unknown[] };
 
   return {
     start: createEnvelope('snapshot_start', {
@@ -69,33 +71,8 @@ async function createSnapshotProtocol(snapshotJson: string, baseEventVersion = 4
       protocolVersion: 2,
       schemaVersion: 1,
       baseEventVersion,
-      entityCount: 3,
+      entityCount: parsedSnapshot.entities?.length ?? 0,
       checksum,
-    }),
-    chunks: chunkBytes.map((chunk, index) =>
-      createEnvelope('snapshot_chunk', {
-        index,
-        data: toBase64(chunk),
-      }, index + 2),
-    ),
-    complete: createEnvelope('snapshot_complete', { totalChunks: chunkBytes.length }, chunkBytes.length + 2),
-  };
-}
-
-async function createMobileSnapshotProtocol(snapshotJson: string, snapshotVersion = 1): Promise<{
-  readonly start: TransportEnvelope;
-  readonly chunks: readonly TransportEnvelope[];
-  readonly complete: TransportEnvelope;
-}> {
-  const bytes = encodeUtf8(snapshotJson);
-  const midpoint = Math.max(1, Math.floor(bytes.length / 2));
-  const chunkBytes = [bytes.slice(0, midpoint), bytes.slice(midpoint)].filter((chunk) => chunk.byteLength > 0);
-
-  return {
-    start: createEnvelope('snapshot_start', {
-      totalChunks: chunkBytes.length,
-      totalBytes: bytes.byteLength,
-      snapshotVersion,
     }),
     chunks: chunkBytes.map((chunk, index) =>
       createEnvelope('snapshot_chunk', {
@@ -113,6 +90,66 @@ function createCanonicalSnapshotJson(options: {
   readonly recordBody?: string;
 } = {}): string {
   return JSON.stringify({
+    snapshotVersion: 1,
+    protocolVersion: 2,
+    schemaVersion: 1,
+    baseEventVersion: 41,
+    generatedAt: '2026-03-27T00:00:00.000Z',
+    entityCount: 3,
+    checksum: 'transport-checksum-is-verified-separately',
+    entities: [
+      {
+        entityType: 'folder',
+        entityUuid: 'folder-1',
+        entityVersion: 1,
+        lastEventVersion: 1,
+        ownerUserId: 'owner-1',
+        data: {
+          uuid: 'folder-1',
+          name: options.folderName ?? 'Inbox',
+          parentFolderUuid: null,
+        },
+      },
+      {
+        entityType: 'thread',
+        entityUuid: 'thread-1',
+        entityVersion: 2,
+        lastEventVersion: 2,
+        ownerUserId: 'owner-1',
+        data: {
+          uuid: 'thread-1',
+          folderUuid: 'folder-1',
+          title: options.threadTitle ?? 'Roadmap',
+        },
+      },
+      {
+        entityType: 'record',
+        entityUuid: 'record-1',
+        entityVersion: 3,
+        lastEventVersion: 3,
+        ownerUserId: 'owner-1',
+        data: {
+          uuid: 'record-1',
+          threadUuid: 'thread-1',
+          type: 'text',
+          body: options.recordBody ?? 'Seed note',
+          createdAt: 1710000000,
+          editedAt: 1710000000,
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
+        },
+      },
+    ],
+  });
+}
+
+function createExpectedProjectionSnapshot(options: {
+  readonly folderName?: string;
+  readonly threadTitle?: string;
+  readonly recordBody?: string;
+} = {}): ProjectionSnapshotDocument {
+  return {
     folders: [
       {
         entityType: 'folder',
@@ -161,7 +198,7 @@ function createCanonicalSnapshotJson(options: {
         },
       },
     ],
-  });
+  };
 }
 
 describe('SnapshotLoader', () => {
@@ -195,7 +232,7 @@ describe('SnapshotLoader', () => {
     expect(events).toEqual([
       {
         type: 'SNAPSHOT_LOADED',
-        parsedSnapshot: JSON.parse(secondSnapshotJson),
+        parsedSnapshot: createExpectedProjectionSnapshot({ folderName: 'Second' }),
         baseEventVersion: 84,
         entityCount: 3,
       },
@@ -214,7 +251,7 @@ describe('SnapshotLoader', () => {
 
     expect(events).toContainEqual({
       type: 'SNAPSHOT_LOADED',
-      parsedSnapshot: JSON.parse(snapshotJson),
+      parsedSnapshot: createExpectedProjectionSnapshot({ folderName: 'Cafe \u2615' }),
       baseEventVersion: 12,
       entityCount: 3,
     });
@@ -236,15 +273,29 @@ describe('SnapshotLoader', () => {
 
     expect(events).toContainEqual({
       type: 'SNAPSHOT_LOADED',
-      parsedSnapshot: JSON.parse(snapshotJson),
+      parsedSnapshot: createExpectedProjectionSnapshot({
+        folderName: 'Cafe \u2615',
+        threadTitle: 'na\u00efve',
+        recordBody: 'r\u00e9sum\u00e9',
+      }),
       baseEventVersion: 12,
       entityCount: 3,
     });
   });
 
-  it('snapshot_start_accepts_mobile_minimal_payload', async () => {
-    const snapshotJson = '{"folders":[],"threads":[],"records":[]}';
-    const protocol = await createMobileSnapshotProtocol(snapshotJson, 9);
+  it('snapshot_accepts_canonical_root_with_unknown_fields', async () => {
+    const snapshotJson = JSON.stringify({
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 9,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: 0,
+      checksum: 'ignored-in-payload-checksum',
+      entities: [],
+      futureField: { nested: true },
+    });
+    const protocol = await createSnapshotProtocol(snapshotJson, 9);
 
     loader.handleSnapshotStart(protocol.start);
     for (const chunk of protocol.chunks) {
@@ -255,18 +306,149 @@ describe('SnapshotLoader', () => {
     expect(events).toEqual([
       {
         type: 'SNAPSHOT_LOADED',
-        parsedSnapshot: JSON.parse(snapshotJson),
+        parsedSnapshot: { folders: [], threads: [], records: [] },
         baseEventVersion: 9,
         entityCount: 0,
       },
     ]);
   });
 
+  it('snapshot_accepts_mobile_record_null_fields', async () => {
+    const snapshotJson = JSON.stringify({
+      snapshotVersion: 2,
+      protocolVersion: 2,
+      schemaVersion: 2,
+      baseEventVersion: 9,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: 3,
+      checksum: 'entities-checksum',
+      entities: [
+        {
+          entityType: 'folder',
+          entityUuid: 'folder-1',
+          entityVersion: 1,
+          lastEventVersion: 1,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'folder-1',
+            title: 'Inbox',
+            parentFolderUuid: null,
+            createdAt: '2026-03-27T00:00:00.000Z',
+          },
+        },
+        {
+          entityType: 'thread',
+          entityUuid: 'thread-1',
+          entityVersion: 2,
+          lastEventVersion: 2,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'thread-1',
+            folderUuid: 'folder-1',
+            title: 'Roadmap',
+            kind: 'notes',
+          },
+        },
+        {
+          entityType: 'record',
+          entityUuid: 'record-1',
+          entityVersion: 3,
+          lastEventVersion: 3,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'record-1',
+            threadUuid: 'thread-1',
+            type: 'text',
+            title: null,
+            body: null,
+            text: 'Fallback text',
+            createdAt: '2026-03-27T00:00:00.000Z',
+            editedAt: '2026-03-27T00:00:01.000Z',
+            orderIndex: 0,
+            isStarred: false,
+            isAiGenerated: false,
+            imageGroupId: null,
+          },
+        },
+      ],
+    });
+    const protocol = await createSnapshotProtocol(snapshotJson, 9);
+
+    loader.handleSnapshotStart(protocol.start);
+    for (const chunk of protocol.chunks) {
+      loader.handleSnapshotChunk(chunk);
+    }
+    await loader.handleSnapshotComplete(protocol.complete);
+
+    expect(events).toEqual([
+      {
+        type: 'SNAPSHOT_LOADED',
+        parsedSnapshot: {
+          folders: [
+            {
+              entityType: 'folder',
+              entityUuid: 'folder-1',
+              entityVersion: 1,
+              lastEventVersion: 1,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'folder-1',
+                name: 'Inbox',
+                parentFolderUuid: null,
+              },
+            },
+          ],
+          threads: [
+            {
+              entityType: 'thread',
+              entityUuid: 'thread-1',
+              entityVersion: 2,
+              lastEventVersion: 2,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'thread-1',
+                folderUuid: 'folder-1',
+                title: 'Roadmap',
+              },
+            },
+          ],
+          records: [
+            {
+              entityType: 'record',
+              entityUuid: 'record-1',
+              entityVersion: 3,
+              lastEventVersion: 3,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'record-1',
+                threadUuid: 'thread-1',
+                type: 'text',
+                body: 'Fallback text',
+                createdAt: Date.parse('2026-03-27T00:00:00.000Z'),
+                editedAt: Date.parse('2026-03-27T00:00:01.000Z'),
+                orderIndex: 0,
+                isStarred: false,
+                imageGroupId: null,
+              },
+            },
+          ],
+        },
+        baseEventVersion: 9,
+        entityCount: 3,
+      },
+    ]);
+  });
+
   it('snapshot_complete_snapshot_rebuild', async () => {
     const snapshotJson = JSON.stringify({
-      folders: [{ entityType: 'folder', entityUuid: 'f1', entityVersion: 1, lastEventVersion: 1, ownerUserId: 'u1', data: { uuid: 'f1', name: 'Inbox', parentFolderUuid: null } }],
-      threads: [],
-      records: [],
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 7,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: 1,
+      checksum: 'ignored-in-payload-checksum',
+      entities: [{ entityType: 'folder', entityUuid: 'f1', entityVersion: 1, lastEventVersion: 1, ownerUserId: 'u1', data: { uuid: 'f1', name: 'Inbox', parentFolderUuid: null } }],
     });
     const protocol = await createSnapshotProtocol(snapshotJson, 7);
 
@@ -276,14 +458,27 @@ describe('SnapshotLoader', () => {
 
     expect(events[0]).toEqual({
       type: 'SNAPSHOT_LOADED',
-      parsedSnapshot: JSON.parse(snapshotJson),
+      parsedSnapshot: {
+        folders: [{ entityType: 'folder', entityUuid: 'f1', entityVersion: 1, lastEventVersion: 1, ownerUserId: 'u1', data: { uuid: 'f1', name: 'Inbox', parentFolderUuid: null } }],
+        threads: [],
+        records: [],
+      },
       baseEventVersion: 7,
       entityCount: 1,
     });
   });
 
   it('snapshot_checksum_verification', async () => {
-    const protocol = await createSnapshotProtocol('{"folders":[],"threads":[],"records":[]}');
+    const protocol = await createSnapshotProtocol(JSON.stringify({
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 41,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: 0,
+      checksum: 'ignored-in-payload-checksum',
+      entities: [],
+    }));
     const invalidStart = createEnvelope('snapshot_start', {
       ...protocol.start.payload,
       checksum: 'deadbeef',
@@ -303,6 +498,64 @@ describe('SnapshotLoader', () => {
 
   it('snapshot_loader_reconstruction', async () => {
     const snapshotJson = JSON.stringify({
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 77,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: 3,
+      checksum: 'ignored-in-payload-checksum',
+      entities: [
+        {
+          entityType: 'folder',
+          entityUuid: 'folder-root',
+          entityVersion: 1,
+          lastEventVersion: 1,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'folder-root',
+            name: 'Inbox',
+            parentFolderUuid: null,
+          },
+        },
+        {
+          entityType: 'thread',
+          entityUuid: 'thread-1',
+          entityVersion: 2,
+          lastEventVersion: 2,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'thread-1',
+            folderUuid: 'folder-root',
+            title: 'Roadmap',
+          },
+        },
+        {
+          entityType: 'record',
+          entityUuid: 'record-1',
+          entityVersion: 3,
+          lastEventVersion: 3,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'record-1',
+            threadUuid: 'thread-1',
+            type: 'text',
+            body: 'Deterministic body',
+            createdAt: 1710000001,
+            editedAt: 1710000001,
+            orderIndex: 0,
+            isStarred: false,
+            imageGroupId: null,
+          },
+        },
+      ],
+    });
+    const protocol = await createSnapshotProtocol(snapshotJson, 77);
+
+    const reconstruction = await loader.loadSnapshotForTest(protocol);
+
+    expect(reconstruction.snapshotJson).toBe(snapshotJson);
+    expect(reconstruction.parsedSnapshot).toEqual({
       folders: [
         {
           entityType: 'folder',
@@ -352,12 +605,6 @@ describe('SnapshotLoader', () => {
         },
       ],
     });
-    const protocol = await createSnapshotProtocol(snapshotJson, 77);
-
-    const reconstruction = await loader.loadSnapshotForTest(protocol);
-
-    expect(reconstruction.snapshotJson).toBe(snapshotJson);
-    expect(reconstruction.parsedSnapshot).toEqual(JSON.parse(snapshotJson));
     expect(reconstruction.baseEventVersion).toBe(77);
     expect(reconstruction.reconstructedChecksum).toBe(protocol.start.payload['checksum']);
     expect(reconstruction.mobileChecksum).toBe(protocol.start.payload['checksum']);
@@ -365,7 +612,16 @@ describe('SnapshotLoader', () => {
   });
 
   it('snapshot_checksum_verification_for_test_hook', async () => {
-    const protocol = await createSnapshotProtocol('{"folders":[],"threads":[],"records":[]}', 33);
+    const protocol = await createSnapshotProtocol(JSON.stringify({
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 33,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: 0,
+      checksum: 'ignored-in-payload-checksum',
+      entities: [],
+    }), 33);
     const invalidProtocol = {
       ...protocol,
       start: createEnvelope('snapshot_start', {
@@ -378,7 +634,16 @@ describe('SnapshotLoader', () => {
   });
 
   it('snapshot_reject_on_invalid_chunk_order', async () => {
-    const protocol = await createSnapshotProtocol('{"folders":[],"threads":[],"records":[]}');
+    const protocol = await createSnapshotProtocol(JSON.stringify({
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 41,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: 0,
+      checksum: 'ignored-in-payload-checksum',
+      entities: [],
+    }));
 
     loader.handleSnapshotStart(protocol.start);
     loader.handleSnapshotChunk(protocol.chunks[1] ?? protocol.chunks[0]!);

@@ -92,13 +92,13 @@ export interface ProjectionSnapshotDocument {
 }
 
 export interface EventEnvelope {
-  readonly eventId: string;
+  readonly eventId: number | string;
   readonly originDeviceId: string;
   readonly eventVersion: number;
   readonly entityType: EventEntity;
   readonly entityId: string;
   readonly operation: EventOperation;
-  readonly timestamp: number;
+  readonly timestamp: string | number;
   readonly payload: Record<string, unknown>;
   readonly checksum: string;
 }

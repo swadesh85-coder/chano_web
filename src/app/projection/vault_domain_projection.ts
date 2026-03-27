@@ -55,7 +55,7 @@ export class VaultDomainProjection {
   private readonly folders = new Map<string, CanonicalFolder>();
   private readonly threads = new Map<string, CanonicalThread>();
   private readonly records = new Map<string, CanonicalRecord>();
-  private readonly appliedEventIds = new Set<string>();
+  private readonly appliedEventIds = new Set<number | string>();
 
   reset(): void {
     this.folders.clear();

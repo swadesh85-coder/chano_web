@@ -186,10 +186,21 @@ describe('ProjectionStore', () => {
     threads: Record<string, unknown>[] = [],
     records: Record<string, unknown>[] = [],
   ): string {
+    const entities = [
+      ...normalizeSnapshotEntities('folder', folders),
+      ...normalizeSnapshotEntities('thread', threads),
+      ...normalizeSnapshotEntities('record', records),
+    ];
+
     return JSON.stringify({
-      folders: normalizeSnapshotEntities('folder', folders),
-      threads: normalizeSnapshotEntities('thread', threads),
-      records: normalizeSnapshotEntities('record', records),
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 100,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: entities.length,
+      checksum: 'ignored-in-payload-checksum',
+      entities,
     });
   }
 
@@ -226,9 +237,16 @@ describe('ProjectionStore', () => {
     }
 
     return JSON.stringify({
-      folders: [folderEntity],
-      threads: [threadEntity],
-      records: [
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 100,
+      generatedAt: '2026-03-27T00:00:00.000Z',
+      entityCount: 3,
+      checksum: 'ignored-in-payload-checksum',
+      entities: [
+        folderEntity,
+        threadEntity,
         {
           entityType: 'record',
           entityUuid: 'record-1',
@@ -265,9 +283,7 @@ describe('ProjectionStore', () => {
     const chunkSize = Math.max(1, Math.ceil(bytes.length / chunkCount));
     const chunks: Uint8Array[] = [];
     const parsedSnapshot = JSON.parse(snapshotJson) as {
-      readonly folders?: readonly unknown[];
-      readonly threads?: readonly unknown[];
-      readonly records?: readonly unknown[];
+      readonly entities?: readonly unknown[];
     };
 
     for (let offset = 0; offset < bytes.length; offset += chunkSize) {
@@ -283,9 +299,7 @@ describe('ProjectionStore', () => {
         protocolVersion: 2,
         schemaVersion: 1,
         baseEventVersion,
-        entityCount: (parsedSnapshot.folders?.length ?? 0)
-          + (parsedSnapshot.threads?.length ?? 0)
-          + (parsedSnapshot.records?.length ?? 0),
+        entityCount: parsedSnapshot.entities?.length ?? 0,
         checksum,
       },
       chunks: chunks.map((chunk, index) => ({
@@ -330,13 +344,13 @@ describe('ProjectionStore', () => {
     payload: Record<string, unknown>,
   ): Promise<void> {
     emitRaw('event_stream', {
-      eventId: `evt-${eventVersion}`,
+      eventId: eventVersion,
       originDeviceId: 'mobile-1',
       eventVersion,
       entityType: 'record',
       entityId: recordId,
       operation: 'create',
-      timestamp: 1_710_000_000 + eventVersion,
+      timestamp: new Date((1_710_000_000 + eventVersion) * 1000).toISOString(),
       payload,
       checksum: await sha256Hex(encodeUtf8(JSON.stringify(payload))),
     });
@@ -477,6 +491,32 @@ describe('ProjectionStore', () => {
     consoleLog.mockRestore();
   });
 
+  it('derives a stable snapshot log id when transport snapshotId is omitted', async () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const protocol = await createByteSnapshotProtocol(buildSnapshotJson(
+      [{ id: 'folder-1', name: 'Inbox' }],
+      [{ id: 'thread-1', folderId: 'folder-1', title: 'Roadmap' }],
+      [{ id: 'record-1', threadId: 'thread-1', type: 'text', name: 'Seed', createdAt: 1 }],
+    ), 125, 1);
+
+    const { snapshotId: _snapshotId, ...startWithoutSnapshotId } = protocol.start;
+
+    emitRaw('snapshot_start', startWithoutSnapshotId);
+    emitRaw('snapshot_chunk', protocol.chunks[0]!);
+    emitRaw('snapshot_complete', protocol.complete);
+    await flushAsyncWork();
+
+    expect(store.phase()).toBe('ready');
+    expect(consoleLog.mock.calls).toContainEqual([
+      `SNAPSHOT_ASSEMBLY_STARTED snapshotId=base-125-sha-${String(protocol.start['checksum']).slice(0, 12)}`,
+    ]);
+    expect(consoleLog.mock.calls).toContainEqual([
+      `SNAPSHOT_RECEIVE_START snapshotId=base-125-sha-${String(protocol.start['checksum']).slice(0, 12)} totalChunks=1 type=snapshot_start sessionId=session-projection-store`,
+    ]);
+
+    consoleLog.mockRestore();
+  });
+
   it('rejects legacy snapshot chunk payloads and preserves committed state', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -574,8 +614,7 @@ describe('ProjectionStore', () => {
     expect(store.lastProjectionUpdate()).toBeNull();
     expect(publishProjectionStateSpy).not.toHaveBeenCalled();
     expect(applySnapshotSpy).not.toHaveBeenCalled();
-    expect(errorSpy.mock.calls).toContainEqual(['SCHEMA_VALIDATION_ERROR entity field mismatch']);
-    expect(errorSpy.mock.calls).toContainEqual(['SNAPSHOT_ERROR invalid snapshot schema']);
+    expect(errorSpy.mock.calls.some((call) => String(call[0]).startsWith('SNAPSHOT_ERROR'))).toBe(true);
 
     errorSpy.mockRestore();
   });

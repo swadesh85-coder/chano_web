@@ -1,6 +1,12 @@
 import { Injectable } from '@angular/core';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
-import type { ProjectionSnapshotDocument, RecordSnapshotEntity, SnapshotEntity } from './projection.models';
+import type {
+  FolderSnapshotEntity,
+  ProjectionSnapshotDocument,
+  RecordSnapshotEntity,
+  SnapshotEntity,
+  ThreadSnapshotEntity,
+} from './projection.models';
 
 type SnapshotLoaderEventHandler = (event: SnapshotLoaderEvent) => void;
 
@@ -50,9 +56,31 @@ type SnapshotCompletePayload = {
 
 type SnapshotEntityType = SnapshotEntity['entityType'];
 
+type CanonicalSnapshotEntityType = 'folder' | 'thread' | 'record';
+
+type CanonicalSnapshotRoot = {
+  readonly snapshotVersion: number;
+  readonly protocolVersion: number;
+  readonly schemaVersion: number;
+  readonly baseEventVersion: number;
+  readonly generatedAt: string;
+  readonly entityCount: number;
+  readonly checksum: string;
+  readonly entities: readonly unknown[];
+};
+
+type CanonicalSnapshotEntity = {
+  readonly entityType: CanonicalSnapshotEntityType;
+  readonly entityUuid: string;
+  readonly entityVersion: number;
+  readonly lastEventVersion: number;
+  readonly ownerUserId: string;
+  readonly data: Record<string, unknown>;
+};
+
 type FolderEntityData = {
-  readonly uuid: string;
-  readonly name: string;
+  readonly name?: string;
+  readonly title?: string;
   readonly parentFolderUuid: string | null;
 };
 
@@ -63,18 +91,18 @@ type ThreadEntityData = {
 };
 
 type RecordEntityData = {
-  readonly uuid: string;
   readonly threadUuid: string;
   readonly type: string;
-  readonly body: string;
-  readonly createdAt: number;
-  readonly editedAt: number;
-  readonly orderIndex: number;
-  readonly isStarred: boolean;
+  readonly body?: string;
+  readonly text?: string;
+  readonly title?: string;
+  readonly createdAt?: number | string;
+  readonly editedAt?: number | string;
+  readonly orderIndex?: number;
+  readonly isStarred?: boolean;
   readonly imageGroupId: string | null;
   readonly mediaId?: string;
   readonly mimeType?: string;
-  readonly title?: string;
   readonly size?: number | null;
 };
 
@@ -286,7 +314,12 @@ export class SnapshotLoader {
       totalChunks,
       totalBytes,
       snapshotVersion,
-      snapshotId: this.readOptionalString(snapshotStartPayload['snapshotId']),
+      snapshotId: this.resolveSnapshotLogId(
+        this.readOptionalString(snapshotStartPayload['snapshotId']),
+        this.readOptionalString(snapshotStartPayload['checksum']),
+        this.readOptionalNumber(snapshotStartPayload['baseEventVersion']) ?? snapshotVersion,
+        totalChunks,
+      ),
       protocolVersion: this.readOptionalNumber(snapshotStartPayload['protocolVersion']),
       schemaVersion: this.readOptionalNumber(snapshotStartPayload['schemaVersion']),
       baseEventVersion: this.readOptionalNumber(snapshotStartPayload['baseEventVersion']) ?? snapshotVersion,
@@ -403,14 +436,20 @@ export class SnapshotLoader {
 
     let parsedSnapshot: ProjectionSnapshotDocument;
     try {
-      parsedSnapshot = JSON.parse(snapshotJson) as ProjectionSnapshotDocument;
-    } catch {
-      this.fail('invalid snapshot json');
-      return null;
-    }
+      const parsedRoot = JSON.parse(snapshotJson) as unknown;
+      const canonicalSnapshot = this.parseCanonicalSnapshotRoot(parsedRoot);
+      if (canonicalSnapshot === null) {
+        this.fail('invalid snapshot schema');
+        return null;
+      }
 
-    if (!this.isValidSnapshotDocument(parsedSnapshot)) {
-      this.reportSchemaValidationError();
+      parsedSnapshot = this.transformCanonicalSnapshot(canonicalSnapshot);
+    } catch (error: unknown) {
+      if (error instanceof SyntaxError) {
+        this.fail('invalid snapshot json');
+        return null;
+      }
+
       this.fail('invalid snapshot schema');
       return null;
     }
@@ -450,137 +489,244 @@ export class SnapshotLoader {
       + (snapshot.records?.length ?? 0);
   }
 
-  private isValidSnapshotDocument(snapshot: unknown): snapshot is ProjectionSnapshotDocument {
+  private parseCanonicalSnapshotRoot(snapshot: unknown): CanonicalSnapshotRoot | null {
     if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
-      return false;
+      return null;
     }
 
     const snapshotRecord = snapshot as Record<string, unknown>;
-    return this.hasAllowedKeys(snapshotRecord, ['folders', 'threads', 'records'])
-      && this.isValidSnapshotEntityCollection(snapshotRecord['folders'], 'folder')
-      && this.isValidSnapshotEntityCollection(snapshotRecord['threads'], 'thread')
-      && this.isValidSnapshotEntityCollection(snapshotRecord['records'], 'record');
-  }
-
-  private isValidSnapshotEntityCollection(raw: unknown, expectedType: SnapshotEntityType): boolean {
-    if (raw === undefined) {
-      return true;
+    if (!this.hasRequiredKeys(snapshotRecord, [
+      'snapshotVersion',
+      'protocolVersion',
+      'schemaVersion',
+      'baseEventVersion',
+      'generatedAt',
+      'entityCount',
+      'checksum',
+      'entities',
+    ])) {
+      return null;
     }
 
-    return Array.isArray(raw) && raw.every((entity) => this.isValidSnapshotEntity(entity, expectedType));
+    const {
+      snapshotVersion,
+      protocolVersion,
+      schemaVersion,
+      baseEventVersion,
+      generatedAt,
+      entityCount,
+      checksum,
+      entities,
+    } = snapshotRecord;
+
+    if (
+      !this.isNonNegativeInteger(snapshotVersion)
+      || !this.isNonNegativeInteger(protocolVersion)
+      || !this.isNonNegativeInteger(schemaVersion)
+      || !this.isNonNegativeInteger(baseEventVersion)
+      || typeof generatedAt !== 'string'
+      || generatedAt.length === 0
+      || !this.isNonNegativeInteger(entityCount)
+      || typeof checksum !== 'string'
+      || checksum.length === 0
+      || !Array.isArray(entities)
+    ) {
+      return null;
+    }
+
+    return {
+      snapshotVersion,
+      protocolVersion,
+      schemaVersion,
+      baseEventVersion,
+      generatedAt,
+      entityCount,
+      checksum,
+      entities,
+    };
   }
 
-  private isValidSnapshotEntity(raw: unknown, expectedType: SnapshotEntityType): raw is SnapshotEntity {
+  private transformCanonicalSnapshot(snapshot: CanonicalSnapshotRoot): ProjectionSnapshotDocument {
+    const folders: FolderSnapshotEntity[] = [];
+    const threads: ThreadSnapshotEntity[] = [];
+    const records: RecordSnapshotEntity[] = [];
+
+    for (const rawEntity of snapshot.entities) {
+      const entity = this.parseCanonicalEntity(rawEntity);
+      if (entity === null) {
+        throw new Error('INVALID_CANONICAL_ENTITY');
+      }
+
+      switch (entity.entityType) {
+        case 'folder':
+          folders.push(this.toFolderSnapshotEntity(entity));
+          break;
+        case 'thread':
+          threads.push(this.toThreadSnapshotEntity(entity));
+          break;
+        case 'record':
+          records.push(this.toRecordSnapshotEntity(entity));
+          break;
+      }
+    }
+
+    return {
+      folders,
+      threads,
+      records,
+    };
+  }
+
+  private parseCanonicalEntity(raw: unknown): CanonicalSnapshotEntity | null {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-      return false;
+      return null;
     }
 
     const entity = raw as Record<string, unknown>;
-    if (!this.hasExactKeys(entity, ['entityType', 'entityUuid', 'entityVersion', 'ownerUserId', 'lastEventVersion', 'data'])) {
-      return false;
-    }
-    if (!this.isNonNegativeInteger(entity['lastEventVersion'])) {
-      return false;
+    if (!this.hasRequiredKeys(entity, [
+      'entityType',
+      'entityUuid',
+      'entityVersion',
+      'lastEventVersion',
+      'ownerUserId',
+      'data',
+    ])) {
+      return null;
     }
 
     const entityType = entity['entityType'];
     const entityUuid = entity['entityUuid'];
     const entityVersion = entity['entityVersion'];
+    const lastEventVersion = entity['lastEventVersion'];
     const ownerUserId = entity['ownerUserId'];
     const data = entity['data'];
 
-    if (entityType !== expectedType) {
-      return false;
-    }
-    if (!this.isUuid(entityUuid)) {
-      return false;
-    }
-    if (!this.isNonNegativeInteger(entityVersion)) {
-      return false;
-    }
-    if (typeof ownerUserId !== 'string') {
-      return false;
-    }
-    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
-      return false;
+    if (
+      !this.isCanonicalSnapshotEntityType(entityType)
+      || !this.isUuid(entityUuid)
+      || !this.isNonNegativeInteger(entityVersion)
+      || !this.isNonNegativeInteger(lastEventVersion)
+      || typeof ownerUserId !== 'string'
+      || data === null
+      || typeof data !== 'object'
+      || Array.isArray(data)
+    ) {
+      return null;
     }
 
-    const dataRecord = data as Record<string, unknown>;
-    if (dataRecord['uuid'] !== entityUuid) {
-      return false;
-    }
-
-    switch (expectedType) {
-      case 'folder':
-        return this.isValidFolderEntityData(dataRecord);
-      case 'thread':
-        return this.isValidThreadEntityData(dataRecord);
-      case 'record':
-        return this.isValidRecordSnapshotEntity(entity, dataRecord);
-    }
+    return {
+      entityType,
+      entityUuid,
+      entityVersion,
+      lastEventVersion,
+      ownerUserId,
+      data: data as Record<string, unknown>,
+    };
   }
 
-  private isValidRecordSnapshotEntity(
-    entity: Record<string, unknown>,
-    data: Record<string, unknown>,
-  ): boolean {
-    return this.isNonNegativeInteger(entity['lastEventVersion'])
-      && this.isValidRecordEntityData(data);
+  private toFolderSnapshotEntity(entity: CanonicalSnapshotEntity): FolderSnapshotEntity {
+    if (!this.isValidFolderEntityData(entity.data)) {
+      throw new Error('INVALID_FOLDER_ENTITY');
+    }
+
+    const folderName = this.readString(entity.data['name'])
+      ?? this.readString(entity.data['title']);
+    if (folderName === null) {
+      throw new Error('INVALID_FOLDER_ENTITY');
+    }
+
+    return {
+      entityType: 'folder',
+      entityUuid: entity.entityUuid,
+      entityVersion: entity.entityVersion,
+      lastEventVersion: entity.lastEventVersion,
+      ownerUserId: entity.ownerUserId,
+      data: {
+        uuid: entity.entityUuid,
+        name: folderName,
+        parentFolderUuid: this.readNullableString(entity.data['parentFolderUuid']),
+      },
+    };
+  }
+
+  private toThreadSnapshotEntity(entity: CanonicalSnapshotEntity): ThreadSnapshotEntity {
+    if (!this.isValidThreadEntityData(entity.data)) {
+      throw new Error('INVALID_THREAD_ENTITY');
+    }
+
+    return {
+      entityType: 'thread',
+      entityUuid: entity.entityUuid,
+      entityVersion: entity.entityVersion,
+      lastEventVersion: entity.lastEventVersion,
+      ownerUserId: entity.ownerUserId,
+      data: {
+        uuid: entity.entityUuid,
+        folderUuid: this.readNullableString(entity.data['folderUuid']),
+        title: entity.data['title'],
+      },
+    };
+  }
+
+  private toRecordSnapshotEntity(entity: CanonicalSnapshotEntity): RecordSnapshotEntity {
+    if (!this.isValidRecordEntityData(entity.data)) {
+      throw new Error('INVALID_RECORD_ENTITY');
+    }
+
+    const createdAt = this.readTimestampAsNumber(entity.data['createdAt']) ?? 0;
+    const editedAt = this.readTimestampAsNumber(entity.data['editedAt']) ?? createdAt;
+    const recordBody = this.readString(entity.data['body'])
+      ?? this.readString(entity.data['text'])
+      ?? this.readString(entity.data['title'])
+      ?? '';
+
+    return {
+      entityType: 'record',
+      entityUuid: entity.entityUuid,
+      entityVersion: entity.entityVersion,
+      lastEventVersion: entity.lastEventVersion,
+      ownerUserId: entity.ownerUserId,
+      data: {
+        uuid: entity.entityUuid,
+        threadUuid: entity.data['threadUuid'] as string,
+        type: entity.data['type'] as string,
+        body: recordBody,
+        createdAt,
+        editedAt,
+        orderIndex: this.readNumber(entity.data['orderIndex']) ?? 0,
+        isStarred: entity.data['isStarred'] === true,
+        imageGroupId: this.readNullableString(entity.data['imageGroupId']),
+        ...(this.readString(entity.data['mediaId']) !== null ? { mediaId: this.readString(entity.data['mediaId']) } : {}),
+        ...(this.readString(entity.data['mimeType']) !== null ? { mimeType: this.readString(entity.data['mimeType']) } : {}),
+        ...(this.readString(entity.data['title']) !== null ? { title: this.readString(entity.data['title']) } : {}),
+        ...(this.readNullableNumber(entity.data['size']) !== undefined ? { size: this.readNullableNumber(entity.data['size']) } : {}),
+      },
+    };
   }
 
   private isValidFolderEntityData(data: Record<string, unknown>): data is FolderEntityData {
-    return this.hasExactKeys(data, ['uuid', 'name', 'parentFolderUuid'])
-      && this.isUuid(data['uuid'])
-      && typeof data['name'] === 'string'
-      && this.isNullableString(data['parentFolderUuid']);
+    return (typeof data['name'] === 'string' || typeof data['title'] === 'string')
+      && (data['parentFolderUuid'] === undefined || this.isNullableString(data['parentFolderUuid']));
   }
 
   private isValidThreadEntityData(data: Record<string, unknown>): data is ThreadEntityData {
-    return this.hasExactKeys(data, ['uuid', 'folderUuid', 'title'])
-      && this.isUuid(data['uuid'])
-      && this.isNullableString(data['folderUuid'])
-      && typeof data['title'] === 'string';
+    return typeof data['title'] === 'string'
+      && (data['folderUuid'] === undefined || this.isNullableString(data['folderUuid']));
   }
 
   private isValidRecordEntityData(data: Record<string, unknown>): data is RecordEntityData {
-    return this.hasAllowedKeys(data, [
-      'uuid',
-      'threadUuid',
-      'type',
-      'body',
-      'createdAt',
-      'editedAt',
-      'orderIndex',
-      'isStarred',
-      'imageGroupId',
-      'mediaId',
-      'mimeType',
-      'title',
-      'size',
-    ])
-      && this.hasRequiredKeys(data, [
-        'uuid',
-        'threadUuid',
-        'type',
-        'body',
-        'createdAt',
-        'editedAt',
-        'orderIndex',
-        'isStarred',
-        'imageGroupId',
-      ])
-      && this.isUuid(data['uuid'])
-      && this.isUuid(data['threadUuid'])
+    return this.isUuid(data['threadUuid'])
       && typeof data['type'] === 'string'
-      && typeof data['body'] === 'string'
-      && typeof data['createdAt'] === 'number'
-      && typeof data['editedAt'] === 'number'
-      && typeof data['orderIndex'] === 'number'
-      && typeof data['isStarred'] === 'boolean'
-      && this.isNullableString(data['imageGroupId'])
-      && this.isOptionalString(data['mediaId'])
-      && this.isOptionalString(data['mimeType'])
-      && this.isOptionalString(data['title'])
+      && this.isOptionalNullableString(data['body'])
+      && this.isOptionalNullableString(data['text'])
+      && this.isOptionalNullableString(data['title'])
+      && (data['createdAt'] === undefined || this.isTimestampValue(data['createdAt']))
+      && (data['editedAt'] === undefined || this.isTimestampValue(data['editedAt']))
+      && (data['orderIndex'] === undefined || typeof data['orderIndex'] === 'number')
+      && (data['isStarred'] === undefined || typeof data['isStarred'] === 'boolean')
+      && (data['imageGroupId'] === undefined || this.isNullableString(data['imageGroupId']))
+      && this.isOptionalNullableString(data['mediaId'])
+      && this.isOptionalNullableString(data['mimeType'])
       && this.isOptionalNullableNumber(data['size']);
   }
 
@@ -612,8 +758,50 @@ export class SnapshotLoader {
     return value === undefined || typeof value === 'string';
   }
 
-  private reportSchemaValidationError(): void {
-    console.error('SCHEMA_VALIDATION_ERROR entity field mismatch');
+  private isOptionalNullableString(value: unknown): boolean {
+    return value === undefined || value === null || typeof value === 'string';
+  }
+
+  private readString(value: unknown): string | null {
+    return typeof value === 'string' ? value : null;
+  }
+
+  private readNumber(value: unknown): number | null {
+    return typeof value === 'number' ? value : null;
+  }
+
+  private readNullableString(value: unknown): string | null {
+    return value === null || typeof value === 'string' ? value : null;
+  }
+
+  private readNullableNumber(value: unknown): number | null | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    return typeof value === 'number' || value === null ? value : null;
+  }
+
+  private readTimestampAsNumber(value: unknown): number | null {
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return null;
+  }
+
+  private isTimestampValue(value: unknown): boolean {
+    return typeof value === 'number'
+      || (typeof value === 'string' && Number.isFinite(Date.parse(value)));
+  }
+
+  private isCanonicalSnapshotEntityType(value: unknown): value is CanonicalSnapshotEntityType {
+    return value === 'folder' || value === 'thread' || value === 'record';
   }
 
   private emitEvent(event: SnapshotLoaderEvent): void {
@@ -654,5 +842,22 @@ export class SnapshotLoader {
 
   private formatSessionId(sessionId: string | null): string {
     return sessionId ?? 'null';
+  }
+
+  private resolveSnapshotLogId(
+    snapshotId: string | null,
+    checksum: string | null,
+    baseEventVersion: number,
+    totalChunks: number,
+  ): string | null {
+    if (snapshotId !== null && snapshotId.length > 0) {
+      return snapshotId;
+    }
+
+    if (checksum !== null && checksum.length > 0) {
+      return `base-${baseEventVersion}-sha-${checksum.slice(0, 12).toLowerCase()}`;
+    }
+
+    return `base-${baseEventVersion}-chunks-${totalChunks}`;
   }
 }

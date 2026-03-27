@@ -113,55 +113,59 @@ async function createSnapshotProtocol(sessionId: string): Promise<{
   readonly chunk: TransportEnvelope;
   readonly complete: TransportEnvelope;
 }> {
+  const entities = [
+    {
+      entityType: 'folder',
+      entityUuid: 'folder-audit-1',
+      entityVersion: 1,
+      lastEventVersion: 1,
+      ownerUserId: 'owner-1',
+      data: {
+        uuid: 'folder-audit-1',
+        name: 'Inbox',
+        parentFolderUuid: null,
+      },
+    },
+    {
+      entityType: 'thread',
+      entityUuid: 'thread-audit-1',
+      entityVersion: 1,
+      lastEventVersion: 1,
+      ownerUserId: 'owner-1',
+      data: {
+        uuid: 'thread-audit-1',
+        folderUuid: null,
+        title: 'Snapshot Thread',
+      },
+    },
+    {
+      entityType: 'record',
+      entityUuid: 'record-audit-1',
+      entityVersion: 1,
+      lastEventVersion: 1,
+      ownerUserId: 'owner-1',
+      data: {
+        uuid: 'record-audit-1',
+        threadUuid: 'thread-audit-1',
+        type: 'text',
+        body: 'Snapshot Record',
+        createdAt: 1710000000,
+        editedAt: 1710000000,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      },
+    },
+  ];
   const snapshotJson = JSON.stringify({
-    folders: [
-      {
-        entityType: 'folder',
-        entityUuid: 'folder-audit-1',
-        entityVersion: 1,
-        lastEventVersion: 1,
-        ownerUserId: 'owner-1',
-        data: {
-          uuid: 'folder-audit-1',
-          name: 'Inbox',
-          parentFolderUuid: null,
-        },
-      },
-    ],
-    threads: [
-      {
-        entityType: 'thread',
-        entityUuid: 'thread-audit-1',
-        entityVersion: 1,
-        lastEventVersion: 1,
-        ownerUserId: 'owner-1',
-        data: {
-          uuid: 'thread-audit-1',
-          folderUuid: null,
-          title: 'Snapshot Thread',
-        },
-      },
-    ],
-    records: [
-      {
-        entityType: 'record',
-        entityUuid: 'record-audit-1',
-        entityVersion: 1,
-        lastEventVersion: 1,
-        ownerUserId: 'owner-1',
-        data: {
-          uuid: 'record-audit-1',
-          threadUuid: 'thread-audit-1',
-          type: 'text',
-          body: 'Snapshot Record',
-          createdAt: 1710000000,
-          editedAt: 1710000000,
-          orderIndex: 0,
-          isStarred: false,
-          imageGroupId: null,
-        },
-      },
-    ],
+    snapshotVersion: 1,
+    protocolVersion: 2,
+    schemaVersion: 1,
+    baseEventVersion: 12,
+    generatedAt: '2026-03-27T00:00:00.000Z',
+    entityCount: entities.length,
+    checksum: 'ignored-in-payload-checksum',
+    entities,
   });
   const snapshotBytes = encodeUtf8(snapshotJson);
   const checksum = await sha256Hex(snapshotBytes);

@@ -27,8 +27,293 @@ type PairingStatus =
 
 @Component({
   selector: 'app-pairing',
-  templateUrl: './pairing.html',
-  styleUrl: './pairing.css',
+  template: `
+    <section class="pairing-screen" role="main" aria-label="Device pairing">
+      <div class="pairing-card">
+        <header class="pairing-header">
+          <h1 class="pairing-title">Chano</h1>
+          <p class="pairing-subtitle">Pair with your mobile device</p>
+        </header>
+
+        @switch (status()) {
+          @case ('connecting') {
+            <div class="qr-placeholder" aria-busy="true">
+              <div class="spinner" role="status" aria-label="Connecting to relay"></div>
+            </div>
+          }
+          @case ('waiting_for_scan') {
+            <div class="qr-container" role="img" aria-label="QR code for device pairing">
+              <img [src]="qrDataUrl()" alt="Pairing QR Code" class="qr-image" width="220" height="220" />
+            </div>
+            <div class="countdown" aria-live="polite">
+              <span class="countdown-label">Session expires in</span>
+              <span class="countdown-value">{{ countdown() }}</span>
+            </div>
+          }
+          @case ('paired') {
+            <div class="paired-container">
+              <div class="paired-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+            </div>
+          }
+          @case ('syncing') {
+            <div class="qr-placeholder" aria-busy="true">
+              <div class="spinner" role="status" aria-label="Syncing data"></div>
+            </div>
+          }
+          @case ('error') {
+            <div class="error-container">
+              <p class="error-message">{{ errorMessage() }}</p>
+              <button class="retry-btn" (click)="retry()">Retry Connection</button>
+            </div>
+          }
+        }
+
+        <div class="status-bar" aria-live="polite">
+          <span class="status-dot" [class]="'status-dot--' + status()"></span>
+          <span class="status-text">{{ statusText() }}</span>
+        </div>
+      </div>
+    </section>
+  `,
+  styles: [`
+    :host {
+      display: block;
+      height: 100dvh;
+      width: 100%;
+    }
+
+    .pairing-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      background: #09090b;
+      background-image: radial-gradient(ellipse at 50% 0%, rgba(88, 28, 135, 0.12) 0%, transparent 60%);
+      padding: 1.5rem;
+    }
+
+    .pairing-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.75rem;
+      width: 100%;
+      max-width: 400px;
+      padding: 2.5rem 2rem;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 1.5rem;
+    }
+
+    .pairing-header {
+      text-align: center;
+    }
+
+    .pairing-title {
+      font-size: 1.75rem;
+      font-weight: 600;
+      color: #f5f5f7;
+      letter-spacing: -0.025em;
+      margin: 0;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    .pairing-subtitle {
+      font-size: 0.9375rem;
+      color: rgba(255, 255, 255, 0.45);
+      margin: 0.5rem 0 0;
+    }
+
+    .qr-container {
+      padding: 1rem;
+      background: #fff;
+      border-radius: 1rem;
+      line-height: 0;
+    }
+
+    .qr-image {
+      display: block;
+      width: 220px;
+      height: 220px;
+    }
+
+    .qr-placeholder {
+      width: 252px;
+      height: 252px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 1rem;
+      border: 1px dashed rgba(255, 255, 255, 0.08);
+    }
+
+    .spinner {
+      width: 2.5rem;
+      height: 2.5rem;
+      border: 3px solid rgba(255, 255, 255, 0.08);
+      border-top-color: rgba(255, 255, 255, 0.5);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .countdown {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .countdown-label {
+      color: rgba(255, 255, 255, 0.35);
+    }
+
+    .countdown-value {
+      color: rgba(255, 255, 255, 0.75);
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+    }
+
+    .paired-container {
+      width: 252px;
+      height: 252px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .paired-icon {
+      width: 5rem;
+      height: 5rem;
+      border-radius: 50%;
+      background: rgba(34, 197, 94, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #22c55e;
+      animation: scale-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .paired-icon svg {
+      width: 2.5rem;
+      height: 2.5rem;
+    }
+
+    @keyframes scale-in {
+      from {
+        transform: scale(0);
+        opacity: 0;
+      }
+      to {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    .error-container {
+      width: 252px;
+      height: 252px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.25rem;
+    }
+
+    .error-message {
+      font-size: 0.875rem;
+      color: rgba(255, 255, 255, 0.4);
+      text-align: center;
+      margin: 0;
+    }
+
+    .retry-btn {
+      padding: 0.625rem 1.5rem;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 0.625rem;
+      color: #f5f5f7;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      font-family: inherit;
+    }
+
+    .retry-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .retry-btn:active {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 2rem;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .status-dot {
+      width: 0.5rem;
+      height: 0.5rem;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-dot--connecting {
+      background: #f59e0b;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .status-dot--waiting_for_scan {
+      background: #3b82f6;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .status-dot--paired {
+      background: #22c55e;
+    }
+
+    .status-dot--syncing {
+      background: #a855f7;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .status-dot--error {
+      background: #ef4444;
+    }
+
+    @keyframes pulse {
+      0%,
+      100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.35;
+      }
+    }
+
+    .status-text {
+      font-size: 0.8125rem;
+      color: rgba(255, 255, 255, 0.55);
+      font-weight: 500;
+    }
+  `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PairingComponent implements OnInit {

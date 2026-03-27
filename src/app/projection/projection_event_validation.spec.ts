@@ -1,11 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
+import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { Subject } from 'rxjs';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 import { WebRelayClient } from '../../transport/web-relay-client';
 import { ProjectionEngine } from './projection_engine';
 import { validateEventEnvelope, validateStartBoundary } from './projection_event_validation';
 import { ProjectionStore } from './projection.store';
+
+let angularTestEnvironmentInitialized = false;
+
+function ensureAngularTestEnvironment(): void {
+  if (angularTestEnvironmentInitialized) {
+    return;
+  }
+
+  try {
+    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
+      throw error;
+    }
+  }
+
+  angularTestEnvironmentInitialized = true;
+}
 
 function createEventPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -37,13 +56,13 @@ async function createEnvelope(
 ): Promise<TransportEnvelope> {
   const eventPayload = createEventPayload(payloadOverrides['payload'] as Record<string, unknown> | undefined);
   const payload = {
-    eventId: 'evt-300',
+    eventId: 300,
     originDeviceId: 'mobile-1',
     eventVersion: 300,
     entityType: 'record',
     entityId: 'uuid-1',
     operation: 'create',
-    timestamp: 1710000000,
+    timestamp: '2026-03-27T00:00:00.000Z',
     payload: eventPayload,
     checksum: await sha256PayloadHex(eventPayload),
     ...payloadOverrides,
@@ -73,6 +92,7 @@ describe('EventValidation', () => {
 
     expect(result.status).toBe('VALID');
     if (result.status === 'VALID') {
+      expect(result.eventEnvelope.eventId).toBe(300);
       expect(result.eventEnvelope.eventVersion).toBe(300);
       expect(result.eventEnvelope.payload).toEqual(envelope.payload['payload']);
     }
@@ -118,7 +138,16 @@ describe('EventValidation', () => {
     });
   });
 
+  it('event_validation_ignores_unknown_fields', async () => {
+    const envelope = await createEnvelope({ extraField: 'accepted' });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result.status).toBe('VALID');
+  });
+
   it('event_validation_forward_only_valid_events', async () => {
+    ensureAngularTestEnvironment();
     const messages$ = new Subject<TransportEnvelope>();
     const onEventSpy = vi.spyOn(ProjectionEngine.prototype, 'onEvent');
 

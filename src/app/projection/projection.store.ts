@@ -86,7 +86,7 @@ export class ProjectionStore {
 
   private onSnapshotStart(message: TransportEnvelope): void {
     this.snapshotSessionId = message.sessionId;
-    this.projectionEngine.onSnapshotStart(this.readSnapshotId(message.payload));
+    this.projectionEngine.onSnapshotStart(this.readSnapshotLogId(message.payload));
     this.snapshotLoader.handleSnapshotStart(message);
     this._phase.set('receiving');
   }
@@ -195,8 +195,34 @@ export class ProjectionStore {
     }
   }
 
-  private readSnapshotId(payload: Record<string, unknown>): string | null {
-    return typeof payload['snapshotId'] === 'string' ? payload['snapshotId'] : null;
+  private readSnapshotLogId(payload: Record<string, unknown>): string | null {
+    const snapshotId = typeof payload['snapshotId'] === 'string' && payload['snapshotId'].length > 0
+      ? payload['snapshotId']
+      : null;
+
+    if (snapshotId !== null) {
+      return snapshotId;
+    }
+
+    const checksum = typeof payload['checksum'] === 'string' && payload['checksum'].length > 0
+      ? payload['checksum'].toLowerCase()
+      : null;
+    const baseEventVersion = typeof payload['baseEventVersion'] === 'number' && Number.isInteger(payload['baseEventVersion'])
+      ? payload['baseEventVersion']
+      : null;
+    const totalChunks = typeof payload['totalChunks'] === 'number' && Number.isInteger(payload['totalChunks'])
+      ? payload['totalChunks']
+      : null;
+
+    if (checksum !== null && baseEventVersion !== null) {
+      return `base-${baseEventVersion}-sha-${checksum.slice(0, 12)}`;
+    }
+
+    if (baseEventVersion !== null && totalChunks !== null) {
+      return `base-${baseEventVersion}-chunks-${totalChunks}`;
+    }
+
+    return null;
   }
 
   private formatSessionId(sessionId: string | null): string {

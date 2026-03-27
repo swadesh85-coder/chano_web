@@ -108,7 +108,23 @@ function createSnapshotDocument(): ProjectionSnapshotDocument {
 }
 
 function createSnapshotJson(): string {
-  return JSON.stringify(createSnapshotDocument());
+  const snapshot = createSnapshotDocument();
+  const entities = [
+    ...(snapshot.folders ?? []),
+    ...(snapshot.threads ?? []),
+    ...(snapshot.records ?? []),
+  ];
+
+  return JSON.stringify({
+    snapshotVersion: 1,
+    protocolVersion: 2,
+    schemaVersion: 1,
+    baseEventVersion: BASE_EVENT_VERSION,
+    generatedAt: '2026-03-27T00:00:00.000Z',
+    entityCount: entities.length,
+    checksum: 'ignored-in-payload-checksum',
+    entities,
+  });
 }
 
 function createEnvelope(
@@ -259,13 +275,13 @@ async function createEventStreamEnvelope(
   const checksum = await sha256Hex(encodeUtf8(JSON.stringify(eventPayload)));
 
   return createEnvelope('event_stream', {
-    eventId: envelopeOverrides.eventId ?? `evt-${eventVersion}`,
+    eventId: envelopeOverrides.eventId ?? eventVersion,
     originDeviceId: envelopeOverrides.originDeviceId ?? 'mobile-1',
     eventVersion,
     entityType: envelopeOverrides.entityType ?? 'record',
     entityId: envelopeOverrides.entityId ?? EXTRA_RECORD_ID,
     operation: envelopeOverrides.operation ?? 'create',
-    timestamp: envelopeOverrides.timestamp ?? 1710000000 + eventVersion,
+    timestamp: envelopeOverrides.timestamp ?? new Date((1710000000 + eventVersion) * 1000).toISOString(),
     payload: envelopeOverrides.payload ?? eventPayload,
     checksum: envelopeOverrides.checksum ?? checksum,
   }, eventVersion);
@@ -497,7 +513,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Record 102',
     }, {
-      eventId: 'evt-102',
+      eventId: 102,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
@@ -525,7 +541,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Record 102',
     }, {
-      eventId: 'evt-102',
+      eventId: 102,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
@@ -537,7 +553,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Record 102 duplicate',
     }, {
-      eventId: 'evt-102-duplicate',
+      eventId: 1002,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
@@ -566,7 +582,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Record 102',
     }, {
-      eventId: 'evt-102',
+      eventId: 102,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
@@ -578,7 +594,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Gap Event 105',
     }, {
-      eventId: 'evt-105',
+      eventId: 105,
     });
 
     const eventAudit = await auditEventStream(engine, [event101, event102, gap105]);
@@ -602,7 +618,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Gap Event 105',
     }, {
-      eventId: 'evt-105',
+      eventId: 105,
     });
 
     const applyAudit = await auditEventStream(engine, [event101]);
@@ -628,7 +644,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Record 102',
     }, {
-      eventId: 'evt-102',
+      eventId: 102,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
@@ -640,7 +656,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Record 102',
     }, {
-      eventId: 'evt-102-duplicate',
+      eventId: 1002,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
@@ -652,7 +668,7 @@ describe('Projection pipeline audit', () => {
       uuid: EXTRA_RECORD_ID,
       body: 'Gap Event 105',
     }, {
-      eventId: 'evt-105',
+      eventId: 105,
     });
 
     const determinismAudit = await auditDeterminism(snapshot, BASE_EVENT_VERSION, [

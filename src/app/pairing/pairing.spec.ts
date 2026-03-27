@@ -1,11 +1,32 @@
+// @vitest-environment jsdom
+
 import { TestBed } from '@angular/core/testing';
+import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { Router, provideRouter } from '@angular/router';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PairingComponent } from './pairing';
 import { ProjectionStore } from '../projection/projection.store';
 import { WebRelayClient } from '../../transport';
 import QRCode from 'qrcode';
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+let angularTestEnvironmentInitialized = false;
+
+function ensureAngularTestEnvironment(): void {
+  if (angularTestEnvironmentInitialized) {
+    return;
+  }
+
+  try {
+    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
+      throw error;
+    }
+  }
+
+  angularTestEnvironmentInitialized = true;
+}
 
 // Helper to mock QRCode.toDataURL with proper typing
 function mockQrToDataURL(returnValue: string) {
@@ -144,19 +165,25 @@ async function createSnapshotMessages(snapshotJson: string): Promise<{
 }> {
   const bytes = encodeUtf8(snapshotJson);
   const checksum = await sha256Hex(bytes);
+  const parsedSnapshot = JSON.parse(snapshotJson) as {
+    readonly snapshotVersion?: number;
+    readonly protocolVersion?: number;
+    readonly schemaVersion?: number;
+    readonly baseEventVersion?: number;
+    readonly entities?: readonly unknown[];
+  };
 
   return {
     start: {
       type: 'snapshot_start',
       payload: {
-        snapshotId: 'snapshot-pairing-1',
         totalChunks: 1,
         totalBytes: bytes.byteLength,
-        snapshotVersion: 1,
-        protocolVersion: 2,
-        schemaVersion: 1,
-        baseEventVersion: 9,
-        entityCount: 3,
+        snapshotVersion: parsedSnapshot.snapshotVersion ?? 1,
+        protocolVersion: parsedSnapshot.protocolVersion ?? 2,
+        schemaVersion: parsedSnapshot.schemaVersion ?? 1,
+        baseEventVersion: parsedSnapshot.baseEventVersion ?? 1,
+        entityCount: parsedSnapshot.entities?.length ?? 0,
         checksum,
       },
     },
@@ -172,6 +199,82 @@ async function createSnapshotMessages(snapshotJson: string): Promise<{
     complete: {
       type: 'snapshot_complete',
       payload: { totalChunks: 1 },
+    },
+  };
+}
+
+function createCanonicalSnapshotJson(): string {
+  return JSON.stringify({
+    snapshotVersion: 2,
+    protocolVersion: 2,
+    schemaVersion: 1,
+    baseEventVersion: 25,
+    generatedAt: '2026-03-27T09:54:00.000Z',
+    checksum: 'snapshot-pairing-checksum',
+    entityCount: 3,
+    entities: [
+      {
+        entityType: 'folder',
+        entityUuid: 'f1',
+        entityVersion: 1,
+        lastEventVersion: 25,
+        ownerUserId: 'owner-1',
+        data: { uuid: 'f1', name: 'Work', parentFolderUuid: null },
+      },
+      {
+        entityType: 'thread',
+        entityUuid: 't1',
+        entityVersion: 1,
+        lastEventVersion: 25,
+        ownerUserId: 'owner-1',
+        data: { uuid: 't1', folderUuid: 'f1', title: 'Log' },
+      },
+      {
+        entityType: 'record',
+        entityUuid: 'r1',
+        entityVersion: 1,
+        lastEventVersion: 25,
+        ownerUserId: 'owner-1',
+        data: {
+          uuid: 'r1',
+          threadUuid: 't1',
+          type: 'text',
+          body: 'Entry',
+          createdAt: '2026-03-27T09:54:10.000Z',
+          editedAt: '2026-03-27T09:54:10.000Z',
+          orderIndex: 0,
+          isStarred: false,
+          imageGroupId: null,
+        },
+      },
+    ],
+  });
+}
+
+async function createEventStreamMessage(
+  eventVersion: number,
+  payload: Record<string, unknown>,
+  sequence: number,
+): Promise<Record<string, unknown>> {
+  const checksum = await sha256Hex(encodeUtf8(JSON.stringify(payload)));
+  const timestampIso = new Date(Date.UTC(2026, 2, 27, 9, 54, 10 + eventVersion - 25)).toISOString();
+
+  return {
+    protocolVersion: 2,
+    type: 'event_stream',
+    sessionId: '123e4567-e89b-42d3-a456-426614174105',
+    timestamp: Date.parse(timestampIso),
+    sequence,
+    payload: {
+      eventId: eventVersion,
+      originDeviceId: 'mobile-1',
+      eventVersion,
+      entityType: 'record',
+      entityId: payload['uuid'],
+      operation: 'create',
+      timestamp: timestampIso,
+      payload,
+      checksum,
     },
   };
 }
@@ -268,6 +371,7 @@ class MockWebSocket {
 const OriginalWebSocket = globalThis.WebSocket;
 
 beforeAll(() => {
+  ensureAngularTestEnvironment();
   (globalThis as Record<string, unknown>)['WebSocket'] =
     MockWebSocket as unknown as typeof WebSocket;
 });
@@ -279,15 +383,23 @@ afterAll(() => {
 // ── Test suite ───────────────────────────────────────────────
 
 describe('PairingComponent', () => {
-  let fixture: ReturnType<typeof TestBed.createComponent<PairingComponent>>;
+  let fixture: ReturnType<typeof TestBed.createComponent<PairingComponent>> | null;
   let component: PairingComponent;
   let router: Router;
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({
+    fixture = null;
+    TestBed.overrideComponent(PairingComponent, {
+      set: {
+        template: '',
+        styles: [''],
+      },
+    });
+    TestBed.configureTestingModule({
       imports: [PairingComponent],
       providers: [provideRouter([])],
-    }).compileComponents();
+    });
+    await TestBed.compileComponents();
 
     router = TestBed.inject(Router);
     vi.spyOn(router, 'navigate').mockResolvedValue(true);
@@ -297,7 +409,10 @@ describe('PairingComponent', () => {
   });
 
   afterEach(() => {
-    fixture.destroy();
+    fixture?.destroy();
+    fixture = null;
+    vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
   // ── 1. Safety rules ─────────────────────────────────────
@@ -605,20 +720,7 @@ describe('PairingComponent', () => {
     it('should navigate to /explorer when snapshot completes', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
       const store = TestBed.inject(ProjectionStore);
-      const snapshot = await createSnapshotMessages(JSON.stringify({
-        folders: [
-          {
-            entityType: 'folder',
-            entityUuid: 'f1',
-            entityVersion: 1,
-            lastEventVersion: 1,
-            ownerUserId: 'owner-1',
-            data: { uuid: 'f1', name: 'Work', parentFolderUuid: null },
-          },
-        ],
-        threads: [],
-        records: [],
-      }));
+      const snapshot = await createSnapshotMessages(createCanonicalSnapshotJson());
 
       fixture.detectChanges();
       const ws = MockWebSocket.last;
@@ -650,48 +752,7 @@ describe('PairingComponent', () => {
     it('should accumulate snapshot data in ProjectionStore', async () => {
       const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
       const store = TestBed.inject(ProjectionStore);
-      const snapshot = await createSnapshotMessages(JSON.stringify({
-        folders: [
-          {
-            entityType: 'folder',
-            entityUuid: 'f1',
-            entityVersion: 1,
-            lastEventVersion: 1,
-            ownerUserId: 'owner-1',
-            data: { uuid: 'f1', name: 'Work', parentFolderUuid: null },
-          },
-        ],
-        threads: [
-          {
-            entityType: 'thread',
-            entityUuid: 't1',
-            entityVersion: 1,
-            lastEventVersion: 1,
-            ownerUserId: 'owner-1',
-            data: { uuid: 't1', folderUuid: 'f1', title: 'Log' },
-          },
-        ],
-        records: [
-          {
-            entityType: 'record',
-            entityUuid: 'r1',
-            entityVersion: 1,
-            lastEventVersion: 1,
-            ownerUserId: 'owner-1',
-            data: {
-              uuid: 'r1',
-              threadUuid: 't1',
-              type: 'text',
-              body: 'Entry',
-              createdAt: 1,
-              editedAt: 1,
-              orderIndex: 0,
-              isStarred: false,
-              imageGroupId: null,
-            },
-          },
-        ],
-      }));
+      const snapshot = await createSnapshotMessages(createCanonicalSnapshotJson());
 
       fixture.detectChanges();
       const ws = MockWebSocket.last;
@@ -718,6 +779,65 @@ describe('PairingComponent', () => {
       expect(store.state().records.length).toBe(1);
 
       qrSpy.mockRestore();
+    });
+
+    it('automates live sync through snapshot apply and first incremental event', async () => {
+      const qrSpy = mockQrToDataURL('data:image/png;base64,QR');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      const store = TestBed.inject(ProjectionStore);
+      const snapshot = await createSnapshotMessages(createCanonicalSnapshotJson());
+      const eventMessage = await createEventStreamMessage(26, {
+        uuid: 'r2',
+        threadUuid: 't1',
+        type: 'text',
+        body: 'Follow-up entry',
+        createdAt: Date.parse('2026-03-27T09:54:11.000Z'),
+        editedAt: Date.parse('2026-03-27T09:54:11.000Z'),
+        orderIndex: 1,
+        isStarred: false,
+        imageGroupId: null,
+      }, 6);
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId: '123e4567-e89b-42d3-a456-426614174105',
+        payload: { expiresAt: Date.now() + 120_000 },
+      });
+      await fixture.whenStable();
+
+      ws.simulateMessage({ type: 'pair_approved', sessionId: '123e4567-e89b-42d3-a456-426614174105' });
+      ws.simulateMessage({ type: 'protocol_handshake', sessionId: '123e4567-e89b-42d3-a456-426614174105' });
+      ws.simulateMessage({ ...snapshot.start, sessionId: '123e4567-e89b-42d3-a456-426614174105', sequence: 3 });
+      snapshot.chunks.forEach((message, index) => {
+        ws.simulateMessage({ ...message, sessionId: '123e4567-e89b-42d3-a456-426614174105', sequence: 4 + index });
+      });
+      ws.simulateMessage({ ...snapshot.complete, sessionId: '123e4567-e89b-42d3-a456-426614174105', sequence: 5 });
+
+      await waitForProjectionReady(store);
+      ws.simulateMessage(eventMessage);
+      await flushSnapshotAsyncWork();
+      fixture.detectChanges();
+
+      expect(store.phase()).toBe('ready');
+      expect(store.baseEventVersion()).toBe(25);
+      expect(store.lastAppliedEventVersion()).toBe(26);
+      expect(store.state().records.map((record) => record.id)).toEqual(['r1', 'r2']);
+      expect(store.state().records.find((record) => record.id === 'r2')?.name).toBe('Follow-up entry');
+      expect(store.lastProjectionUpdate()).toEqual({
+        reason: 'event_applied',
+        entityType: 'record',
+        eventVersion: 26,
+      });
+      expect(router.navigate).toHaveBeenCalledWith(['/explorer']);
+      expect(logSpy.mock.calls).toContainEqual(['EVENT_FORWARDED_TO_ENGINE eventVersion=26']);
+      expect(logSpy.mock.calls).toContainEqual(['EVENT_APPLY version=26']);
+
+      qrSpy.mockRestore();
+      logSpy.mockRestore();
     });
   });
 

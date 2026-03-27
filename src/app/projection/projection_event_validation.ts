@@ -55,7 +55,7 @@ export async function validateEventEnvelope(
   }
 
   const payload = envelope.payload;
-  if (!hasExactKeys(payload, [
+  if (!hasRequiredKeys(payload, [
     'eventId',
     'originDeviceId',
     'eventVersion',
@@ -84,7 +84,7 @@ export async function validateEventEnvelope(
   const checksum = payload['checksum'];
 
   if (
-    typeof eventId !== 'string'
+    !isEventId(eventId)
     || typeof originDeviceId !== 'string'
     || !isNonNegativeInteger(eventVersion)
     || typeof entityType !== 'string'
@@ -93,8 +93,7 @@ export async function validateEventEnvelope(
     || entityId.length === 0
     || typeof operation !== 'string'
     || !isEventOperation(operation)
-    || typeof timestamp !== 'number'
-    || !Number.isFinite(timestamp)
+    || !isIsoTimestamp(timestamp)
     || eventPayload === null
     || typeof eventPayload !== 'object'
     || Array.isArray(eventPayload)
@@ -553,4 +552,12 @@ function isNullableNumber(value: unknown): boolean {
 
 function isOptionalNullableNumber(value: unknown): boolean {
   return value === undefined || isNullableNumber(value);
+}
+
+function isEventId(value: unknown): value is number {
+  return isNonNegativeInteger(value);
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
 }
