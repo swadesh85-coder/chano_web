@@ -85,18 +85,11 @@ describe('VirtualListComponent', () => {
     }).compileComponents();
 
     fixture = TestBed.createComponent(VirtualListComponent<VirtualRowItem>);
-    const component = fixture.componentInstance as VirtualListComponent<VirtualRowItem> & {
-      items: () => readonly VirtualRowItem[];
-      itemHeight: () => number;
-      buffer: () => number;
-      viewportHeight: () => number;
-      trackByKey: () => (item: VirtualRowItem, index: number) => string | number;
-    };
-    component.items = () => TEST_ITEMS;
-    component.itemHeight = () => 56;
-    component.buffer = () => 4;
-    component.viewportHeight = () => 560;
-    component.trackByKey = () => TRACK_BY_ITEM;
+    fixture.componentRef.setInput('items', TEST_ITEMS);
+    fixture.componentRef.setInput('itemHeight', 56);
+    fixture.componentRef.setInput('buffer', 4);
+    fixture.componentRef.setInput('viewportHeight', 560);
+    fixture.componentRef.setInput('trackByKey', TRACK_BY_ITEM);
     fixture.detectChanges();
     flushAnimationFrame();
     fixture.detectChanges();
@@ -130,12 +123,9 @@ describe('VirtualListComponent', () => {
   }
 
   function dispatchScroll(scrollTop: number): void {
-    const component = fixture.componentInstance as VirtualListComponent<VirtualRowItem> & {
-      scheduleViewportSync: (viewport: HTMLDivElement) => void;
-    };
     const viewport = fixture.nativeElement.querySelector('.virtual-list__viewport') as HTMLDivElement;
     viewport.scrollTop = scrollTop;
-    component.scheduleViewportSync(viewport);
+    viewport.dispatchEvent(new Event('scroll'));
   }
 
   function scrollTo(scrollTop: number): void {

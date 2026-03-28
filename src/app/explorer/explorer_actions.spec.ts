@@ -69,7 +69,7 @@ describe('ExplorerActions', () => {
         payload: {
           title: 'Sprint Planning',
           kind: 'manual',
-          folderId: 'folder-1',
+          folderUuid: 'folder-1',
         },
       },
     });
@@ -82,7 +82,7 @@ describe('ExplorerActions', () => {
       payload: {
         title: 'Sprint Planning',
         kind: 'manual',
-        folderId: 'folder-1',
+        folderUuid: 'folder-1',
       },
     });
     expect(pendingStore.setPending).toHaveBeenCalledWith(expect.objectContaining({
@@ -112,7 +112,7 @@ describe('ExplorerActions', () => {
       entityId: 'record-1',
       operation: 'move',
       payload: {
-        targetThreadId: 'thread-2',
+        targetThreadUuid: 'thread-2',
       },
     });
   });

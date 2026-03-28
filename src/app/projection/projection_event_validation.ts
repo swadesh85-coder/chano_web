@@ -108,7 +108,7 @@ export async function validateEventEnvelope(
     || entityId.length === 0
     || typeof operation !== 'string'
     || !isEventOperation(operation)
-    || !isIsoTimestamp(timestamp)
+    || !isEventTimestamp(timestamp)
     || eventPayload === null
     || typeof eventPayload !== 'object'
     || Array.isArray(eventPayload)
@@ -719,10 +719,12 @@ function isOptionalNullableNumber(value: unknown): boolean {
   return value === undefined || isNullableNumber(value);
 }
 
-function isEventId(value: unknown): value is number {
-  return isNonNegativeInteger(value);
+function isEventId(value: unknown): value is number | string {
+  return isNonNegativeInteger(value)
+    || (typeof value === 'string' && value.length > 0);
 }
 
-function isIsoTimestamp(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
+function isEventTimestamp(value: unknown): value is string | number {
+  return isNonNegativeInteger(value)
+    || (typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value)));
 }

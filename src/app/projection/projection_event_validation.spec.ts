@@ -109,6 +109,21 @@ describe('EventValidation', () => {
     }
   });
 
+  it('event_validation_accepts_string_event_ids_and_numeric_event_timestamps', async () => {
+    const envelope = await createEnvelope({
+      eventId: 'evt-300',
+      timestamp: 1710000000,
+    });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result.status).toBe('VALID');
+    if (result.status === 'VALID') {
+      expect(result.eventEnvelope.eventId).toBe('evt-300');
+      expect(result.eventEnvelope.timestamp).toBe(1710000000);
+    }
+  });
+
   it('event_validation_accepts_already_canonical_record_payloads', async () => {
     const envelope = await createEnvelope({
       payload: {

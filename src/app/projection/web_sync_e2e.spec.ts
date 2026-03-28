@@ -64,7 +64,7 @@ class MockWebSocket {
 const OriginalWebSocket = globalThis.WebSocket;
 
 function hasSingleArgCall(spy: ReturnType<typeof vi.spyOn>, message: string): boolean {
-  return spy.mock.calls.some((call) => call.length > 0 && call[0] === message);
+  return spy.mock.calls.some((call: readonly unknown[]) => call.length > 0 && call[0] === message);
 }
 
 function encodeUtf8(value: string): Uint8Array {

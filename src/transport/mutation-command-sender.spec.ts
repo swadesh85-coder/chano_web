@@ -60,7 +60,7 @@ describe('MutationCommandSender', () => {
       payload: {
         title: 'New Thread',
         kind: 'manual',
-        folderId: 'folder-1',
+        folderUuid: 'folder-1',
       },
     });
 
@@ -75,7 +75,7 @@ describe('MutationCommandSender', () => {
       payload: {
         title: 'New Thread',
         kind: 'manual',
-        folderId: 'folder-1',
+        folderUuid: 'folder-1',
       },
     });
     expect(sendEnvelope).toHaveBeenCalledTimes(1);
@@ -96,7 +96,7 @@ describe('MutationCommandSender', () => {
         payload: {
           title: 'New Thread',
           kind: 'manual',
-          folderId: 'folder-1',
+          folderUuid: 'folder-1',
         },
       },
     });
@@ -109,7 +109,7 @@ describe('MutationCommandSender', () => {
       payload: {
         title: 'New Thread',
         kind: 'manual',
-        folderId: 'folder-1',
+        folderUuid: 'folder-1',
         uuid: 'forbidden-local-id',
       },
     })).toThrowError('INVALID_MUTATION_COMMAND_SCHEMA');
@@ -127,7 +127,7 @@ describe('MutationCommandSender', () => {
       payload: {
         title: 'Generated Thread',
         kind: 'manual',
-        folderId: 'uuid-folder-1',
+        folderUuid: 'uuid-folder-1',
       },
     });
 
@@ -147,7 +147,7 @@ describe('MutationCommandSender', () => {
       payload: {
         title: 'Collision Retry',
         kind: 'manual',
-        folderId: 'uuid-folder-1',
+        folderUuid: 'uuid-folder-1',
       },
     });
 
@@ -169,14 +169,14 @@ describe('MutationCommandSender', () => {
       payload: {
         title: 'No Reuse',
         kind: 'manual',
-        folderId: 'uuid-folder-1',
+        folderUuid: 'uuid-folder-1',
       },
     });
 
     expect(sendEnvelope).toHaveBeenCalledWith('mutation_command', expect.objectContaining({
       entityId: null,
       payload: expect.objectContaining({
-        folderId: 'uuid-folder-1',
+        folderUuid: 'uuid-folder-1',
       }),
     }));
   });
@@ -189,7 +189,7 @@ describe('MutationCommandSender', () => {
       entityType: 'record',
       operation: 'create',
       payload: {
-        threadId: 'thread:0001',
+        threadUuid: 'thread:0001',
         body: 'New record',
         recordType: 'text',
       },
@@ -200,7 +200,7 @@ describe('MutationCommandSender', () => {
       entityId: null,
       expectedVersion: 0,
       payload: {
-        threadId: 'thread:0001',
+        threadUuid: 'thread:0001',
         body: 'New record',
         recordType: 'text',
       },

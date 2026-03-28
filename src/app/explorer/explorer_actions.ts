@@ -27,7 +27,7 @@ export class ExplorerActions {
       payload: {
         title: normalizedTitle,
         kind: 'manual',
-        folderId,
+        folderUuid: folderId,
       },
     });
 
@@ -81,7 +81,7 @@ export class ExplorerActions {
           entityId,
           operation: 'move',
           payload: {
-            targetFolderId: normalizedTargetId,
+            targetFolderUuid: normalizedTargetId,
           },
         });
         this.trackPending(envelope);
@@ -93,7 +93,7 @@ export class ExplorerActions {
           entityId,
           operation: 'move',
           payload: {
-            targetThreadId: normalizedTargetId,
+            targetThreadUuid: normalizedTargetId,
           },
         });
         this.trackPending(envelope);

@@ -106,13 +106,13 @@ function isValidMutationPayload(
 function isValidFolderPayload(operation: MutationOperation, payload: MutationCommandPayload): boolean {
   switch (operation) {
     case 'create':
-      return hasExactKeys(payload, ['name', 'parentFolderUuid'])
-        && typeof payload['name'] === 'string'
+      return hasExactKeys(payload, ['title', 'parentFolderUuid'])
+        && typeof payload['title'] === 'string'
         && isNullableString(payload['parentFolderUuid']);
     case 'update':
-      return hasAllowedKeys(payload, ['name', 'parentFolderUuid'])
-        && hasAtLeastOneKey(payload, ['name', 'parentFolderUuid'])
-        && isOptionalString(payload['name'])
+      return hasAllowedKeys(payload, ['title', 'parentFolderUuid'])
+        && hasAtLeastOneKey(payload, ['title', 'parentFolderUuid'])
+        && isOptionalString(payload['title'])
         && isOptionalNullableString(payload['parentFolderUuid']);
     case 'rename':
       return hasExactKeys(payload, ['newTitle']) && typeof payload['newTitle'] === 'string';
@@ -127,10 +127,10 @@ function isValidFolderPayload(operation: MutationOperation, payload: MutationCom
 function isValidThreadPayload(operation: MutationOperation, payload: MutationCommandPayload): boolean {
   switch (operation) {
     case 'create':
-      return hasExactKeys(payload, ['title', 'kind', 'folderId'])
+      return hasExactKeys(payload, ['title', 'kind', 'folderUuid'])
         && typeof payload['title'] === 'string'
         && payload['kind'] === 'manual'
-        && typeof payload['folderId'] === 'string';
+        && typeof payload['folderUuid'] === 'string';
     case 'update':
       return hasAllowedKeys(payload, ['folderUuid', 'title'])
         && hasAtLeastOneKey(payload, ['folderUuid', 'title'])
@@ -139,7 +139,7 @@ function isValidThreadPayload(operation: MutationOperation, payload: MutationCom
     case 'rename':
       return hasExactKeys(payload, ['newTitle']) && typeof payload['newTitle'] === 'string';
     case 'move':
-      return hasExactKeys(payload, ['targetFolderId']) && typeof payload['targetFolderId'] === 'string';
+      return hasExactKeys(payload, ['targetFolderUuid']) && typeof payload['targetFolderUuid'] === 'string';
     case 'softDelete':
     case 'restore':
       return hasExactKeys(payload, []);
@@ -185,7 +185,7 @@ function isValidRecordPayload(operation: MutationOperation, payload: MutationCom
     case 'rename':
       return hasExactKeys(payload, ['newTitle']) && typeof payload['newTitle'] === 'string';
     case 'move':
-      return hasExactKeys(payload, ['targetThreadId']) && typeof payload['targetThreadId'] === 'string';
+      return hasExactKeys(payload, ['targetThreadUuid']) && typeof payload['targetThreadUuid'] === 'string';
     case 'softDelete':
     case 'restore':
       return hasExactKeys(payload, []);
@@ -197,8 +197,8 @@ function clonePayload(payload: MutationCommandPayload): MutationCommandPayload {
 }
 
 function isValidMinimalRecordCreatePayload(payload: MutationCommandPayload): boolean {
-  return hasExactKeys(payload, ['threadId', 'body', 'recordType'])
-    && typeof payload['threadId'] === 'string'
+  return hasExactKeys(payload, ['threadUuid', 'body', 'recordType'])
+    && typeof payload['threadUuid'] === 'string'
     && typeof payload['body'] === 'string'
     && payload['recordType'] === 'text';
 }

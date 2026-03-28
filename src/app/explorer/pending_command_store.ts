@@ -183,25 +183,25 @@ export class PendingCommandStore {
       }
       case 'thread': {
         const title = command.payload['title'];
-        const folderId = command.payload['folderId'];
+        const folderId = resolveThreadFolderId(command.payload);
         if (typeof title === 'string' && typeof folderId === 'string') {
-          return `create:${command.entityType}:${JSON.stringify({ title, folderUuid: folderId })}`;
+          return `create:${command.entityType}:${JSON.stringify({ title, folderId })}`;
         }
         return null;
       }
       case 'record': {
-        const threadUuid = resolveRecordThreadId(command.payload);
-        const body = command.payload['body'];
+        const threadId = resolveRecordThreadId(command.payload);
+        const name = resolveRecordName(command.payload);
         const recordType = resolveRecordType(command.payload);
 
         if (
-          typeof threadUuid === 'string'
-          && typeof body === 'string'
+          typeof threadId === 'string'
+          && typeof name === 'string'
           && typeof recordType === 'string'
         ) {
           return `create:${command.entityType}:${JSON.stringify({
-            threadUuid,
-            body,
+            threadId,
+            name,
             type: recordType,
           })}`;
         }
@@ -230,25 +230,25 @@ export class PendingCommandStore {
       }
       case 'thread': {
         const title = eventEnvelope.payload['title'];
-        const folderUuid = eventEnvelope.payload['folderUuid'];
-        if (typeof title === 'string' && (typeof folderUuid === 'string' || folderUuid === null)) {
-          return `create:${eventEnvelope.entityType}:${JSON.stringify({ title, folderUuid })}`;
+        const folderId = resolveThreadFolderId(eventEnvelope.payload);
+        if (typeof title === 'string' && (typeof folderId === 'string' || folderId === null)) {
+          return `create:${eventEnvelope.entityType}:${JSON.stringify({ title, folderId })}`;
         }
         return null;
       }
       case 'record': {
-        const threadUuid = resolveRecordThreadId(eventEnvelope.payload);
-        const body = eventEnvelope.payload['body'];
+        const threadId = resolveRecordThreadId(eventEnvelope.payload);
+        const name = resolveRecordName(eventEnvelope.payload);
         const recordType = resolveRecordType(eventEnvelope.payload);
 
         if (
-          typeof threadUuid === 'string'
-          && typeof body === 'string'
+          typeof threadId === 'string'
+          && typeof name === 'string'
           && typeof recordType === 'string'
         ) {
           return `create:${eventEnvelope.entityType}:${JSON.stringify({
-            threadUuid,
-            body,
+            threadId,
+            name,
             type: recordType,
           })}`;
         }
@@ -259,12 +259,28 @@ export class PendingCommandStore {
   }
 }
 
+function resolveThreadFolderId(payload: Record<string, unknown>): string | null {
+  if (typeof payload['folderId'] === 'string') {
+    return payload['folderId'];
+  }
+
+  return typeof payload['folderUuid'] === 'string' ? payload['folderUuid'] : null;
+}
+
 function resolveRecordThreadId(payload: Record<string, unknown>): string | null {
   if (typeof payload['threadId'] === 'string') {
     return payload['threadId'];
   }
 
   return typeof payload['threadUuid'] === 'string' ? payload['threadUuid'] : null;
+}
+
+function resolveRecordName(payload: Record<string, unknown>): string | null {
+  if (typeof payload['name'] === 'string') {
+    return payload['name'];
+  }
+
+  return typeof payload['body'] === 'string' ? payload['body'] : null;
 }
 
 function resolveRecordType(payload: Record<string, unknown>): string | null {

@@ -383,12 +383,11 @@ afterAll(() => {
 // ── Test suite ───────────────────────────────────────────────
 
 describe('PairingComponent', () => {
-  let fixture: ReturnType<typeof TestBed.createComponent<PairingComponent>> | null;
-  let component: PairingComponent;
-  let router: Router;
+  let fixture!: ReturnType<typeof TestBed.createComponent<PairingComponent>>;
+  let component!: PairingComponent;
+  let router!: Router;
 
   beforeEach(async () => {
-    fixture = null;
     TestBed.overrideComponent(PairingComponent, {
       set: {
         template: '',
@@ -409,8 +408,7 @@ describe('PairingComponent', () => {
   });
 
   afterEach(() => {
-    fixture?.destroy();
-    fixture = null;
+    fixture.destroy();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
   });

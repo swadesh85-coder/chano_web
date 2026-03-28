@@ -80,14 +80,17 @@ export async function auditMutationFlow(
   const beforeEventState = cloneProjectionState(dependencies.readProjectionState());
 
   await dependencies.dispatchEnvelope(input.eventEnvelope);
-  await flushAsyncWork(dependencies);
-
-  const afterEventState = cloneProjectionState(dependencies.readProjectionState());
+  let afterEventState = await waitForProjectionSettlement(dependencies, beforeEventState);
   const eventSummary = summarizeEventEnvelope(input.eventEnvelope);
   const stateAfterEvent = isSameProjectionState(beforeEventState, afterEventState)
     ? 'unchanged'
     : 'updated';
-  const pendingAfterEvent = dependencies.isPendingCommand(sentCommand.commandId);
+  let pendingAfterEvent = dependencies.isPendingCommand(sentCommand.commandId);
+
+  for (let attempt = 0; attempt < 5 && pendingAfterEvent; attempt += 1) {
+    await flushAsyncWork(dependencies);
+    pendingAfterEvent = dependencies.isPendingCommand(sentCommand.commandId);
+  }
 
   let duplicateEventIgnored = false;
   if (input.duplicateEventEnvelope) {
@@ -128,6 +131,24 @@ export async function auditMutationFlow(
 
 function flushAsyncWork(dependencies: MutationFlowAuditDependencies): Promise<void> {
   return dependencies.flushAsyncWork?.() ?? Promise.resolve();
+}
+
+async function waitForProjectionSettlement(
+  dependencies: MutationFlowAuditDependencies,
+  baselineState: ProjectionState,
+): Promise<ProjectionState> {
+  let nextState = cloneProjectionState(dependencies.readProjectionState());
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await flushAsyncWork(dependencies);
+    nextState = cloneProjectionState(dependencies.readProjectionState());
+
+    if (!isSameProjectionState(baselineState, nextState)) {
+      return nextState;
+    }
+  }
+
+  return nextState;
 }
 
 function cloneProjectionState(state: ProjectionState): ProjectionState {

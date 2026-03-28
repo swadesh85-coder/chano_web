@@ -77,7 +77,7 @@ describe('RecordEditor', () => {
       expectedVersion: 0,
       timestamp: 1_710_000_001,
       payload: {
-        threadId: 'thread:0001',
+        threadUuid: 'thread:0001',
         body: 'New record',
         recordType: 'text',
       },

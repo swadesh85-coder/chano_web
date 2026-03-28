@@ -27,5 +27,11 @@ export type CommandResultStatus = 'applied' | 'rejected' | 'conflict' | 'already
 export interface CommandResult {
   readonly commandId: string;
   readonly status: CommandResultStatus;
-  readonly message: string;
+  readonly message?: string;
+  readonly entityType?: MutationEntityType;
+  readonly entityId?: string;
+  readonly operation?: MutationOperation;
+  readonly expectedVersion?: number;
+  readonly eventVersion?: number;
+  readonly entityVersion?: number;
 }

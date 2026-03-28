@@ -24,7 +24,7 @@ export class RecordEditor {
       entityType: 'record',
       operation: 'create',
       payload: {
-        threadId,
+        threadUuid: threadId,
         body: normalizedBody,
         recordType: 'text',
       },

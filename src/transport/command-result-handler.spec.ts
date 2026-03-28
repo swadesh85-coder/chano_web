@@ -43,6 +43,10 @@ describe('CommandResultHandler', () => {
         commandId: 'cmd-123',
         status: 'conflict',
         message: 'Expected version mismatch',
+        entityType: 'thread',
+        entityId: 'thread-123',
+        operation: 'rename',
+        expectedVersion: 7,
       },
     });
 
@@ -50,8 +54,37 @@ describe('CommandResultHandler', () => {
       commandId: 'cmd-123',
       status: 'conflict',
       message: 'Expected version mismatch',
+      entityType: 'thread',
+      entityId: 'thread-123',
+      operation: 'rename',
+      expectedVersion: 7,
     });
     expect(handler.getStatus('cmd-123')).toBe('conflict');
+  });
+
+  it('accepts_success_result_without_message', () => {
+    relayHandler?.({
+      type: 'command_result',
+      payload: {
+        commandId: 'cmd-124',
+        status: 'applied',
+        entityType: 'record',
+        entityId: 'record-1',
+        operation: 'create',
+        eventVersion: 12,
+        entityVersion: 1,
+      },
+    });
+
+    expect(handler.getResult('cmd-124')).toEqual({
+      commandId: 'cmd-124',
+      status: 'applied',
+      entityType: 'record',
+      entityId: 'record-1',
+      operation: 'create',
+      eventVersion: 12,
+      entityVersion: 1,
+    });
   });
 
   it('duplicate_command_idempotency', () => {

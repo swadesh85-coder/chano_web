@@ -81,10 +81,10 @@ function createEventEnvelope(
     operation: overrides.operation ?? 'create',
     timestamp: overrides.timestamp ?? 1710000000 + eventVersion,
     payload: overrides.payload ?? {
-      uuid: 'record:0002',
-      threadUuid: 'thread:0001',
+      id: 'record:0002',
+      threadId: 'thread:0001',
       type: 'text',
-      body: `Body ${eventVersion}`,
+      name: `Body ${eventVersion}`,
       createdAt: 1710000000 + eventVersion,
       editedAt: 1710000000 + eventVersion,
       orderIndex: 0,
@@ -137,10 +137,10 @@ describe('VaultDomainProjection', () => {
       entityId: 'record:0002',
       operation: 'create',
       payload: {
-        uuid: 'record:0002',
-        threadUuid: 'thread:0001',
+        id: 'record:0002',
+        threadId: 'thread:0001',
         type: 'text',
-        body: 'Created body',
+        name: 'Created body',
         createdAt: 1710000101,
       },
     }));
@@ -184,8 +184,8 @@ describe('VaultDomainProjection', () => {
       entityId: 'record:0002',
       operation: 'update',
       payload: {
-        uuid: 'record:0002',
-        body: 'Updated body',
+        id: 'record:0002',
+        name: 'Updated body',
         type: 'markdown',
       },
     }));
@@ -251,8 +251,8 @@ describe('VaultDomainProjection', () => {
       entityId: 'record:0002',
       operation: 'move',
       payload: {
-        uuid: 'record:0002',
-        threadUuid: 'thread:0002',
+        id: 'record:0002',
+        threadId: 'thread:0002',
       },
     }));
 

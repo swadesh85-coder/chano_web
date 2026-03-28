@@ -91,10 +91,10 @@ function createEventEnvelope(
     operation: overrides.operation ?? 'create',
     timestamp: overrides.timestamp ?? 1710000000 + eventVersion,
     payload: overrides.payload ?? {
-      uuid: `record-${eventVersion}`,
-      threadUuid: 'thread-root',
+      id: `record-${eventVersion}`,
+      threadId: 'thread-root',
       type: 'image',
-      body: `Image ${eventVersion}`,
+      name: `Image ${eventVersion}`,
       createdAt: eventVersion,
       editedAt: eventVersion,
       orderIndex: eventVersion - 100,
@@ -173,10 +173,10 @@ describe('Strict selector layer replay', () => {
       createEventEnvelope(102, {
         entityId: 'record-102',
         payload: {
-          uuid: 'record-102',
-          threadUuid: 'thread-root',
+          id: 'record-102',
+          threadId: 'thread-root',
           type: 'image',
-          body: 'Second image',
+          name: 'Second image',
           createdAt: 102,
           editedAt: 102,
           orderIndex: 1,

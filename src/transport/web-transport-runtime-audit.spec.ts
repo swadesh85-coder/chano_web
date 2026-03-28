@@ -8,6 +8,8 @@ import { WebRelayClient } from './web-relay-client';
 import type { TransportEnvelope } from './transport-envelope';
 import QRCode from 'qrcode';
 
+const FOLDER_ID = '123e4567-e89b-42d3-a456-426614174151';
+
 function encodeUtf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }
@@ -42,8 +44,11 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 async function flushAuthoritativeEventWork(): Promise<void> {
-  await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
   await Promise.resolve();
 }
 
@@ -186,7 +191,6 @@ describe('Web transport runtime audit', () => {
       sequence: 2,
       payload: {},
     });
-
     ws.simulateEnvelope({
       protocolVersion: 2,
       type: 'protocol_handshake',
@@ -202,22 +206,27 @@ describe('Web transport runtime audit', () => {
   async function seedProjectionSnapshot(sessionId: string): Promise<void> {
     const ws = MockWebSocket.last;
     const snapshotJson = JSON.stringify({
-      folders: [
+      snapshotVersion: 1,
+      protocolVersion: 2,
+      schemaVersion: 1,
+      baseEventVersion: 5,
+      generatedAt: '2026-03-28T00:00:00.000Z',
+      entityCount: 1,
+      checksum: 'snapshot-runtime-root',
+      entities: [
         {
           entityType: 'folder',
-          entityUuid: 'folder-1',
+          entityUuid: FOLDER_ID,
           entityVersion: 1,
-          lastEventVersion: 1,
+          lastEventVersion: 5,
           ownerUserId: 'owner-1',
           data: {
-            uuid: 'folder-1',
+            uuid: FOLDER_ID,
             name: 'Inbox',
             parentFolderUuid: null,
           },
         },
       ],
-      threads: [],
-      records: [],
     });
     const snapshotBytes = encodeUtf8(snapshotJson);
     const checksum = await sha256Hex(snapshotBytes);
@@ -274,7 +283,7 @@ describe('Web transport runtime audit', () => {
   ): Promise<TransportEnvelope> {
     const payload = {
       uuid: entityId,
-      folderUuid: 'folder-1',
+      folderUuid: FOLDER_ID,
       title,
     };
 
@@ -397,7 +406,7 @@ describe('Web transport runtime audit', () => {
         timestamp: 1_710_000_006,
         payload: {
           uuid: '123e4567-e89b-42d3-a456-426614174043',
-          folderUuid: 'folder-1',
+          folderUuid: FOLDER_ID,
           title: 'From event stream',
         },
         checksum: expect.any(String),
@@ -420,7 +429,7 @@ describe('Web transport runtime audit', () => {
       payload: {
         title: 'Draft from web',
         kind: 'manual',
-        folderId: 'folder-1',
+        folderUuid: FOLDER_ID,
       },
     });
 
@@ -441,7 +450,7 @@ describe('Web transport runtime audit', () => {
         payload: {
           title: 'Draft from web',
           kind: 'manual',
-          folderId: 'folder-1',
+          folderUuid: FOLDER_ID,
         },
       },
     });
@@ -464,7 +473,7 @@ describe('Web transport runtime audit', () => {
       payload: {
         title: 'Draft from web',
         kind: 'manual',
-        folderId: 'folder-1',
+        folderUuid: FOLDER_ID,
       },
     });
 
@@ -478,6 +487,11 @@ describe('Web transport runtime audit', () => {
         commandId,
         status: 'applied',
         message: 'Applied on mobile',
+        entityType: 'thread',
+        entityId: 'thread-runtime-1',
+        operation: 'create',
+        eventVersion: 11,
+        entityVersion: 1,
       },
     });
 
@@ -485,6 +499,11 @@ describe('Web transport runtime audit', () => {
       commandId,
       status: 'applied',
       message: 'Applied on mobile',
+      entityType: 'thread',
+      entityId: 'thread-runtime-1',
+      operation: 'create',
+      eventVersion: 11,
+      entityVersion: 1,
     });
     expect(capturedLogs).toContainEqual([`COMMAND_RESULT_RECEIVED commandId=${commandId} status=applied`]);
   });
@@ -519,7 +538,7 @@ describe('Web transport runtime audit', () => {
       payload: {
         title: 'Awaiting authority',
         kind: 'manual',
-        folderId: 'folder-1',
+        folderUuid: FOLDER_ID,
       },
     });
 
@@ -549,7 +568,7 @@ describe('Web transport runtime audit', () => {
     expect(projection.state().threads.map(({ id, folderId, title }) => ({ id, folderId, title }))).toEqual([
       {
         id: generatedEntityId,
-        folderId: 'folder-1',
+        folderId: FOLDER_ID,
         title: 'Awaiting authority',
       },
     ]);

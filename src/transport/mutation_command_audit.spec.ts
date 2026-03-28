@@ -167,12 +167,19 @@ async function flushAuthoritativeEventWork(): Promise<void> {
 
 async function seedProjectionSnapshot(sessionId: string): Promise<void> {
   const snapshotJson = JSON.stringify({
-    folders: [
+    snapshotVersion: 1,
+    protocolVersion: 2,
+    schemaVersion: 1,
+    baseEventVersion: BASE_EVENT_VERSION,
+    generatedAt: '2026-03-28T00:00:00.000Z',
+    entityCount: 1,
+    checksum: 'snapshot-mutation-audit-root',
+    entities: [
       {
         entityType: 'folder',
         entityUuid: FOLDER_ID,
         entityVersion: 1,
-        lastEventVersion: 1,
+        lastEventVersion: BASE_EVENT_VERSION,
         ownerUserId: 'owner-1',
         data: {
           uuid: FOLDER_ID,
@@ -181,8 +188,6 @@ async function seedProjectionSnapshot(sessionId: string): Promise<void> {
         },
       },
     ],
-    threads: [],
-    records: [],
   });
   const snapshotBytes = encodeUtf8(snapshotJson);
   const checksum = await sha256Hex(snapshotBytes);
@@ -237,7 +242,7 @@ function expectExactCommandSchema(command: MutationCommand): void {
     'timestamp',
   ]);
   expect(Object.keys(command.payload).sort()).toEqual([
-    'folderId',
+    'folderUuid',
     'kind',
     'title',
   ]);
@@ -281,6 +286,11 @@ function createCommandResultEnvelope(
   return createEnvelope('command_result', sessionId, sequence, 1_710_000_200 + sequence, {
     commandId,
     status,
+    entityType: 'thread',
+    entityId: GENERATED_THREAD_ID,
+    operation: 'create',
+    eventVersion: 100 + sequence,
+    entityVersion: 1,
     message,
   });
 }
@@ -398,7 +408,7 @@ async function auditIdempotency(
     payload: {
       title: 'Idempotent Thread',
       kind: 'manual',
-      folderId: FOLDER_ID,
+      folderUuid: FOLDER_ID,
     },
   });
   const secondEnvelope = sender.sendCommand({
@@ -407,7 +417,7 @@ async function auditIdempotency(
     payload: {
       title: 'Idempotent Thread',
       kind: 'manual',
-      folderId: FOLDER_ID,
+      folderUuid: FOLDER_ID,
     },
   });
 
@@ -504,7 +514,7 @@ describe('MutationCommandSender audit', () => {
       payload: {
         title: 'Draft from web',
         kind: 'manual',
-        folderId: FOLDER_ID,
+        folderUuid: FOLDER_ID,
       },
     });
   });
@@ -539,6 +549,11 @@ describe('MutationCommandSender audit', () => {
     expect(commandResults.results()[COMMAND_ID]).toEqual({
       commandId: COMMAND_ID,
       status: 'applied',
+      entityType: 'thread',
+      entityId: GENERATED_THREAD_ID,
+      operation: 'create',
+      eventVersion: 110,
+      entityVersion: 1,
       message: 'Applied on mobile',
     });
     expect(capturedLogs).toContain(`COMMAND_RESULT_RECEIVED commandId=${COMMAND_ID} status=applied`);

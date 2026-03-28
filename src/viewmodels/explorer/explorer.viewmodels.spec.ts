@@ -172,10 +172,10 @@ function createEventEnvelope(
     operation: overrides.operation ?? 'create',
     timestamp: overrides.timestamp ?? 1710000000 + eventVersion,
     payload: overrides.payload ?? {
-      uuid: `record-${eventVersion}`,
-      threadUuid: 'thread-root',
+      id: `record-${eventVersion}`,
+      threadId: 'thread-root',
       type: 'text',
-      body: `Record ${eventVersion}`,
+      name: `Record ${eventVersion}`,
       createdAt: eventVersion,
       editedAt: eventVersion,
       orderIndex: eventVersion - 100,
@@ -373,7 +373,6 @@ describe('Explorer viewmodels', () => {
         entityId: 'thread-root',
         operation: 'rename',
         payload: {
-          uuid: 'thread-root',
           title: 'Primary thread renamed',
         },
       }),

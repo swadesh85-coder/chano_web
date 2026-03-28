@@ -1,7 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import puppeteer from 'puppeteer';
@@ -10,7 +10,7 @@ import { WebSocketServer } from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const workspaceRoot = path.resolve(__dirname, '..');
+const workspaceRoot = resolveWorkspaceRoot();
 const distDir = path.join(workspaceRoot, 'dist', 'chano_web', 'browser');
 const baselineDir = path.join(workspaceRoot, 'visual-baseline', 'explorer');
 const reportDir = path.join(workspaceRoot, 'reports', 'visual-regression');
@@ -107,6 +107,24 @@ const mimeTypes = new Map([
   ['.svg', 'image/svg+xml; charset=utf-8'],
   ['.woff2', 'font/woff2'],
 ]);
+
+function resolveWorkspaceRoot() {
+  const candidates = [
+    process.cwd(),
+    path.resolve(__dirname, '..'),
+  ];
+
+  for (const candidate of candidates) {
+    if (
+      existsSync(path.join(candidate, 'angular.json'))
+      || existsSync(path.join(candidate, 'package.json'))
+    ) {
+      return candidate;
+    }
+  }
+
+  return path.resolve(__dirname, '..');
+}
 
 export async function runVisualRegression(options = {}) {
   const updateBaseline = options.updateBaseline === true;

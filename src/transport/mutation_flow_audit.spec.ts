@@ -9,8 +9,8 @@ import type { CommandResultStatus } from './mutation-command';
 import type { TransportEnvelope } from './transport-envelope';
 import { WebRelayClient } from './web-relay-client';
 
-const FOLDER_ID = 'folder-root-001';
-const THREAD_ID = 'thread-seeded-001';
+const FOLDER_ID = '123e4567-e89b-42d3-a456-426614174211';
+const THREAD_ID = '123e4567-e89b-42d3-a456-426614174212';
 const GENERATED_RECORD_ID = '123e4567-e89b-42d3-a456-426614174201';
 const BASE_EVENT_VERSION = 200;
 const RELAY_URL = 'ws://relay.audit.local/relay';
@@ -125,19 +125,29 @@ async function checksumForPayload(payload: Record<string, unknown>): Promise<str
 }
 
 async function flushAuthoritativeEventWork(): Promise<void> {
-  await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
   await Promise.resolve();
 }
 
 async function seedProjectionSnapshot(sessionId: string): Promise<void> {
   const snapshotJson = JSON.stringify({
-    folders: [
+    snapshotVersion: 1,
+    protocolVersion: 2,
+    schemaVersion: 1,
+    baseEventVersion: BASE_EVENT_VERSION,
+    generatedAt: '2026-03-28T00:00:00.000Z',
+    entityCount: 2,
+    checksum: 'snapshot-mutation-flow-root',
+    entities: [
       {
         entityType: 'folder',
         entityUuid: FOLDER_ID,
         entityVersion: 1,
-        lastEventVersion: 1,
+        lastEventVersion: BASE_EVENT_VERSION,
         ownerUserId: 'owner-1',
         data: {
           uuid: FOLDER_ID,
@@ -145,13 +155,11 @@ async function seedProjectionSnapshot(sessionId: string): Promise<void> {
           parentFolderUuid: null,
         },
       },
-    ],
-    threads: [
       {
         entityType: 'thread',
         entityUuid: THREAD_ID,
         entityVersion: 2,
-        lastEventVersion: 2,
+        lastEventVersion: BASE_EVENT_VERSION,
         ownerUserId: 'owner-1',
         data: {
           uuid: THREAD_ID,
@@ -160,7 +168,6 @@ async function seedProjectionSnapshot(sessionId: string): Promise<void> {
         },
       },
     ],
-    records: [],
   });
   const snapshotBytes = encodeUtf8(snapshotJson);
   const checksum = await sha256Hex(snapshotBytes);
@@ -230,6 +237,11 @@ function createCommandResultEnvelope(
   return createEnvelope('command_result', sessionId, sequence, 1_710_000_150 + sequence, {
     commandId,
     status,
+    entityType: 'record',
+    entityId: GENERATED_RECORD_ID,
+    operation: 'create',
+    eventVersion: 200 + sequence,
+    entityVersion: 1,
     message: 'Accepted by relay',
   });
 }
@@ -305,7 +317,7 @@ describe('auditMutationFlow', () => {
       expectedVersion: 0,
       timestamp: 1_710_000_101,
       payload: {
-        threadId: THREAD_ID,
+        threadUuid: THREAD_ID,
         body: 'Record from web',
         recordType: 'text',
       },
@@ -409,7 +421,7 @@ describe('auditMutationFlow', () => {
       payload: {
         title: 'Other pending',
         kind: 'manual',
-        folderId: FOLDER_ID,
+        folderUuid: FOLDER_ID,
       },
     });
 
