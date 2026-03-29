@@ -1,0 +1,70 @@
+[90mstderr[2m | src/app/projection/projection.store.spec.ts[2m > [22m[2mProjectionStore[2m > [22m[2mrejects invalid checksum without mutating committed state
+[22m[39mSNAPSHOT_ERROR checksum mismatch
+
+[90mstderr[2m | src/app/projection/projection_pipeline_audit.spec.ts[2m > [22m[2mProjection pipeline audit[2m > [22m[2msnapshot_chunk_order_validation
+[22m[39mSNAPSHOT_ERROR invalid chunk order expected=0 actual=1
+
+[90mstderr[2m | src/app/projection/projection_pipeline_audit.spec.ts[2m > [22m[2mProjection pipeline audit[2m > [22m[2msnapshot_checksum_validation
+[22m[39mSNAPSHOT_ERROR checksum mismatch
+
+[90mstderr[2m | src/app/projection/projection_engine.spec.ts[2m > [22m[2mProjectionEngine[2m > [22m[2mprojection_engine_gap_triggers_resync_callback
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=201 received=205
+
+[90mstderr[2m | src/app/projection/projection_engine.spec.ts[2m > [22m[2mProjectionEngine[2m > [22m[2mevent_gap_detection
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=102 received=103
+
+[90mstderr[2m | src/app/projection/projection_engine.spec.ts[2m > [22m[2mProjectionEngine[2m > [22m[2mevent_gap_no_apply
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=102 received=103
+
+[90mstderr[2m | src/app/projection/projection_engine.spec.ts[2m > [22m[2mProjectionEngine[2m > [22m[2mevent_resync_trigger
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=102 received=103
+
+[90mstderr[2m | src/app/projection/projection_engine.spec.ts[2m > [22m[2mProjectionEngine[2m > [22m[2mevent_recovery_after_snapshot
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=102 received=103
+
+[90mstderr[2m | src/app/projection/projection_engine.spec.ts[2m > [22m[2mProjectionEngine[2m > [22m[2mno_event_applied_before_boundary_check
+[22m[39mRESYNC_TRIGGERED
+SNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=101 received=105
+
+[90mstderr[2m | src/app/projection/projection_pipeline_audit.spec.ts[2m > [22m[2mProjection pipeline audit[2m > [22m[2mevent_gap_detection
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=103 received=105
+
+[90mstderr[2m | src/app/projection/projection_event_validation.spec.ts[2m > [22m[2mEventValidation[2m > [22m[2mevent_validation_rejects_conflicting_alias_and_canonical_record_fields
+[22m[39mEVENT_REJECTED reason=INVALID_SCHEMA
+
+[90mstderr[2m | src/app/projection/projection_pipeline_audit.spec.ts[2m > [22m[2mProjection pipeline audit[2m > [22m[2mevent_projection_update
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=102 received=105
+
+[90mstderr[2m | src/app/projection/projection_event_validation.spec.ts[2m > [22m[2mEventValidation[2m > [22m[2mevent_validation_rejects_incomplete_record_payload_after_normalization
+[22m[39mEVENT_REJECTED reason=INVALID_SCHEMA
+
+[90mstderr[2m | src/app/projection/projection_event_validation.spec.ts[2m > [22m[2mEventValidation[2m > [22m[2mevent_validation_invalid_schema
+[22m[39mEVENT_REJECTED reason=INVALID_SCHEMA
+
+[90mstderr[2m | src/app/projection/projection_event_validation.spec.ts[2m > [22m[2mEventValidation[2m > [22m[2mevent_validation_checksum_failure
+[22m[39mEVENT_VALIDATION_FAILED reason=CHECKSUM_MISMATCH
+
+[90mstderr[2m | src/app/projection/projection_event_validation.spec.ts[2m > [22m[2mEventValidation[2m > [22m[2mevent_validation_reject_missing_fields
+[22m[39mEVENT_REJECTED reason=INVALID_SCHEMA
+
+[90mstderr[2m | src/app/projection/projection_pipeline_audit.spec.ts[2m > [22m[2mProjection pipeline audit[2m > [22m[2mprojection_deterministic_after_fix
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=103 received=105
+
+[90mstderr[2m | src/app/projection/projection_event_validation.spec.ts[2m > [22m[2mEventValidation[2m > [22m[2mvalidate_start_boundary_returns_expected_versions
+[22m[39mEVENT_VALIDATION_FAILED reason=CHECKSUM_MISMATCH
+
+[90mstderr[2m | src/app/projection/projection_event_validation.spec.ts[2m > [22m[2mEventValidation[2m > [22m[2mvalidate_start_boundary_returns_expected_versions
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=CHECKSUM_MISMATCH
+
+[90mstderr[2m | src/app/projection/projection_pipeline_audit.spec.ts[2m > [22m[2mProjection pipeline audit[2m > [22m[2mprojection_deterministic_after_fix
+[22m[39mSNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=103 received=105
+
+[90mstderr[2m | src/app/projection/snapshot_loader.spec.ts[2m > [22m[2mSnapshotLoader[2m > [22m[2msnapshot_checksum_verification
+[22m[39mSNAPSHOT_ERROR checksum mismatch
+
+[90mstderr[2m | src/app/projection/snapshot_loader.spec.ts[2m > [22m[2mSnapshotLoader[2m > [22m[2msnapshot_checksum_verification_for_test_hook
+[22m[39mSNAPSHOT_ERROR checksum mismatch
+
+[90mstderr[2m | src/app/projection/snapshot_loader.spec.ts[2m > [22m[2mSnapshotLoader[2m > [22m[2msnapshot_reject_on_invalid_chunk_order
+[22m[39mSNAPSHOT_ERROR invalid chunk order expected=0 actual=1
+
