@@ -114,7 +114,7 @@ export type SnapshotLoaderEvent =
       readonly entityCount: number;
     }
   | {
-      readonly type: 'SNAPSHOT_ERROR';
+      readonly type: 'SNAPSHOT_REJECTED';
       readonly reason: string;
     };
 
@@ -146,12 +146,12 @@ export class SnapshotLoader {
     };
   }
 
-  handleSnapshotStart(envelope: TransportEnvelope): void {
+  handleSnapshotStart(envelope: TransportEnvelope): boolean {
     const payload = this.parseSnapshotStartPayload(envelope.payload);
 
     if (payload === null) {
       this.fail('invalid snapshot_start payload');
-      return;
+      return false;
     }
 
     this.startSnapshotAssembly(payload);
@@ -159,6 +159,8 @@ export class SnapshotLoader {
     console.log(
       `SNAPSHOT_RECEIVE_START snapshotId=${payload.snapshotId ?? 'unknown'} totalChunks=${payload.totalChunks} type=${envelope.type} sessionId=${this.formatSessionId(envelope.sessionId)}`,
     );
+
+    return true;
   }
 
   handleSnapshotChunk(envelope: TransportEnvelope): void {
@@ -479,8 +481,8 @@ export class SnapshotLoader {
   private fail(reason: string): void {
     this.assembly = null;
     this.lastReconstruction = null;
-    console.error(`SNAPSHOT_ERROR ${reason}`);
-    this.emitEvent({ type: 'SNAPSHOT_ERROR', reason });
+    console.error(`SNAPSHOT_REJECTED reason=${reason}`);
+    this.emitEvent({ type: 'SNAPSHOT_REJECTED', reason });
   }
 
   private countSnapshotEntities(snapshot: ProjectionSnapshotDocument): number {
@@ -818,9 +820,39 @@ export class SnapshotLoader {
     const snapshotStartPayload = payload as Record<string, unknown>;
 
     return (
-      typeof snapshotStartPayload['totalChunks'] === 'number'
-      && typeof snapshotStartPayload['totalBytes'] === 'number'
-      && typeof snapshotStartPayload['snapshotVersion'] === 'number'
+      this.hasRequiredKeys(snapshotStartPayload, [
+        'totalChunks',
+        'totalBytes',
+        'snapshotVersion',
+        'protocolVersion',
+        'schemaVersion',
+        'baseEventVersion',
+        'entityCount',
+        'checksum',
+      ])
+      && this.hasAllowedKeys(snapshotStartPayload, [
+        'snapshotId',
+        'totalChunks',
+        'totalBytes',
+        'snapshotVersion',
+        'protocolVersion',
+        'schemaVersion',
+        'baseEventVersion',
+        'entityCount',
+        'checksum',
+      ])
+      && this.isNonNegativeInteger(snapshotStartPayload['totalChunks'])
+      && this.isNonNegativeInteger(snapshotStartPayload['totalBytes'])
+      && this.isNonNegativeInteger(snapshotStartPayload['snapshotVersion'])
+      && this.isNonNegativeInteger(snapshotStartPayload['protocolVersion'])
+      && this.isNonNegativeInteger(snapshotStartPayload['schemaVersion'])
+      && this.isNonNegativeInteger(snapshotStartPayload['baseEventVersion'])
+      && this.isNonNegativeInteger(snapshotStartPayload['entityCount'])
+      && typeof snapshotStartPayload['checksum'] === 'string'
+      && snapshotStartPayload['checksum'].length > 0
+      && (!('snapshotId' in snapshotStartPayload)
+        || snapshotStartPayload['snapshotId'] === null
+        || typeof snapshotStartPayload['snapshotId'] === 'string')
     );
   }
 

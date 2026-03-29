@@ -1446,7 +1446,7 @@ describe('ProjectionEngine', () => {
     expect(() => engine.applySnapshot({ folders: [] } as ProjectionSnapshotDocument, 100)).toThrowError(
       new TypeError('INVALID_SNAPSHOT_DOCUMENT'),
     );
-    expect(consoleError).toHaveBeenCalledWith('SNAPSHOT_INPUT_REJECTED reason=INVALID_SNAPSHOT_DOCUMENT');
+    expect(consoleError).toHaveBeenCalledWith('SNAPSHOT_REJECTED reason=INVALID_SNAPSHOT_DOCUMENT');
 
     consoleError.mockRestore();
   });
@@ -1475,7 +1475,7 @@ describe('ProjectionEngine', () => {
         records: [],
       },
     });
-    expect(consoleError).toHaveBeenCalledWith(`SNAPSHOT_INPUT_REJECTED reason=${expectedError}`);
+    expect(consoleError).toHaveBeenCalledWith(`SNAPSHOT_REJECTED reason=${expectedError}`);
 
     consoleError.mockRestore();
   });

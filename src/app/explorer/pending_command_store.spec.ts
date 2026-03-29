@@ -5,13 +5,18 @@ import { WebRelayClient } from '../../transport';
 
 describe('PendingCommandStore', () => {
   let store: PendingCommandStore;
-  let relayHandler: ((envelope: {
+  let commandResultHandler: ((envelope: {
+    type: string;
+    payload: Record<string, unknown>;
+  }) => void) | null;
+  let projectionHandler: ((envelope: {
     type: string;
     payload: Record<string, unknown>;
   }) => void) | null;
 
   beforeEach(() => {
-    relayHandler = null;
+    commandResultHandler = null;
+    projectionHandler = null;
 
     TestBed.configureTestingModule({
       providers: [
@@ -19,10 +24,16 @@ describe('PendingCommandStore', () => {
         {
           provide: WebRelayClient,
           useValue: {
-            onEnvelope: (callback: (envelope: { type: string; payload: Record<string, unknown> }) => void) => {
-              relayHandler = callback;
+            onCommandResultMessage: (callback: (envelope: { type: string; payload: Record<string, unknown> }) => void) => {
+              commandResultHandler = callback;
               return () => {
-                relayHandler = null;
+                commandResultHandler = null;
+              };
+            },
+            onProjectionMessage: (callback: (envelope: { type: string; payload: Record<string, unknown> }) => void) => {
+              projectionHandler = callback;
+              return () => {
+                projectionHandler = null;
               };
             },
           },
@@ -71,7 +82,7 @@ describe('PendingCommandStore', () => {
   it('no_unlock_on_command_result_only', () => {
     setPending();
 
-    relayHandler?.({
+    commandResultHandler?.({
       type: 'command_result',
       payload: {
         commandId: 'cmd-401',
@@ -88,7 +99,7 @@ describe('PendingCommandStore', () => {
   it('failed_command_unlock', () => {
     setPending();
 
-    relayHandler?.({
+    commandResultHandler?.({
       type: 'command_result',
       payload: {
         commandId: 'cmd-401',
@@ -104,7 +115,7 @@ describe('PendingCommandStore', () => {
   it('forbidden_command_unlock', () => {
     setPending();
 
-    relayHandler?.({
+    commandResultHandler?.({
       type: 'command_result',
       payload: {
         commandId: 'cmd-401',
@@ -126,7 +137,7 @@ describe('PendingCommandStore', () => {
       title: 'New Thread',
     };
 
-    relayHandler?.({
+    projectionHandler?.({
       type: 'event_stream',
       payload: {
         eventId: 'evt-501',
@@ -157,7 +168,7 @@ describe('PendingCommandStore', () => {
       title: 'New Thread',
     };
 
-    relayHandler?.({
+    projectionHandler?.({
       type: 'event_stream',
       payload: {
         eventId: 'evt-502',
@@ -207,7 +218,7 @@ describe('PendingCommandStore', () => {
       imageGroupId: null,
     };
 
-    relayHandler?.({
+    projectionHandler?.({
       type: 'event_stream',
       payload: {
         eventId: 'evt-701',

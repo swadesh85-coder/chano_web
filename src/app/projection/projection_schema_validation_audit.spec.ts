@@ -419,7 +419,7 @@ describe('Projection Schema Validation Audit', () => {
     });
   });
 
-  it('captures deterministic raw_to_canonical_thread_event evidence', async () => {
+  it('rejects unsupported legacy thread transport payloads', async () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -443,8 +443,23 @@ describe('Projection Schema Validation Audit', () => {
 
     const incomingEvents = parseJsonLog<{ entity: string; fields: string[]; eventId: number; sequence: number }>(consoleLog.mock.calls, 'EVENT_SCHEMA_INCOMING');
     const canonicalEvents = parseJsonLog<{ entity: string; fields: string[]; eventId: number; sequence: number }>(consoleLog.mock.calls, 'EVENT_SCHEMA_CANONICAL');
-    const schemaErrors = parseJsonLog(consoleError.mock.calls, 'SCHEMA_VALIDATION_ERROR');
-    const auditResults = parseJsonLog(consoleError.mock.calls, 'SCHEMA_AUDIT_RESULT');
+    const schemaErrors = parseJsonLog<{
+      entity: string;
+      missingInEvent: string[];
+      extraInEvent: string[];
+      snapshotFields: string[];
+      eventFields: string[];
+      eventId: number;
+      sequence: number;
+    }>(consoleError.mock.calls, 'SCHEMA_VALIDATION_ERROR');
+    const auditResults = parseJsonLog<{
+      entity: string;
+      snapshotFields: string[];
+      eventFields: string[];
+      missingInEvent: string[];
+      extraInEvent: string[];
+      verdict: string;
+    }>(consoleError.mock.calls, 'SCHEMA_AUDIT_RESULT');
 
     expect(incomingEvents).toContainEqual({
       entity: 'thread',
@@ -453,16 +468,38 @@ describe('Projection Schema Validation Audit', () => {
       sequence: 5,
     });
 
-    expect(canonicalEvents).toContainEqual({
-      entity: 'thread',
-      fields: ['folderId', 'id', 'title'],
-      eventId: 101,
-      sequence: 5,
-    });
-
-    expect(schemaErrors).toEqual([]);
-    expect(auditResults).toEqual([]);
-    expect(store.state().threads).toContainEqual({
+    expect(canonicalEvents).toEqual([
+      {
+        entity: 'thread',
+        fields: ['id', 'title'],
+        eventId: 101,
+        sequence: 5,
+      },
+    ]);
+    expect(schemaErrors).toEqual([
+      {
+        entity: 'thread',
+        missingInEvent: ['folderId', 'id', 'lastEventVersion'],
+        extraInEvent: ['contactId', 'createdAt', 'deviceId', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId'],
+        snapshotFields: ['entityVersion', 'folderId', 'id', 'lastEventVersion', 'title'],
+        eventFields: ['contactId', 'createdAt', 'deviceId', 'entityVersion', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId', 'title'],
+        eventId: 101,
+        sequence: 5,
+      },
+    ]);
+    expect(auditResults).toEqual([
+      {
+        entity: 'thread',
+        snapshotFields: ['entityVersion', 'folderId', 'id', 'lastEventVersion', 'title'],
+        eventFields: ['contactId', 'createdAt', 'deviceId', 'entityVersion', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId', 'title'],
+        missingInEvent: ['folderId', 'id', 'lastEventVersion'],
+        extraInEvent: ['contactId', 'createdAt', 'deviceId', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId'],
+        verdict: 'SCHEMA_MISMATCH_CONFIRMED',
+      },
+    ]);
+    expect(consoleError.mock.calls).toContainEqual(['EVENT_REJECTED reason=INVALID_SCHEMA']);
+    expect(consoleError.mock.calls).toContainEqual(['SNAPSHOT_RESYNC_REQUIRED reason=INVALID_SCHEMA']);
+    expect(store.state().threads).not.toContainEqual({
       id: 'thread-2',
       folderId: 'folder-1',
       title: 'Backlog',

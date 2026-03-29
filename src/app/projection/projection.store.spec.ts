@@ -367,6 +367,32 @@ describe('ProjectionStore', () => {
     expect(store.state().records).toEqual([]);
   });
 
+  it('rejects invalid snapshot_start before receiving phase', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const protocol = await createByteSnapshotProtocol(buildSnapshotJson(
+      [{ id: 'folder-1', name: 'Inbox' }],
+      [{ id: 'thread-1', folderId: 'folder-1', title: 'Roadmap' }],
+      [],
+    ));
+
+    emitRaw('snapshot_start', {
+      ...protocol.start,
+      checksum: undefined,
+    });
+    await flushAsyncWork();
+
+    expect(store.phase()).toBe('idle');
+    expect(store.state()).toEqual({
+      folders: [],
+      threads: [],
+      records: [],
+    });
+    expect(errorSpy).toHaveBeenCalledWith('SNAPSHOT_REJECTED reason=invalid snapshot_start payload');
+    expect(errorSpy).toHaveBeenCalledWith('SNAPSHOT_RESYNC_REQUIRED reason=SNAPSHOT_REJECTED detail=invalid snapshot_start payload');
+
+    errorSpy.mockRestore();
+  });
+
   it('does not mutate projection state before snapshot_complete', async () => {
     const protocol = await createByteSnapshotProtocol(buildSnapshotJson(
       [{ id: 'folder-1', name: 'Inbox' }],
@@ -547,7 +573,8 @@ describe('ProjectionStore', () => {
 
     expect(store.phase()).toBe('idle');
     expect(store.state().folders.map(({ id, name, parentId }) => ({ id, name, parentId }))).toEqual([{ id: 'folder-1', name: 'Committed', parentId: null }]);
-    expect(errorSpy).toHaveBeenCalledWith('SNAPSHOT_ERROR invalid snapshot_chunk payload');
+    expect(errorSpy).toHaveBeenCalledWith('SNAPSHOT_REJECTED reason=invalid snapshot_chunk payload');
+    expect(errorSpy).toHaveBeenCalledWith('SNAPSHOT_RESYNC_REQUIRED reason=SNAPSHOT_REJECTED detail=invalid snapshot_chunk payload');
     errorSpy.mockRestore();
   });
 
@@ -616,7 +643,8 @@ describe('ProjectionStore', () => {
     expect(store.lastProjectionUpdate()).toBeNull();
     expect(publishProjectionStateSpy).not.toHaveBeenCalled();
     expect(applySnapshotSpy).not.toHaveBeenCalled();
-    expect(errorSpy.mock.calls.some((call) => String(call[0]).startsWith('SNAPSHOT_ERROR'))).toBe(true);
+    expect(errorSpy.mock.calls.some((call) => String(call[0]).startsWith('SNAPSHOT_REJECTED reason='))).toBe(true);
+    expect(errorSpy.mock.calls.some((call) => String(call[0]).startsWith('SNAPSHOT_RESYNC_REQUIRED reason=SNAPSHOT_REJECTED detail='))).toBe(true);
 
     errorSpy.mockRestore();
   });

@@ -95,10 +95,16 @@ export class ProjectionStore {
 
   private onSnapshotStart(message: TransportEnvelope): void {
     this.snapshotSessionId = message.sessionId;
+    const started = this.snapshotLoader.handleSnapshotStart(message);
+    if (!started) {
+      this._phase.set('idle');
+      this.emitSnapshotResyncRequired('SNAPSHOT_REJECTED', 'invalid snapshot_start payload');
+      return;
+    }
+
     this.snapshotSchemaBaseline.clear();
     this.hasRecordedFirstSchemaMismatch = false;
     this.projectionEngine.onSnapshotStart(this.readSnapshotLogId(message.payload));
-    this.snapshotLoader.handleSnapshotStart(message);
     this._phase.set('receiving');
   }
 
@@ -118,9 +124,10 @@ export class ProjectionStore {
 
   private handleSnapshotLoaderEvent(event: SnapshotLoaderEvent): void {
     switch (event.type) {
-      case 'SNAPSHOT_ERROR':
+      case 'SNAPSHOT_REJECTED':
         this.projectionEngine.abortSnapshot();
         this._phase.set('idle');
+        this.emitSnapshotResyncRequired('SNAPSHOT_REJECTED', event.reason);
         return;
       case 'SNAPSHOT_LOADED':
         console.log(
@@ -131,9 +138,9 @@ export class ProjectionStore {
         } catch (error: unknown) {
           this.projectionEngine.abortSnapshot();
           this._phase.set('idle');
-          console.error(
-            `SNAPSHOT_ERROR ${error instanceof Error ? error.message : 'UNKNOWN_SNAPSHOT_REJECTION'}`,
-          );
+          const reason = error instanceof Error ? error.message : 'UNKNOWN_SNAPSHOT_REJECTION';
+          console.error(`SNAPSHOT_REJECTED reason=${reason}`);
+          this.emitSnapshotResyncRequired('SNAPSHOT_REJECTED', reason);
         }
         return;
     }
@@ -243,6 +250,10 @@ export class ProjectionStore {
 
   private emitValidationResyncRequired(reason: EventValidationFailureReason): void {
     console.error(`SNAPSHOT_RESYNC_REQUIRED reason=${reason}`);
+  }
+
+  private emitSnapshotResyncRequired(reason: 'SNAPSHOT_REJECTED', detail: string): void {
+    console.error(`SNAPSHOT_RESYNC_REQUIRED reason=${reason} detail=${detail}`);
   }
 
   private captureSnapshotSchemaBaseline(state: ReturnType<ProjectionStore['state']>): void {

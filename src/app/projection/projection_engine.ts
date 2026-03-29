@@ -165,7 +165,7 @@ export class ProjectionEngine {
       nextState = this.freezeProjectionState(nextProjection.applySnapshot(snapshot));
     } catch (error: unknown) {
       const reason = error instanceof Error ? error.message : 'UNKNOWN_SNAPSHOT_REJECTION';
-      console.error(`SNAPSHOT_INPUT_REJECTED reason=${reason}`);
+      console.error(`SNAPSHOT_REJECTED reason=${reason}`);
       throw error;
     }
 
@@ -201,7 +201,7 @@ export class ProjectionEngine {
 
     if (!isObjectLike || !Array.isArray(candidate.folders)
       || !Array.isArray(candidate.threads) || !Array.isArray(candidate.records)) {
-      console.error('SNAPSHOT_INPUT_REJECTED reason=INVALID_SNAPSHOT_DOCUMENT');
+      console.error('SNAPSHOT_REJECTED reason=INVALID_SNAPSHOT_DOCUMENT');
       throw new TypeError('INVALID_SNAPSHOT_DOCUMENT');
     }
   }

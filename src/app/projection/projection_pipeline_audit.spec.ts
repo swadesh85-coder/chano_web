@@ -443,7 +443,7 @@ describe('Projection pipeline audit', () => {
 
     expect(events).toEqual([
       {
-        type: 'SNAPSHOT_ERROR',
+        type: 'SNAPSHOT_REJECTED',
         reason: 'invalid chunk order expected=0 actual=1',
       },
     ]);
@@ -468,7 +468,7 @@ describe('Projection pipeline audit', () => {
 
     expect(events).toEqual([
       {
-        type: 'SNAPSHOT_ERROR',
+        type: 'SNAPSHOT_REJECTED',
         reason: 'checksum mismatch',
       },
     ]);

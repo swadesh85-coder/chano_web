@@ -175,6 +175,7 @@ describe('WebRelayClient', () => {
 
   it('web_relay_client_receive_envelope', () => {
     client.connect('wss://relay.chano.app');
+    const sessionId = client.sessionId();
 
     let received: TransportEnvelope | null = null;
     client.onEnvelope((envelope) => {
@@ -184,7 +185,7 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateMessage({
       protocolVersion: 2,
       type: 'snapshot_start',
-      sessionId: 'session-1',
+      sessionId,
       timestamp: 1710000000,
       sequence: 1,
       payload: {},
@@ -193,7 +194,7 @@ describe('WebRelayClient', () => {
     expect(received).toEqual({
       protocolVersion: 2,
       type: 'snapshot_start',
-      sessionId: 'session-1',
+      sessionId,
       timestamp: 1710000000,
       sequence: 1,
       payload: {},
@@ -203,6 +204,7 @@ describe('WebRelayClient', () => {
   it('transport_parser_valid_envelope', () => {
     client.connect('wss://relay.chano.app');
     MockWebSocket.last.simulateOpen();
+    const sessionId = client.sessionId();
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     let received: TransportEnvelope | null = null;
@@ -214,7 +216,7 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateRawFrame({
       protocolVersion: 2,
       type: 'event_stream',
-      sessionId: 'session-1',
+      sessionId,
       timestamp: 1710000000,
       sequence: 3,
       payload: {
@@ -227,7 +229,7 @@ describe('WebRelayClient', () => {
     expect(received).toEqual({
       protocolVersion: 2,
       type: 'event_stream',
-      sessionId: 'session-1',
+      sessionId,
       timestamp: 1710000000,
       sequence: 3,
       payload: {
@@ -244,6 +246,7 @@ describe('WebRelayClient', () => {
   it('transport_parser_reject_invalid_envelope', () => {
     client.connect('wss://relay.chano.app');
     MockWebSocket.last.simulateOpen();
+    const sessionId = client.sessionId();
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const handler = vi.fn();
@@ -253,7 +256,7 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateRawFrame({
       protocolVersion: 1,
       type: 'event_stream',
-      sessionId: 'session-1',
+      sessionId,
       timestamp: 1710000000,
       sequence: 3,
       payload: {
@@ -272,6 +275,7 @@ describe('WebRelayClient', () => {
   it('transport_parser_payload_passthrough', () => {
     client.connect('wss://relay.chano.app');
     MockWebSocket.last.simulateOpen();
+    const sessionId = client.sessionId();
 
     const payload = {
       operation: 'update',
@@ -294,7 +298,7 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateRawFrame({
       protocolVersion: 2,
       type: 'event_stream',
-      sessionId: 'session-9',
+      sessionId,
       timestamp: 1710000100,
       sequence: 9,
       payload,
@@ -308,11 +312,39 @@ describe('WebRelayClient', () => {
     expect(envelope).toEqual({
       protocolVersion: 2,
       type: 'event_stream',
-      sessionId: 'session-9',
+      sessionId,
       timestamp: 1710000100,
       sequence: 9,
       payload,
     });
+  });
+
+  it('transport_parser_rejects_cross_session_envelope', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    const sessionId = client.sessionId();
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const handler = vi.fn();
+
+    client.onEnvelope(handler);
+
+    MockWebSocket.last.simulateRawFrame({
+      protocolVersion: 2,
+      type: 'event_stream',
+      sessionId: '123e4567-e89b-42d3-a456-426614174999',
+      timestamp: 1710000200,
+      sequence: 10,
+      payload: { eventId: 'evt-10' },
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(client.sessionId()).toBe(sessionId);
+    expect(warningSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`TRANSPORT_SESSION_REJECTED type=event_stream expected=${sessionId}`),
+    );
+
+    warningSpy.mockRestore();
   });
 
   it('web_relay_client_disconnect', () => {
@@ -328,6 +360,7 @@ describe('WebRelayClient', () => {
   it('message_routing_control_vs_projection', () => {
     client.connect('wss://relay.chano.app');
     MockWebSocket.last.simulateOpen();
+    const sessionId = client.sessionId();
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const pairingHandler = vi.fn();
@@ -341,7 +374,7 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateRawFrame({
       protocolVersion: 2,
       type: 'protocol_handshake',
-      sessionId: 'session-ctl',
+      sessionId,
       timestamp: 1710000000,
       sequence: 1,
       payload: {},
@@ -350,7 +383,7 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateRawFrame({
       protocolVersion: 2,
       type: 'snapshot_start',
-      sessionId: 'session-proj',
+      sessionId,
       timestamp: 1710000001,
       sequence: 2,
       payload: {
@@ -380,6 +413,7 @@ describe('WebRelayClient', () => {
   it('snapshot_routed_to_projection', () => {
     client.connect('wss://relay.chano.app');
     MockWebSocket.last.simulateOpen();
+    const sessionId = client.sessionId();
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const projectionHandler = vi.fn();
@@ -391,7 +425,7 @@ describe('WebRelayClient', () => {
     MockWebSocket.last.simulateRawFrame({
       protocolVersion: 2,
       type: 'snapshot_start',
-      sessionId: 'session-1',
+      sessionId,
       timestamp: 1710000000,
       sequence: 1,
       payload: {

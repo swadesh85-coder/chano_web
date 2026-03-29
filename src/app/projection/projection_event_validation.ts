@@ -278,20 +278,19 @@ function normalizeEventPayload(
   switch (entityType) {
     case 'folder':
     case 'imageGroup':
-      return normalizeFolderPayload(entityId, sanitizedPayload);
+      return normalizeCanonicalFolderPayload(entityId, sanitizedPayload);
     case 'thread':
-      return normalizeThreadPayload(entityId, sanitizedPayload);
+      return normalizeCanonicalThreadPayload(entityId, sanitizedPayload);
     case 'record':
-      return normalizeRecordPayload(entityId, sanitizedPayload);
+      return normalizeRecordPayloadWithApprovedCompatibility(entityId, sanitizedPayload);
   }
 }
 
-function normalizeFolderPayload(
+function normalizeCanonicalFolderPayload(
   entityId: string,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
   const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
-  const parentId = resolveCanonicalAlias(payload, 'parentId', 'parentFolderUuid');
 
   if (id === undefined) {
     return { status: 'INVALID' };
@@ -302,17 +301,16 @@ function normalizeFolderPayload(
     payload: {
       id,
       ...pickIfPresent(payload, 'name'),
-      ...pickCanonicalIfPresent(parentId, 'parentId'),
+      ...pickIfPresent(payload, 'parentId'),
     },
   };
 }
 
-function normalizeThreadPayload(
+function normalizeCanonicalThreadPayload(
   entityId: string,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
   const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
-  const folderId = resolveCanonicalAlias(payload, 'folderId', 'folderUuid');
 
   if (id === undefined) {
     return { status: 'INVALID' };
@@ -322,19 +320,19 @@ function normalizeThreadPayload(
     status: 'VALID',
     payload: {
       id,
-      ...pickCanonicalIfPresent(folderId, 'folderId'),
+      ...pickIfPresent(payload, 'folderId'),
       ...pickIfPresent(payload, 'title'),
     },
   };
 }
 
-function normalizeRecordPayload(
+function normalizeRecordPayloadWithApprovedCompatibility(
   entityId: string,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
   const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
   const threadId = resolveCanonicalAlias(payload, 'threadId', 'threadUuid');
-  const type = resolveCanonicalAlias(payload, 'type', 'recordType');
+  const type = payload['type'];
   const name = resolveCanonicalAlias(payload, 'name', 'body');
 
   if (id === undefined) {

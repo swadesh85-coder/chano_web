@@ -179,7 +179,7 @@ describe('EventValidation', () => {
     }
   });
 
-  it('event_validation_canonicalizes_legacy_thread_transport_payloads', async () => {
+  it('event_validation_rejects_legacy_thread_transport_payloads', async () => {
     const envelope = await createEnvelope({
       entityType: 'thread',
       entityId: 'thread-2',
@@ -202,14 +202,33 @@ describe('EventValidation', () => {
 
     const result = await validateEventEnvelope(envelope);
 
-    expect(result.status).toBe('VALID');
-    if (result.status === 'VALID') {
-      expect(result.eventEnvelope.payload).toEqual({
-        id: 'thread-2',
-        folderId: 'folder-1',
-        title: 'Backlog',
-      });
-    }
+    expect(result).toEqual({
+      status: 'INVALID',
+      reason: 'INVALID_SCHEMA',
+    });
+  });
+
+  it('event_validation_rejects_unsupported_record_type_alias', async () => {
+    const envelope = await createEnvelope({
+      payload: {
+        uuid: 'uuid-1',
+        threadUuid: 'thread-1',
+        recordType: 'text',
+        body: 'Body',
+        createdAt: 1710000000,
+        editedAt: 1710000000,
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      },
+    });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result).toEqual({
+      status: 'INVALID',
+      reason: 'INVALID_SCHEMA',
+    });
   });
 
   it('event_validation_rejects_conflicting_alias_and_canonical_record_fields', async () => {

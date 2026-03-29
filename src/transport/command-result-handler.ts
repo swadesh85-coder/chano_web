@@ -16,7 +16,7 @@ export class CommandResultHandler {
   readonly results = this._results.asReadonly();
 
   constructor() {
-    this.relay.onEnvelope((envelope) => this.handleResult(envelope));
+    this.relay.onCommandResultMessage((envelope) => this.handleResult(envelope));
   }
 
   getResult(commandId: string): CommandResult | null {

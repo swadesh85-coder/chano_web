@@ -254,8 +254,9 @@ describe('Web snapshot ingestion audit', () => {
   });
 
   it('snapshot_start_to_apply_trace', async () => {
-    const sessionId = 'session-snapshot-audit';
-    const protocol = await createSnapshotProtocol(sessionId);
+    const sessionId = relay.sessionId();
+    expect(sessionId).not.toBeNull();
+    const protocol = await createSnapshotProtocol(sessionId!);
 
     MockWebSocket.last.simulateEnvelope(protocol.start);
     MockWebSocket.last.simulateEnvelope(protocol.chunk);

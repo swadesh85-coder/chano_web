@@ -23,8 +23,10 @@ export class PendingCommandStore {
   readonly pendingByCommandId = this._pendingByCommandId.asReadonly();
 
   constructor() {
-    this.relay.onEnvelope((envelope) => {
+    this.relay.onCommandResultMessage((envelope) => {
       this.handleCommandResult(envelope);
+    });
+    this.relay.onProjectionMessage((envelope) => {
       void this.handleEventStream(envelope);
     });
   }

@@ -18,7 +18,7 @@ describe('CommandResultHandler', () => {
         {
           provide: WebRelayClient,
           useValue: {
-            onEnvelope: (callback: (envelope: { type: string; payload: Record<string, unknown> }) => void) => {
+            onCommandResultMessage: (callback: (envelope: { type: string; payload: Record<string, unknown> }) => void) => {
               relayHandler = callback;
               return () => {
                 relayHandler = null;

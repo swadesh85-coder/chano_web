@@ -17,6 +17,8 @@ const PROJECTION_MESSAGE_TYPES = [
   'event_stream',
 ] as const;
 
+const COMMAND_RESULT_MESSAGE_TYPES = ['command_result'] as const;
+
 const TRANSPORT_PROTOCOL_VERSION = 2;
 
 @Injectable({ providedIn: 'root' })
@@ -25,11 +27,16 @@ export class WebRelayClient {
   private readonly envelopeHandlers = new Set<(envelope: TransportEnvelope) => void>();
   private readonly pairingHandlers = new Set<(envelope: TransportEnvelope) => void>();
   private readonly projectionHandlers = new Set<(envelope: TransportEnvelope) => void>();
+  private readonly commandResultHandlers = new Set<(envelope: TransportEnvelope) => void>();
   private readonly stateHandlers = new Set<(state: ConnectionState) => void>();
   private readonly errorHandlers = new Set<(message: string) => void>();
 
   private ws: WebSocket | null = null;
   private outboundSequence = 1;
+  private readonly transportAuditMetadata = new WeakMap<TransportEnvelope, {
+    readonly rawFrame: string;
+    readonly rawFrameHash: string;
+  }>();
   private readonly projectionAuditMetadata = new WeakMap<TransportEnvelope, {
     readonly ingressHash: string;
     readonly payloadRef: Record<string, unknown>;
@@ -62,13 +69,17 @@ export class WebRelayClient {
       ws.onmessage = (event: MessageEvent) =>
         this.ngZone.run(() => {
           try {
-            const rawMessage = String(event.data);
+            const rawMessage = getRawTransportFrame(event.data);
+            if (rawMessage === null) {
+              return;
+            }
+
             console.log(`WS_MESSAGE_RECEIVED raw=${truncateForAudit(rawMessage, 200)} type=unknown sessionId=unknown`);
             const raw = JSON.parse(rawMessage) as unknown;
             const envelope = this.parseEnvelope(raw);
 
-            if (envelope !== null) {
-              this.captureSession(envelope);
+            if (envelope !== null && this.isAuthorizedInboundEnvelope(envelope)) {
+              this.captureTransportIngressAudit(rawMessage, envelope);
               this.captureProjectionIngressAudit(envelope);
               console.log(
                 `WS_MESSAGE_PARSED type=${envelope.type} sessionId=${formatSessionId(envelope.sessionId)}`,
@@ -190,6 +201,13 @@ export class WebRelayClient {
     };
   }
 
+  onCommandResultMessage(handler: (envelope: TransportEnvelope) => void): () => void {
+    this.commandResultHandlers.add(handler);
+    return () => {
+      this.commandResultHandlers.delete(handler);
+    };
+  }
+
   onStateChange(handler: (state: ConnectionState) => void): () => void {
     this.stateHandlers.add(handler);
     return () => {
@@ -244,15 +262,6 @@ export class WebRelayClient {
       sequence,
       payload: payload as Record<string, unknown>,
     };
-  }
-
-  private captureSession(envelope: TransportEnvelope): void {
-    if (envelope.sessionId === null || envelope.sessionId === this.currentSessionId()) {
-      return;
-    }
-
-    this.currentSessionId.set(envelope.sessionId);
-    console.log(`WEB_SESSION_CREATED sessionId=${envelope.sessionId}`);
   }
 
   private generateSessionId(): string {
@@ -317,24 +326,59 @@ export class WebRelayClient {
   }
 
   private routeMessage(envelope: TransportEnvelope): void {
-    if (isPairingMessageType(envelope.type)) {
-      console.log(`MESSAGE_ROUTED type=${envelope.type} target=pairing`);
-      for (const handler of this.pairingHandlers) {
+    try {
+      if (isPairingMessageType(envelope.type)) {
+        console.log(`MESSAGE_ROUTED type=${envelope.type} target=pairing`);
+        for (const handler of this.pairingHandlers) {
+          handler(envelope);
+        }
+      }
+
+      if (isProjectionMessageType(envelope.type)) {
+        this.emitProjectionEgressAudit(envelope);
+        console.log(`MESSAGE_ROUTED type=${envelope.type} target=projection`);
+        for (const handler of this.projectionHandlers) {
+          handler(envelope);
+        }
+      }
+
+      if (isCommandResultMessageType(envelope.type)) {
+        console.log(`MESSAGE_ROUTED type=${envelope.type} target=command_result`);
+        for (const handler of this.commandResultHandlers) {
+          handler(envelope);
+        }
+        return;
+      }
+
+      for (const handler of this.envelopeHandlers) {
         handler(envelope);
       }
+    } finally {
+      this.transportAuditMetadata.delete(envelope);
+    }
+  }
+
+  private isAuthorizedInboundEnvelope(envelope: TransportEnvelope): boolean {
+    const currentSessionId = this.currentSessionId();
+    if (envelope.sessionId === currentSessionId) {
+      return true;
     }
 
-    if (isProjectionMessageType(envelope.type)) {
-      this.emitProjectionEgressAudit(envelope);
-      console.log(`MESSAGE_ROUTED type=${envelope.type} target=projection`);
-      for (const handler of this.projectionHandlers) {
-        handler(envelope);
-      }
-    }
+    console.warn(
+      `TRANSPORT_SESSION_REJECTED type=${envelope.type} expected=${formatSessionId(currentSessionId)} actual=${formatSessionId(envelope.sessionId)}`,
+    );
+    return false;
+  }
 
-    for (const handler of this.envelopeHandlers) {
-      handler(envelope);
-    }
+  private captureTransportIngressAudit(rawFrame: string, envelope: TransportEnvelope): void {
+    const rawFrameHash = hashStringForAudit(rawFrame);
+    this.transportAuditMetadata.set(envelope, {
+      rawFrame,
+      rawFrameHash,
+    });
+    console.log(
+      `TRANSPORT_FRAME_HASH ${JSON.stringify({ type: envelope.type, sequence: envelope.sequence, hash: rawFrameHash })}`,
+    );
   }
 
   private captureProjectionIngressAudit(envelope: TransportEnvelope): void {
@@ -370,6 +414,10 @@ function truncateForAudit(value: string, limit: number): string {
   return value.replace(/\s+/g, ' ').slice(0, limit);
 }
 
+function getRawTransportFrame(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
 function formatSessionId(sessionId: string | null): string {
   return sessionId ?? 'null';
 }
@@ -380,6 +428,10 @@ function isPairingMessageType(type: string): type is (typeof PAIRING_MESSAGE_TYP
 
 function isProjectionMessageType(type: string): type is (typeof PROJECTION_MESSAGE_TYPES)[number] {
   return (PROJECTION_MESSAGE_TYPES as readonly string[]).includes(type);
+}
+
+function isCommandResultMessageType(type: string): type is (typeof COMMAND_RESULT_MESSAGE_TYPES)[number] {
+  return (COMMAND_RESULT_MESSAGE_TYPES as readonly string[]).includes(type);
 }
 
 function assertOutboundPayloadShape(
