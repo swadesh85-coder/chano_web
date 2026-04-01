@@ -1,37 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { Subject } from 'rxjs';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 import { WebRelayClient } from '../../transport/web-relay-client';
+import { ensureAngularTestEnvironment } from '../../testing/ensure-angular-test-environment';
 import { ProjectionEngine } from './projection_engine';
 import { validateEventEnvelope, validateStartBoundary } from './projection_event_validation';
 import { ProjectionStore } from './projection.store';
 
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
-
 function createEventPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    uuid: 'uuid-1',
-    threadUuid: 'thread-1',
+    id: 'uuid-1',
+    threadId: 'thread-1',
     type: 'text',
-    body: 'Body',
+    name: 'Body',
     createdAt: 1710000000,
     editedAt: 1710000000,
     orderIndex: 0,
@@ -147,7 +129,7 @@ describe('EventValidation', () => {
     }
   });
 
-  it('event_validation_strips_legacy_record_transport_fields_and_injects_entity_id', async () => {
+  it('event_validation_rejects_legacy_record_transport_payloads', async () => {
     const envelope = await createEnvelope({
       operation: 'update',
       payload: {
@@ -166,17 +148,10 @@ describe('EventValidation', () => {
 
     const result = await validateEventEnvelope(envelope);
 
-    expect(result.status).toBe('VALID');
-    if (result.status === 'VALID') {
-      expect(result.eventEnvelope.payload).toEqual({
-        id: 'uuid-1',
-        threadId: 'thread-1',
-        type: 'text',
-        name: 'Body',
-        orderIndex: 0,
-        imageGroupId: null,
-      });
-    }
+    expect(result).toEqual({
+      status: 'INVALID',
+      reason: 'INVALID_SCHEMA',
+    });
   });
 
   it('event_validation_rejects_legacy_thread_transport_payloads', async () => {
@@ -255,12 +230,12 @@ describe('EventValidation', () => {
     });
   });
 
-  it('event_validation_rejects_incomplete_record_payload_after_normalization', async () => {
+  it('event_validation_rejects_incomplete_canonical_record_payloads', async () => {
     const envelope = await createEnvelope({
       payload: {
-        uuid: 'uuid-1',
+        id: 'uuid-1',
         type: 'text',
-        body: 'Body',
+        name: 'Body',
         createdAt: 1710000000,
         editedAt: 1710000000,
         orderIndex: 0,

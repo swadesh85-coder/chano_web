@@ -1,0 +1,10 @@
+
+ RUN  v4.0.18 C:/Users/Taboo/chano_web
+
+ G£ô src/app/projection/web_snapshot_ingestion_audit.spec.ts > Web snapshot ingestion audit > snapshot_start_to_apply_trace 45ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  20:20:06
+   Duration  2.13s (transform 258ms, setup 0ms, import 709ms, tests 52ms, environment 1.11s)
+

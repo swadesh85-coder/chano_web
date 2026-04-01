@@ -1,0 +1,10 @@
+﻿node : Waiting failed: 60000ms exceeded
+At line:1 char:1
++ node scripts/visual-regression-runner.mjs *> 
+visual_runner_direct_aft ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Waiting fail 
+   ed: 60000ms exceeded:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

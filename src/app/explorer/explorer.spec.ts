@@ -1,9 +1,11 @@
+// @vitest-environment jsdom
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { computed, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../../testing/ensure-angular-test-environment';
 import { ExplorerContentPaneContainer } from '../explorer_content_pane.container';
 import { ExplorerFolderTreeContainer } from '../explorer_folder_tree.container';
 import { ExplorerLayoutContainerComponent } from '../explorer.layout.container';
@@ -16,24 +18,6 @@ import type {
   RecordEntry,
   Thread,
 } from '../projection/projection.models';
-
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
 
 describe('Explorer layout contract', () => {
   let localStorageGetItem: ReturnType<typeof vi.fn>;

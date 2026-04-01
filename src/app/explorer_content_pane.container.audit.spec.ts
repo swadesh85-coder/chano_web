@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import { ProjectionEngine } from './projection/projection_engine';
 import { ExplorerContentPaneContainer } from './explorer_content_pane.container';
 import { ProjectionStateContainer } from './projection/projection_state.container';
@@ -15,24 +15,6 @@ import type {
   ProjectionState,
   ProjectionUpdate,
 } from './projection/projection.models';
-
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
 
 function createProjectionState(): ProjectionState {
   return {
@@ -206,10 +188,10 @@ describe('ExplorerContentPaneContainer audit', () => {
     const emptyContentRepeat = container.contentPane(null, null, 'empty');
 
     expect(folderContent.mode).toBe('threads');
-    expect(folderContentRepeat).toBe(folderContent);
+    expect(folderContentRepeat).toEqual(folderContent);
     expect(folderContent.threadList.map((thread) => thread.id)).toEqual(['thread-a', 'thread-b']);
     expect(threadContent.mode).toBe('records');
-    expect(threadContentRepeat).toBe(threadContent);
+    expect(threadContentRepeat).toEqual(threadContent);
     expect(container.recordList('thread-a').map((record) => record.id)).toEqual(['record-a', 'record-b']);
     expect(container.visibleRecordNodes('thread-a', { start: 0, end: 2 } satisfies VirtualListRange).map((node) => node.key)).toEqual(['record:record-a', 'record:record-b']);
     expect(container.visibleRecordNodes(null, { start: 0, end: 2 } satisfies VirtualListRange)).toEqual([]);

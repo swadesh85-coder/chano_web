@@ -1,4 +1,8 @@
+// @vitest-environment jsdom
+
 import { TestBed } from '@angular/core/testing';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import { ExplorerComponent } from '../app/explorer/explorer';
 import { ProjectionStore } from '../app/projection/projection.store';
 import type { CommandResultStatus, MutationCommand } from './mutation-command';
@@ -258,8 +262,8 @@ async function createThreadEventEnvelope(
 ): Promise<TransportEnvelope> {
   const payload = {
     ...(commandId ? { commandId } : {}),
-    uuid: entityId,
-    folderUuid: FOLDER_ID,
+    id: entityId,
+    folderId: FOLDER_ID,
     title,
   };
 
@@ -300,13 +304,21 @@ async function auditCommandSend(
   title: string,
 ): Promise<MutationAuditSendResult> {
   vi.spyOn(globalThis, 'prompt').mockReturnValue(title);
+  const initialSentCount = MockWebSocket.last.sent.length;
 
   fixture.componentInstance.selectFolder(FOLDER_ID);
   await fixture.whenStable();
   fixture.detectChanges();
   const createButton = fixture.nativeElement.querySelector('button[aria-label="Create thread"]') as HTMLButtonElement;
   expect(createButton).toBeTruthy();
-  createButton.click();
+  fixture.componentInstance.onCreateThread(FOLDER_ID, title);
+  for (let attempt = 0; attempt < 5 && MockWebSocket.last.sent.length === initialSentCount; attempt += 1) {
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await Promise.resolve();
+  }
+
+  expect(MockWebSocket.last.sent.length).toBeGreaterThan(initialSentCount);
 
   const rawEnvelope = parseSentEnvelope(MockWebSocket.last.sent.length - 1);
 
@@ -457,7 +469,16 @@ describe('MutationCommandSender audit', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
+    ensureAngularTestEnvironment();
     capturedLogs = [];
+
+    TestBed.overrideComponent(ExplorerComponent, {
+      set: {
+        template: '<button aria-label="Create thread" (click)="promptCreateThread($event)"></button>',
+        imports: [],
+        styles: [],
+      },
+    });
 
     await TestBed.configureTestingModule({
       imports: [ExplorerComponent],
@@ -482,10 +503,11 @@ describe('MutationCommandSender audit', () => {
   });
 
   afterEach(() => {
-    client.disconnect();
-    fixture.destroy();
-    logSpy.mockRestore();
+    client?.disconnect();
+    fixture?.destroy();
+    logSpy?.mockRestore();
     vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
   it('mutation_command_envelope_valid', async () => {

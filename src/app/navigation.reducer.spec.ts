@@ -40,7 +40,6 @@ describe('navigationReducer', () => {
     const initialState = {
       selectedFolderId: 'folder-b',
       selectedThreadId: 'thread-a',
-      activePane: 'thread',
     } as const;
 
     const nextState = navigationReducer(initialState, selectFolder('folder-a'));
@@ -48,7 +47,6 @@ describe('navigationReducer', () => {
     expect(nextState).toEqual({
       selectedFolderId: 'folder-a',
       selectedThreadId: null,
-      activePane: 'folder',
     });
   });
 
@@ -58,7 +56,6 @@ describe('navigationReducer', () => {
     expect(nextState).toEqual({
       selectedFolderId: null,
       selectedThreadId: 'thread-a',
-      activePane: 'thread',
     });
   });
 
@@ -73,7 +70,6 @@ describe('navigationReducer', () => {
     const previousState = {
       selectedFolderId: 'missing-folder',
       selectedThreadId: 'missing-thread',
-      activePane: 'thread',
     } as const;
 
     const beforeProjectionHash = JSON.stringify(projectionState);
@@ -94,7 +90,6 @@ describe('navigationReducer', () => {
     expect(first).toEqual({
       selectedFolderId: null,
       selectedThreadId: 'thread-root',
-      activePane: 'thread',
     });
   });
 });

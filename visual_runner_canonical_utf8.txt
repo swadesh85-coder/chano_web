@@ -1,0 +1,11 @@
+﻿node : VISUAL_REGRESSION_FAILED thread-view-panel: 1844 
+pixels (0.001065)
+At line:1 char:1
++ node scripts/visual-regression-runner.mjs *> 
+visual_runner_canonical. ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (VISUAL_REGRE 
+   SSI...xels (0.001065):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -1,4 +1,8 @@
+// @vitest-environment jsdom
+
 import { TestBed } from '@angular/core/testing';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import { WebRelayClient } from './web-relay-client';
 import type { TransportEnvelope } from './transport-envelope';
 
@@ -52,6 +56,7 @@ class MockWebSocket {
 const OriginalWebSocket = globalThis.WebSocket;
 
 beforeAll(() => {
+  ensureAngularTestEnvironment();
   (globalThis as Record<string, unknown>)['WebSocket'] =
     MockWebSocket as unknown as typeof WebSocket;
 });
@@ -64,12 +69,15 @@ describe('WebRelayClient', () => {
   let client: WebRelayClient;
 
   beforeEach(() => {
+    TestBed.resetTestingModule();
     TestBed.configureTestingModule({});
     client = TestBed.inject(WebRelayClient);
   });
 
   afterEach(() => {
-    client.disconnect();
+    client?.disconnect();
+    vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
   it('web_relay_client_connect', () => {

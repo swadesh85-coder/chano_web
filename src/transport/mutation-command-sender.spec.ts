@@ -1,4 +1,8 @@
+// @vitest-environment jsdom
+
 import { TestBed } from '@angular/core/testing';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import { ProjectionStateContainer } from '../app/projection/projection_state.container';
 import { CommandResultHandler } from './command-result-handler';
 import { MutationCommandSender } from './mutation-command-sender';
@@ -14,6 +18,8 @@ describe('MutationCommandSender', () => {
   };
 
   beforeEach(() => {
+    TestBed.resetTestingModule();
+    ensureAngularTestEnvironment();
     sendEnvelope = vi.fn((type: string, payload: Record<string, unknown>) => ({
       protocolVersion: 2 as const,
       type,
@@ -47,6 +53,7 @@ describe('MutationCommandSender', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
   it('mutation_command_send', () => {

@@ -313,7 +313,7 @@ describe('SnapshotLoader', () => {
     ]);
   });
 
-  it('snapshot_accepts_mobile_record_null_fields', async () => {
+  it('snapshot_rejects_noncanonical_entity_field_aliases_and_timestamp_coercion', async () => {
     const snapshotJson = JSON.stringify({
       snapshotVersion: 2,
       protocolVersion: 2,
@@ -333,7 +333,6 @@ describe('SnapshotLoader', () => {
             uuid: 'folder-1',
             title: 'Inbox',
             parentFolderUuid: null,
-            createdAt: '2026-03-27T00:00:00.000Z',
           },
         },
         {
@@ -382,59 +381,8 @@ describe('SnapshotLoader', () => {
 
     expect(events).toEqual([
       {
-        type: 'SNAPSHOT_LOADED',
-        parsedSnapshot: {
-          folders: [
-            {
-              entityType: 'folder',
-              entityUuid: 'folder-1',
-              entityVersion: 1,
-              lastEventVersion: 1,
-              ownerUserId: 'owner-1',
-              data: {
-                uuid: 'folder-1',
-                name: 'Inbox',
-                parentFolderUuid: null,
-              },
-            },
-          ],
-          threads: [
-            {
-              entityType: 'thread',
-              entityUuid: 'thread-1',
-              entityVersion: 2,
-              lastEventVersion: 2,
-              ownerUserId: 'owner-1',
-              data: {
-                uuid: 'thread-1',
-                folderUuid: 'folder-1',
-                title: 'Roadmap',
-              },
-            },
-          ],
-          records: [
-            {
-              entityType: 'record',
-              entityUuid: 'record-1',
-              entityVersion: 3,
-              lastEventVersion: 3,
-              ownerUserId: 'owner-1',
-              data: {
-                uuid: 'record-1',
-                threadUuid: 'thread-1',
-                type: 'text',
-                body: 'Fallback text',
-                createdAt: Date.parse('2026-03-27T00:00:00.000Z'),
-                editedAt: Date.parse('2026-03-27T00:00:01.000Z'),
-                orderIndex: 0,
-                isStarred: false,
-                imageGroupId: null,
-              },
-            },
-          ],
-        },
-        baseEventVersion: 9,
-        entityCount: 3,
+        type: 'SNAPSHOT_REJECTED',
+        reason: 'invalid snapshot schema',
       },
     ]);
   });

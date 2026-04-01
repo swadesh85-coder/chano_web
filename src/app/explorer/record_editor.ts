@@ -1,97 +1,49 @@
 import { Injectable, inject } from '@angular/core';
-import {
-  MutationCommandSender,
-  type MutationCommand,
-  type TransportEnvelope,
-} from '../../transport';
-import { PendingCommandStore } from './pending_command_store';
+import { ExplorerMutationGateway, type ExplorerMutationEnvelope } from './explorer_mutation_gateway';
 
 @Injectable({ providedIn: 'root' })
 export class RecordEditor {
-  private readonly sender = inject(MutationCommandSender);
-  private readonly pending = inject(PendingCommandStore);
+  private readonly mutations = inject(ExplorerMutationGateway);
 
-  createRecord(threadId: string, body: string): TransportEnvelope<MutationCommand> | null {
+  createRecord(threadId: string, body: string): ExplorerMutationEnvelope | null {
     const normalizedBody = normalizeRequiredText(body, 'INVALID_RECORD_BODY');
 
-    if (this.pending.isCreatePending('record')) {
+    if (this.mutations.isCreatePending('record')) {
       return null;
     }
 
     console.log(`UI_ACTION create_record thread=${threadId}`);
-
-    const envelope = this.sender.sendCommand({
-      entityType: 'record',
-      operation: 'create',
-      payload: {
-        threadUuid: threadId,
-        body: normalizedBody,
-        recordType: 'text',
-      },
-    });
-
-    this.trackPending(envelope);
-    return envelope;
+    return this.mutations.createRecord(threadId, normalizedBody);
   }
 
-  updateRecord(recordId: string, body: string): TransportEnvelope<MutationCommand> | null {
+  updateRecord(recordId: string, body: string): ExplorerMutationEnvelope | null {
     const normalizedBody = normalizeRequiredText(body, 'INVALID_RECORD_BODY');
 
-    if (this.pending.isPending(recordId)) {
+    if (this.mutations.isPending(recordId)) {
       return null;
     }
 
     console.log(`UI_ACTION update_record id=${recordId}`);
-
-    const envelope = this.sender.sendCommand({
-      entityType: 'record',
-      entityId: recordId,
-      operation: 'update',
-      payload: {
-        body: normalizedBody,
-      },
-    });
-
-    this.trackPending(envelope);
-    return envelope;
+    return this.mutations.updateRecord(recordId, normalizedBody);
   }
 
-  renameRecord(recordId: string, newTitle: string): TransportEnvelope<MutationCommand> | null {
+  renameRecord(recordId: string, newTitle: string): ExplorerMutationEnvelope | null {
     const normalizedTitle = normalizeRequiredText(newTitle, 'INVALID_RECORD_TITLE');
 
-    if (this.pending.isPending(recordId)) {
+    if (this.mutations.isPending(recordId)) {
       return null;
     }
 
     console.log(`UI_ACTION rename_record id=${recordId}`);
-
-    const envelope = this.sender.sendCommand({
-      entityType: 'record',
-      entityId: recordId,
-      operation: 'rename',
-      payload: {
-        newTitle: normalizedTitle,
-      },
-    });
-
-    this.trackPending(envelope);
-    return envelope;
+    return this.mutations.renameRecord(recordId, normalizedTitle);
   }
 
   isPending(recordId: string): boolean {
-    return this.pending.isPending(recordId);
+    return this.mutations.isPending(recordId);
   }
 
   isCreatePending(): boolean {
-    return this.pending.isCreatePending('record');
-  }
-
-  private trackPending(envelope: TransportEnvelope<MutationCommand> | null): void {
-    if (envelope === null) {
-      return;
-    }
-
-    this.pending.setPending(envelope.payload);
+    return this.mutations.isCreatePending('record');
   }
 }
 

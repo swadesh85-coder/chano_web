@@ -5,7 +5,6 @@ import {
   effect,
   inject,
   input,
-  signal,
 } from '@angular/core';
 import { ExplorerActions } from './explorer_actions';
 import { RecordEditor } from './record_editor';
@@ -50,14 +49,10 @@ export class ThreadViewComponent {
   private readonly container = inject(ExplorerContainer);
 
   readonly threadId = input<string | null>(null);
-  readonly activeThreadId = signal<string | null>(null);
+  readonly activeThreadId = computed(() => this.threadId());
   readonly viewNodes = computed(() => this.renderThread(this.activeThreadId()));
 
   constructor() {
-    effect(() => {
-      this.handleThreadSelection(this.threadId());
-    });
-
     effect(() => {
       const threadId = this.activeThreadId();
       if (threadId === null) {
@@ -68,15 +63,6 @@ export class ThreadViewComponent {
       console.log('THREAD_RENDER ordering_applied using eventVersion');
       this.logProjectionUpdate(this.container.projectionUpdate(), threadId, viewNodes);
     });
-  }
-
-  handleThreadSelection(threadId: string | null): void {
-    if (this.activeThreadId() === threadId) {
-      return;
-    }
-
-    this.activeThreadId.set(threadId);
-    this.renderThread(threadId);
   }
 
   renderThread(threadId: string | null): readonly ThreadViewNode[] {

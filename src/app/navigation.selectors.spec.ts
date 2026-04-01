@@ -28,7 +28,6 @@ describe('navigation selectors', () => {
     const navigationState = {
       selectedFolderId: 'folder-a',
       selectedThreadId: null,
-      activePane: 'folder',
     } as const;
 
     const resolved = selectResolvedNavigationState(projectionState, navigationState);
@@ -43,7 +42,6 @@ describe('navigation selectors', () => {
     const navigationState = {
       selectedFolderId: 'folder-a',
       selectedThreadId: 'missing-thread',
-      activePane: 'thread',
     } as const;
 
     expect(selectResolvedNavigationState(projectionState, navigationState)).toEqual({
@@ -58,7 +56,6 @@ describe('navigation selectors', () => {
     const navigationState = {
       selectedFolderId: null,
       selectedThreadId: 'thread-a',
-      activePane: 'thread',
     } as const;
 
     expect(selectResolvedNavigation(projectionState, navigationState)).toEqual({
@@ -73,7 +70,6 @@ describe('navigation selectors', () => {
     const navigationState = {
       selectedFolderId: 'folder-a',
       selectedThreadId: 'thread-a',
-      activePane: 'thread',
     } as const;
 
     const first = selectResolvedNavigationState(projectionState, navigationState);
@@ -86,7 +82,11 @@ describe('navigation selectors', () => {
     const projectionState = createProjectionState();
 
     expect(selectResolvedNavigationState(projectionState, EMPTY_NAVIGATION_STATE)).toEqual(
-      EMPTY_NAVIGATION_STATE,
+      {
+        selectedFolderId: null,
+        selectedThreadId: null,
+        activePane: 'empty',
+      },
     );
   });
 

@@ -1,27 +1,9 @@
 // @vitest-environment jsdom
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import { SplitPaneComponent } from './split_pane.component';
-
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
 
 describe('SplitPaneComponent', () => {
   let fixture: ComponentFixture<SplitPaneComponent>;

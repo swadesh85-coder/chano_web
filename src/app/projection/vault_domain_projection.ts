@@ -9,209 +9,197 @@ import type {
   Thread,
 } from './projection.models';
 
-type CanonicalFolder = {
-  readonly id: string;
-  readonly name: string;
-  readonly parentId: string | null;
-  readonly ownerUserId: string;
-  readonly lastEventVersion: number;
-  readonly lastMutationVersion: number;
+type RuntimeFolder = Folder & {
   readonly deleted: boolean;
 };
 
-type CanonicalThread = {
-  readonly id: string;
-  readonly folderId: string;
-  readonly title: string;
-  readonly ownerUserId: string;
-  readonly lastEventVersion: number;
-  readonly lastMutationVersion: number;
+type RuntimeThread = Thread & {
   readonly deleted: boolean;
 };
 
-type CanonicalRecord = {
-  readonly id: string;
-  readonly threadId: string;
-  readonly type: string;
-  readonly name: string;
-  readonly ownerUserId: string;
-  readonly createdAt: number;
-  readonly editedAt: number;
-  readonly orderIndex: number | null;
-  readonly isStarred: boolean;
-  readonly imageGroupId: string | null;
-  readonly mediaId?: string;
-  readonly mimeType?: string;
-  readonly title?: string;
-  readonly size?: number | null;
-  readonly lastEventVersion: number;
-  readonly lastMutationVersion: number;
+type RuntimeRecord = RecordEntry & {
   readonly deleted: boolean;
+};
+
+type ProjectionRuntimeState = {
+  readonly foldersById: ReadonlyMap<string, RuntimeFolder>;
+  readonly threadsById: ReadonlyMap<string, RuntimeThread>;
+  readonly recordsById: ReadonlyMap<string, RuntimeRecord>;
+  readonly appliedEventIds: ReadonlySet<number | string>;
+};
+
+type ProjectionStateWithRuntime = ProjectionState & {
+  readonly [PROJECTION_RUNTIME_STATE]?: ProjectionRuntimeState;
 };
 
 const ROOT_FOLDER_ID = 'root';
+const PROJECTION_RUNTIME_STATE = Symbol('projectionRuntimeState');
 
 export class VaultDomainProjection {
-  private readonly folders = new Map<string, CanonicalFolder>();
-  private readonly threads = new Map<string, CanonicalThread>();
-  private readonly records = new Map<string, CanonicalRecord>();
-  private readonly appliedEventIds = new Set<number | string>();
-
-  reset(): void {
-    this.folders.clear();
-    this.threads.clear();
-    this.records.clear();
-    this.appliedEventIds.clear();
-  }
-
   applySnapshot(snapshotEntities: ProjectionSnapshotDocument): ProjectionState {
-    this.reset();
+    const foldersById = new Map<string, RuntimeFolder>();
+    const threadsById = new Map<string, RuntimeThread>();
+    const recordsById = new Map<string, RuntimeRecord>();
 
     for (const entity of snapshotEntities.folders ?? []) {
-      this.insertSnapshotFolder(entity);
+      this.insertSnapshotFolder(foldersById, entity);
     }
 
     for (const entity of snapshotEntities.threads ?? []) {
-      this.insertSnapshotThread(entity);
+      this.insertSnapshotThread(threadsById, entity);
     }
 
     for (const entity of snapshotEntities.records ?? []) {
-      this.insertSnapshotRecord(entity);
+      this.insertSnapshotRecord(recordsById, entity);
     }
 
-    return this.getState();
+    return this.createProjectionState(foldersById, threadsById, recordsById, new Set());
   }
 
-  applyEvent(eventEnvelope: EventEnvelope): ProjectionState {
+  applyEvent(state: ProjectionState, eventEnvelope: EventEnvelope): ProjectionState {
     this.assertValidEventVersion(eventEnvelope.eventVersion);
 
-    if (this.appliedEventIds.has(eventEnvelope.eventId)) {
-      return this.getState();
+    const runtimeState = this.getRuntimeState(state);
+    if (runtimeState.appliedEventIds.has(eventEnvelope.eventId)) {
+      return state;
     }
 
     console.log(
       `APPLY eventVersion=${eventEnvelope.eventVersion} entity=${eventEnvelope.entityType} id=${eventEnvelope.entityId} op=${eventEnvelope.operation}`,
     );
 
-    this.appliedEventIds.add(eventEnvelope.eventId);
+    const foldersById = new Map(runtimeState.foldersById);
+    const threadsById = new Map(runtimeState.threadsById);
+    const recordsById = new Map(runtimeState.recordsById);
+    const appliedEventIds = new Set(runtimeState.appliedEventIds);
+    appliedEventIds.add(eventEnvelope.eventId);
+
     switch (eventEnvelope.operation) {
       case 'create':
-        this.applyCreate(eventEnvelope);
+        this.applyCreate(foldersById, threadsById, recordsById, eventEnvelope);
         break;
       case 'update':
-        this.applyUpdate(eventEnvelope);
+        this.applyUpdate(foldersById, threadsById, recordsById, eventEnvelope);
         break;
       case 'rename':
-        this.applyRename(eventEnvelope);
+        this.applyRename(foldersById, threadsById, recordsById, eventEnvelope);
         break;
       case 'move':
-        this.applyMove(eventEnvelope);
+        this.applyMove(foldersById, threadsById, recordsById, eventEnvelope);
         break;
       case 'delete':
       case 'softDelete':
-        this.applySoftDelete(eventEnvelope);
+        this.applySoftDelete(foldersById, threadsById, recordsById, eventEnvelope);
         break;
       case 'restore':
-        this.applyRestore(eventEnvelope);
+        this.applyRestore(foldersById, threadsById, recordsById, eventEnvelope);
         break;
     }
 
-    return this.getState();
+    return this.createProjectionState(foldersById, threadsById, recordsById, appliedEventIds);
   }
 
-  getEntityVersion(entityType: EventEnvelope['entityType'], entityId: string): number | null {
+  getEntityVersion(state: ProjectionState, entityType: EventEnvelope['entityType'], entityId: string): number | null {
+    const runtimeState = this.getRuntimeState(state);
+
     switch (entityType) {
       case 'folder':
-      case 'imageGroup':
-        return this.folders.get(entityId)?.lastMutationVersion ?? null;
+        return runtimeState.foldersById.get(entityId)?.entityVersion ?? null;
       case 'thread':
-        return this.threads.get(entityId)?.lastMutationVersion ?? null;
+        return runtimeState.threadsById.get(entityId)?.entityVersion ?? null;
       case 'record':
-        return this.records.get(entityId)?.lastMutationVersion ?? null;
+        return runtimeState.recordsById.get(entityId)?.entityVersion ?? null;
+      case 'imageGroup':
+        return this.getDerivedImageGroupVersion(runtimeState.recordsById, entityId);
     }
   }
 
-  getRecordLastEventVersion(entityId: string): number | null {
-    return this.records.get(entityId)?.lastEventVersion ?? null;
+  getRecordLastEventVersion(state: ProjectionState, entityId: string): number | null {
+    return this.getRuntimeState(state).recordsById.get(entityId)?.lastEventVersion ?? null;
   }
 
-  hasEntityId(entityId: string): boolean {
-    return this.folders.has(entityId)
-      || this.threads.has(entityId)
-      || this.records.has(entityId);
+  hasEntityId(state: ProjectionState, entityId: string): boolean {
+    const runtimeState = this.getRuntimeState(state);
+
+    return runtimeState.foldersById.has(entityId)
+      || runtimeState.threadsById.has(entityId)
+      || runtimeState.recordsById.has(entityId);
   }
 
-  getState(): ProjectionState {
-    const visibleFolderIds = this.collectVisibleFolderIds();
-    const visibleFolders = this.toVisibleFolders(visibleFolderIds);
-    const visibleThreadIds = this.collectVisibleThreadIds(visibleFolderIds);
-    const visibleThreads = this.toVisibleThreads(visibleFolderIds, visibleThreadIds);
-    const visibleRecords = this.toVisibleRecords(visibleThreadIds);
+  private getRuntimeState(state: ProjectionState): ProjectionRuntimeState {
+    const runtimeState = (state as ProjectionStateWithRuntime)[PROJECTION_RUNTIME_STATE];
+    if (runtimeState !== undefined) {
+      return runtimeState;
+    }
 
     return {
-      folders: visibleFolders,
-      threads: visibleThreads,
-      records: visibleRecords,
+      foldersById: new Map(state.folders.map((folder) => [folder.id, { ...folder, deleted: false }])),
+      threadsById: new Map(state.threads.map((thread) => [thread.id, { ...thread, deleted: false }])),
+      recordsById: new Map(state.records.map((record) => [record.id, { ...record, deleted: false }])),
+      appliedEventIds: new Set(),
     };
   }
 
-  serializeSnapshotDocument(): string {
-    const visibleFolderIds = this.collectVisibleFolderIds();
-    const orderedFolders = this.getOrderedVisibleFolders(visibleFolderIds);
-    const folderOrder = new Map(orderedFolders.map((folder, index) => [folder.id, index]));
-    const visibleThreadIds = this.collectVisibleThreadIds(visibleFolderIds);
-    const orderedThreads = this.getOrderedVisibleThreads(visibleFolderIds, visibleThreadIds, folderOrder);
-    const threadOrder = new Map(orderedThreads.map((thread, index) => [thread.id, index]));
-    const orderedRecords = this.getOrderedVisibleRecords(visibleThreadIds, threadOrder);
+  private createProjectionState(
+    foldersById: ReadonlyMap<string, RuntimeFolder>,
+    threadsById: ReadonlyMap<string, RuntimeThread>,
+    recordsById: ReadonlyMap<string, RuntimeRecord>,
+    appliedEventIds: ReadonlySet<number | string>,
+  ): ProjectionState {
+    const visibleFolderIds = this.collectVisibleFolderIds(foldersById);
+    const orderedFolders = this.getOrderedVisibleFolders(foldersById, visibleFolderIds);
+    const visibleThreads = this.getOrderedVisibleThreads(foldersById, threadsById, visibleFolderIds);
+    const visibleThreadIds = new Set(visibleThreads.map((thread) => thread.id));
+    const threadOrder = new Map(visibleThreads.map((thread, index) => [thread.id, index]));
+    const visibleRecords = this.getOrderedVisibleRecords(recordsById, visibleThreadIds, threadOrder);
 
-    return JSON.stringify({
-      folders: orderedFolders.map((folder) => ({
-        entityType: 'folder' as const,
-        entityUuid: folder.id,
-        entityVersion: folder.lastMutationVersion,
+    const state: ProjectionStateWithRuntime = {
+      folders: Object.freeze(orderedFolders.map((folder) => Object.freeze({
+        id: folder.id,
+        name: folder.name,
+        parentId: folder.parentId,
+        entityVersion: folder.entityVersion,
         lastEventVersion: folder.lastEventVersion,
-        ownerUserId: folder.ownerUserId,
-        data: {
-          uuid: folder.id,
-          name: folder.name,
-          parentFolderUuid: folder.parentId,
-        },
-      })),
-      threads: orderedThreads.map((thread) => ({
-        entityType: 'thread' as const,
-        entityUuid: thread.id,
-        entityVersion: thread.lastMutationVersion,
+      }))),
+      threads: Object.freeze(visibleThreads.map((thread) => Object.freeze({
+        id: thread.id,
+        folderId: thread.folderId,
+        title: thread.title,
+        entityVersion: thread.entityVersion,
         lastEventVersion: thread.lastEventVersion,
-        ownerUserId: thread.ownerUserId,
-        data: {
-          uuid: thread.id,
-          folderUuid: thread.folderId === ROOT_FOLDER_ID ? null : thread.folderId,
-          title: thread.title,
-        },
-      })),
-      records: orderedRecords.map((record) => ({
-        entityType: 'record' as const,
-        entityUuid: record.id,
-        entityVersion: record.lastMutationVersion,
+      }))),
+      records: Object.freeze(visibleRecords.map((record) => Object.freeze({
+        id: record.id,
+        threadId: record.threadId,
+        type: record.type,
+        name: record.name,
+        createdAt: record.createdAt,
+        editedAt: record.editedAt,
+        orderIndex: record.orderIndex,
+        isStarred: record.isStarred,
+        imageGroupId: record.imageGroupId,
+        entityVersion: record.entityVersion,
         lastEventVersion: record.lastEventVersion,
-        ownerUserId: record.ownerUserId,
-        data: {
-          uuid: record.id,
-          threadUuid: record.threadId,
-          type: record.type,
-          body: record.name,
-          createdAt: record.createdAt,
-          editedAt: record.editedAt,
-          orderIndex: record.orderIndex ?? 0,
-          isStarred: record.isStarred,
-          imageGroupId: record.imageGroupId,
-          ...(typeof record.mediaId === 'string' ? { mediaId: record.mediaId } : {}),
-          ...(typeof record.mimeType === 'string' ? { mimeType: record.mimeType } : {}),
-          ...(typeof record.title === 'string' ? { title: record.title } : {}),
-          ...(typeof record.size === 'number' || record.size === null ? { size: record.size } : {}),
-        },
-      })),
+        ...(typeof record.mediaId === 'string' ? { mediaId: record.mediaId } : {}),
+        ...(typeof record.mimeType === 'string' ? { mimeType: record.mimeType } : {}),
+        ...(typeof record.title === 'string' ? { title: record.title } : {}),
+        ...(typeof record.size === 'number' || record.size === null ? { size: record.size } : {}),
+      }))),
+    };
+
+    Object.defineProperty(state, PROJECTION_RUNTIME_STATE, {
+      value: Object.freeze({
+        foldersById,
+        threadsById,
+        recordsById,
+        appliedEventIds,
+      }),
+      enumerable: false,
+      writable: false,
+      configurable: false,
     });
+
+    return Object.freeze(state);
   }
 
   private assertValidEventVersion(eventVersion: number): void {
@@ -220,7 +208,10 @@ export class VaultDomainProjection {
     }
   }
 
-  private insertSnapshotFolder(entity: SnapshotEntity): void {
+  private insertSnapshotFolder(
+    foldersById: Map<string, RuntimeFolder>,
+    entity: SnapshotEntity,
+  ): void {
     if (!('lastEventVersion' in entity) || entity.lastEventVersion == null) {
       throw new Error('Missing folder lastEventVersion in snapshot');
     }
@@ -228,18 +219,20 @@ export class VaultDomainProjection {
     this.assertValidEventVersion(entity.lastEventVersion);
     console.log('ORDERING_VALIDATION entity=folder status=OK');
 
-    this.folders.set(entity.entityUuid, {
+    foldersById.set(entity.entityUuid, {
       id: entity.entityUuid,
       name: entity.data['name'] as string,
       parentId: (entity.data['parentFolderUuid'] as string | null | undefined) ?? null,
-      ownerUserId: entity.ownerUserId,
+      entityVersion: entity.entityVersion,
       lastEventVersion: entity.lastEventVersion,
-      lastMutationVersion: entity.entityVersion,
       deleted: false,
     });
   }
 
-  private insertSnapshotThread(entity: SnapshotEntity): void {
+  private insertSnapshotThread(
+    threadsById: Map<string, RuntimeThread>,
+    entity: SnapshotEntity,
+  ): void {
     if (!('lastEventVersion' in entity) || entity.lastEventVersion == null) {
       throw new Error('Missing thread lastEventVersion in snapshot');
     }
@@ -247,18 +240,20 @@ export class VaultDomainProjection {
     this.assertValidEventVersion(entity.lastEventVersion);
     console.log('ORDERING_VALIDATION entity=thread status=OK');
 
-    this.threads.set(entity.entityUuid, {
+    threadsById.set(entity.entityUuid, {
       id: entity.entityUuid,
       folderId: ((entity.data['folderUuid'] as string | null | undefined) ?? ROOT_FOLDER_ID),
       title: entity.data['title'] as string,
-      ownerUserId: entity.ownerUserId,
+      entityVersion: entity.entityVersion,
       lastEventVersion: entity.lastEventVersion,
-      lastMutationVersion: entity.entityVersion,
       deleted: false,
     });
   }
 
-  private insertSnapshotRecord(entity: RecordSnapshotEntity): void {
+  private insertSnapshotRecord(
+    recordsById: Map<string, RuntimeRecord>,
+    entity: RecordSnapshotEntity,
+  ): void {
     if (entity.lastEventVersion == null) {
       throw new Error('Missing lastEventVersion in snapshot');
     }
@@ -266,12 +261,11 @@ export class VaultDomainProjection {
     this.assertValidEventVersion(entity.lastEventVersion);
     console.log('ORDERING_VALIDATION entity=record status=OK');
 
-    this.records.set(entity.entityUuid, {
+    recordsById.set(entity.entityUuid, {
       id: entity.entityUuid,
       threadId: entity.data['threadUuid'] as string,
       type: entity.data['type'] as string,
       name: entity.data['body'] as string,
-      ownerUserId: entity.ownerUserId,
       createdAt: entity.data['createdAt'] as number,
       editedAt: entity.data['editedAt'] as number,
       orderIndex: typeof entity.data['orderIndex'] === 'number' ? entity.data['orderIndex'] as number : null,
@@ -281,47 +275,48 @@ export class VaultDomainProjection {
       mimeType: this.resolveOptionalString(entity.data, 'mimeType'),
       title: this.resolveOptionalString(entity.data, 'title'),
       size: this.resolveOptionalNullableNumber(entity.data, 'size'),
+      entityVersion: entity.entityVersion,
       lastEventVersion: entity.lastEventVersion,
-      lastMutationVersion: entity.entityVersion,
       deleted: false,
     });
   }
 
-  private applyCreate(eventEnvelope: EventEnvelope): void {
+  private applyCreate(
+    foldersById: Map<string, RuntimeFolder>,
+    threadsById: Map<string, RuntimeThread>,
+    recordsById: Map<string, RuntimeRecord>,
+    eventEnvelope: EventEnvelope,
+  ): void {
     switch (eventEnvelope.entityType) {
       case 'folder':
-      case 'imageGroup':
-        this.folders.set(eventEnvelope.entityId, {
+        foldersById.set(eventEnvelope.entityId, {
           id: eventEnvelope.entityId,
           name: eventEnvelope.payload['name'] as string,
           parentId: this.resolveFolderParentId(eventEnvelope.payload),
-          ownerUserId: eventEnvelope.originDeviceId,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: false,
         });
         console.log('ORDERING_VALIDATION entity=folder status=OK');
-        break;
+        return;
       case 'thread':
-        this.threads.set(eventEnvelope.entityId, {
+        threadsById.set(eventEnvelope.entityId, {
           id: eventEnvelope.entityId,
           folderId: this.resolveThreadFolderId(eventEnvelope.payload),
           title: eventEnvelope.payload['title'] as string,
-          ownerUserId: eventEnvelope.originDeviceId,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: false,
         });
         console.log('ORDERING_VALIDATION entity=thread status=OK');
-        break;
+        return;
       case 'record':
         this.assertCanonicalRecordPayload(eventEnvelope.payload);
-        this.records.set(eventEnvelope.entityId, {
+        recordsById.set(eventEnvelope.entityId, {
           id: eventEnvelope.entityId,
           threadId: eventEnvelope.payload['threadId'] as string,
           type: eventEnvelope.payload['type'] as string,
           name: eventEnvelope.payload['name'] as string,
-          ownerUserId: eventEnvelope.originDeviceId,
           createdAt: eventEnvelope.payload['createdAt'] as number,
           editedAt: this.resolveEditedAt(eventEnvelope.payload),
           orderIndex: this.resolveOptionalNumber(eventEnvelope.payload, 'orderIndex'),
@@ -331,25 +326,31 @@ export class VaultDomainProjection {
           mimeType: this.resolveOptionalString(eventEnvelope.payload, 'mimeType'),
           title: this.resolveOptionalString(eventEnvelope.payload, 'title'),
           size: this.resolveOptionalNullableNumber(eventEnvelope.payload, 'size'),
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: false,
         });
         console.log('ORDERING_VALIDATION entity=record status=OK');
-        break;
+        return;
+      case 'imageGroup':
+        return;
     }
   }
 
-  private applyUpdate(eventEnvelope: EventEnvelope): void {
+  private applyUpdate(
+    foldersById: Map<string, RuntimeFolder>,
+    threadsById: Map<string, RuntimeThread>,
+    recordsById: Map<string, RuntimeRecord>,
+    eventEnvelope: EventEnvelope,
+  ): void {
     switch (eventEnvelope.entityType) {
-      case 'folder':
-      case 'imageGroup': {
-        const existing = this.folders.get(eventEnvelope.entityId);
+      case 'folder': {
+        const existing = foldersById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
-        this.folders.set(eventEnvelope.entityId, {
+        foldersById.set(eventEnvelope.entityId, {
           id: existing.id,
           name: this.hasOwn(eventEnvelope.payload, 'name')
             ? eventEnvelope.payload['name'] as string
@@ -357,21 +358,20 @@ export class VaultDomainProjection {
           parentId: this.hasOwn(eventEnvelope.payload, 'parentId') || this.hasOwn(eventEnvelope.payload, 'parentFolderUuid')
             ? this.resolveFolderParentId(eventEnvelope.payload)
             : existing.parentId,
-          ownerUserId: existing.ownerUserId,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: existing.deleted,
         });
         console.log('ORDERING_VALIDATION entity=folder status=OK');
-        break;
+        return;
       }
       case 'thread': {
-        const existing = this.threads.get(eventEnvelope.entityId);
+        const existing = threadsById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
-        this.threads.set(eventEnvelope.entityId, {
+        threadsById.set(eventEnvelope.entityId, {
           id: existing.id,
           folderId: this.hasOwn(eventEnvelope.payload, 'folderId') || this.hasOwn(eventEnvelope.payload, 'folderUuid')
             ? this.resolveThreadFolderId(eventEnvelope.payload)
@@ -379,23 +379,21 @@ export class VaultDomainProjection {
           title: this.hasOwn(eventEnvelope.payload, 'title')
             ? eventEnvelope.payload['title'] as string
             : existing.title,
-          ownerUserId: existing.ownerUserId,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: existing.deleted,
         });
         console.log('ORDERING_VALIDATION entity=thread status=OK');
-        break;
+        return;
       }
       case 'record': {
-        const existing = this.records.get(eventEnvelope.entityId);
+        const existing = recordsById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
         this.assertCanonicalRecordPayload(eventEnvelope.payload);
-
-        this.records.set(eventEnvelope.entityId, {
+        recordsById.set(eventEnvelope.entityId, {
           id: existing.id,
           threadId: this.hasOwn(eventEnvelope.payload, 'threadId')
             ? eventEnvelope.payload['threadId'] as string
@@ -406,7 +404,6 @@ export class VaultDomainProjection {
           name: this.hasOwn(eventEnvelope.payload, 'name')
             ? eventEnvelope.payload['name'] as string
             : existing.name,
-          ownerUserId: existing.ownerUserId,
           createdAt: this.hasOwn(eventEnvelope.payload, 'createdAt')
             ? eventEnvelope.payload['createdAt'] as number
             : existing.createdAt,
@@ -434,229 +431,253 @@ export class VaultDomainProjection {
           size: this.hasOwn(eventEnvelope.payload, 'size')
             ? this.resolveOptionalNullableNumber(eventEnvelope.payload, 'size')
             : existing.size,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
           deleted: existing.deleted,
         });
         console.log('ORDERING_VALIDATION entity=record status=OK');
-        break;
+        return;
       }
+      case 'imageGroup':
+        return;
     }
   }
 
-  private applyRename(eventEnvelope: EventEnvelope): void {
+  private applyRename(
+    foldersById: Map<string, RuntimeFolder>,
+    threadsById: Map<string, RuntimeThread>,
+    recordsById: Map<string, RuntimeRecord>,
+    eventEnvelope: EventEnvelope,
+  ): void {
     switch (eventEnvelope.entityType) {
-      case 'folder':
-      case 'imageGroup': {
-        const existing = this.folders.get(eventEnvelope.entityId);
+      case 'folder': {
+        const existing = foldersById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
-        this.folders.set(eventEnvelope.entityId, {
+        foldersById.set(eventEnvelope.entityId, {
           ...existing,
           name: eventEnvelope.payload['name'] as string,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=folder status=OK');
-        break;
+        return;
       }
       case 'thread': {
-        const existing = this.threads.get(eventEnvelope.entityId);
+        const existing = threadsById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
-        this.threads.set(eventEnvelope.entityId, {
+        threadsById.set(eventEnvelope.entityId, {
           ...existing,
           title: eventEnvelope.payload['title'] as string,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=thread status=OK');
-        break;
+        return;
       }
       case 'record': {
-        const existing = this.records.get(eventEnvelope.entityId);
+        const existing = recordsById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
         this.assertCanonicalRecordPayload(eventEnvelope.payload);
-
-        this.records.set(eventEnvelope.entityId, {
+        recordsById.set(eventEnvelope.entityId, {
           ...existing,
           name: eventEnvelope.payload['name'] as string,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=record status=OK');
-        break;
+        return;
       }
+      case 'imageGroup':
+        return;
     }
   }
 
-  private applyMove(eventEnvelope: EventEnvelope): void {
+  private applyMove(
+    foldersById: Map<string, RuntimeFolder>,
+    threadsById: Map<string, RuntimeThread>,
+    recordsById: Map<string, RuntimeRecord>,
+    eventEnvelope: EventEnvelope,
+  ): void {
     switch (eventEnvelope.entityType) {
-      case 'folder':
-      case 'imageGroup': {
-        const existing = this.folders.get(eventEnvelope.entityId);
+      case 'folder': {
+        const existing = foldersById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
-        this.folders.set(eventEnvelope.entityId, {
+        foldersById.set(eventEnvelope.entityId, {
           ...existing,
           parentId: this.resolveFolderParentId(eventEnvelope.payload),
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=folder status=OK');
-        break;
+        return;
       }
       case 'thread': {
-        const existing = this.threads.get(eventEnvelope.entityId);
+        const existing = threadsById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
-        this.threads.set(eventEnvelope.entityId, {
+        threadsById.set(eventEnvelope.entityId, {
           ...existing,
           folderId: this.resolveThreadFolderId(eventEnvelope.payload),
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=thread status=OK');
-        break;
+        return;
       }
       case 'record': {
-        const existing = this.records.get(eventEnvelope.entityId);
+        const existing = recordsById.get(eventEnvelope.entityId);
         if (!existing) {
           return;
         }
 
         this.assertCanonicalRecordPayload(eventEnvelope.payload);
-
-        this.records.set(eventEnvelope.entityId, {
+        recordsById.set(eventEnvelope.entityId, {
           ...existing,
           threadId: eventEnvelope.payload['threadId'] as string,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=record status=OK');
-        break;
+        return;
       }
+      case 'imageGroup':
+        return;
     }
   }
 
-  private applySoftDelete(eventEnvelope: EventEnvelope): void {
+  private applySoftDelete(
+    foldersById: Map<string, RuntimeFolder>,
+    threadsById: Map<string, RuntimeThread>,
+    recordsById: Map<string, RuntimeRecord>,
+    eventEnvelope: EventEnvelope,
+  ): void {
     switch (eventEnvelope.entityType) {
-      case 'folder':
-      case 'imageGroup': {
-        const existing = this.folders.get(eventEnvelope.entityId);
+      case 'folder': {
+        const existing = foldersById.get(eventEnvelope.entityId);
         if (!existing || existing.deleted) {
           return;
         }
 
-        this.folders.set(eventEnvelope.entityId, {
+        foldersById.set(eventEnvelope.entityId, {
           ...existing,
           deleted: true,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=folder status=OK');
-        break;
+        return;
       }
       case 'thread': {
-        const existing = this.threads.get(eventEnvelope.entityId);
+        const existing = threadsById.get(eventEnvelope.entityId);
         if (!existing || existing.deleted) {
           return;
         }
 
-        this.threads.set(eventEnvelope.entityId, {
+        threadsById.set(eventEnvelope.entityId, {
           ...existing,
           deleted: true,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=thread status=OK');
-        break;
+        return;
       }
       case 'record': {
-        const existing = this.records.get(eventEnvelope.entityId);
+        const existing = recordsById.get(eventEnvelope.entityId);
         if (!existing || existing.deleted) {
           return;
         }
 
-        this.records.set(eventEnvelope.entityId, {
+        recordsById.set(eventEnvelope.entityId, {
           ...existing,
           deleted: true,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=record status=OK');
-        break;
+        return;
       }
+      case 'imageGroup':
+        return;
     }
   }
 
-  private applyRestore(eventEnvelope: EventEnvelope): void {
+  private applyRestore(
+    foldersById: Map<string, RuntimeFolder>,
+    threadsById: Map<string, RuntimeThread>,
+    recordsById: Map<string, RuntimeRecord>,
+    eventEnvelope: EventEnvelope,
+  ): void {
     switch (eventEnvelope.entityType) {
-      case 'folder':
-      case 'imageGroup': {
-        const existing = this.folders.get(eventEnvelope.entityId);
+      case 'folder': {
+        const existing = foldersById.get(eventEnvelope.entityId);
         if (!existing || !existing.deleted) {
           return;
         }
 
-        this.folders.set(eventEnvelope.entityId, {
+        foldersById.set(eventEnvelope.entityId, {
           ...existing,
           deleted: false,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=folder status=OK');
-        break;
+        return;
       }
       case 'thread': {
-        const existing = this.threads.get(eventEnvelope.entityId);
+        const existing = threadsById.get(eventEnvelope.entityId);
         if (!existing || !existing.deleted) {
           return;
         }
 
-        this.threads.set(eventEnvelope.entityId, {
+        threadsById.set(eventEnvelope.entityId, {
           ...existing,
           deleted: false,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=thread status=OK');
-        break;
+        return;
       }
       case 'record': {
-        const existing = this.records.get(eventEnvelope.entityId);
+        const existing = recordsById.get(eventEnvelope.entityId);
         if (!existing || !existing.deleted) {
           return;
         }
 
-        this.records.set(eventEnvelope.entityId, {
+        recordsById.set(eventEnvelope.entityId, {
           ...existing,
           deleted: false,
+          entityVersion: eventEnvelope.eventVersion,
           lastEventVersion: eventEnvelope.eventVersion,
-          lastMutationVersion: eventEnvelope.eventVersion,
         });
         console.log('ORDERING_VALIDATION entity=record status=OK');
-        break;
+        return;
       }
+      case 'imageGroup':
+        return;
     }
   }
 
-  private collectVisibleFolderIds(): Set<string> {
+  private collectVisibleFolderIds(foldersById: ReadonlyMap<string, RuntimeFolder>): Set<string> {
     const visibleFolderIds = new Set<string>();
 
-    for (const folder of this.folders.values()) {
-      if (this.isFolderVisible(folder.id)) {
+    for (const folder of foldersById.values()) {
+      if (this.isFolderVisible(foldersById, folder.id)) {
         visibleFolderIds.add(folder.id);
       }
     }
@@ -664,36 +685,13 @@ export class VaultDomainProjection {
     return visibleFolderIds;
   }
 
-  private collectVisibleThreadIds(visibleFolderIds: ReadonlySet<string>): Set<string> {
-    const visibleThreadIds = new Set<string>();
+  private getOrderedVisibleFolders(
+    foldersById: ReadonlyMap<string, RuntimeFolder>,
+    visibleFolderIds: ReadonlySet<string>,
+  ): readonly RuntimeFolder[] {
+    const childrenByParent = new Map<string | null, RuntimeFolder[]>();
 
-    for (const thread of this.threads.values()) {
-      if (thread.deleted) {
-        continue;
-      }
-
-      if (thread.folderId === ROOT_FOLDER_ID || visibleFolderIds.has(thread.folderId)) {
-        visibleThreadIds.add(thread.id);
-      }
-    }
-
-    return visibleThreadIds;
-  }
-
-  private toVisibleFolders(visibleFolderIds: ReadonlySet<string>): Folder[] {
-    return this.getOrderedVisibleFolders(visibleFolderIds).map((folder) => ({
-      id: folder.id,
-      name: folder.name,
-      parentId: folder.parentId,
-      entityVersion: folder.lastMutationVersion,
-      lastEventVersion: folder.lastEventVersion,
-    }));
-  }
-
-  private getOrderedVisibleFolders(visibleFolderIds: ReadonlySet<string>): readonly CanonicalFolder[] {
-    const childrenByParent = new Map<string | null, CanonicalFolder[]>();
-
-    for (const folder of this.folders.values()) {
+    for (const folder of foldersById.values()) {
       if (!visibleFolderIds.has(folder.id)) {
         continue;
       }
@@ -703,7 +701,7 @@ export class VaultDomainProjection {
       childrenByParent.set(folder.parentId, siblings);
     }
 
-    const orderedFolders: CanonicalFolder[] = [];
+    const orderedFolders: RuntimeFolder[] = [];
     const visit = (parentId: string | null): void => {
       const siblings = [...(childrenByParent.get(parentId) ?? [])]
         .sort((left, right) => left.id.localeCompare(right.id));
@@ -715,34 +713,21 @@ export class VaultDomainProjection {
     };
 
     visit(null);
-
     return orderedFolders;
   }
 
-  private toVisibleThreads(
-    visibleFolderIds: ReadonlySet<string>,
-    visibleThreadIds: ReadonlySet<string>,
-  ): Thread[] {
-    const folderOrder = new Map(this.getOrderedVisibleFolders(visibleFolderIds).map((folder, index) => [folder.id, index]));
-
-    return this.getOrderedVisibleThreads(visibleFolderIds, visibleThreadIds, folderOrder).map((thread) => ({
-      id: thread.id,
-      folderId: thread.folderId,
-      title: thread.title,
-      entityVersion: thread.lastMutationVersion,
-      lastEventVersion: thread.lastEventVersion,
-    }));
-  }
-
   private getOrderedVisibleThreads(
+    foldersById: ReadonlyMap<string, RuntimeFolder>,
+    threadsById: ReadonlyMap<string, RuntimeThread>,
     visibleFolderIds: ReadonlySet<string>,
-    visibleThreadIds: ReadonlySet<string>,
-    folderOrder: ReadonlyMap<string, number>,
-  ): readonly CanonicalThread[] {
-    const orderedThreads: CanonicalThread[] = [];
+  ): readonly RuntimeThread[] {
+    const folderOrder = new Map(
+      this.getOrderedVisibleFolders(foldersById, visibleFolderIds).map((folder, index) => [folder.id, index]),
+    );
+    const orderedThreads: RuntimeThread[] = [];
 
-    for (const thread of this.threads.values()) {
-      if (!visibleThreadIds.has(thread.id)) {
+    for (const thread of threadsById.values()) {
+      if (thread.deleted) {
         continue;
       }
 
@@ -768,42 +753,14 @@ export class VaultDomainProjection {
     });
   }
 
-  private toVisibleRecords(visibleThreadIds: ReadonlySet<string>): RecordEntry[] {
-    const visibleFolderIds = this.collectVisibleFolderIds();
-    const folderOrder = new Map(
-      this.getOrderedVisibleFolders(visibleFolderIds).map((folder, index) => [folder.id, index]),
-    );
-    const threadOrder = new Map(
-      this.getOrderedVisibleThreads(visibleFolderIds, visibleThreadIds, folderOrder)
-        .map((thread, index) => [thread.id, index]),
-    );
-
-    return this.getOrderedVisibleRecords(visibleThreadIds, threadOrder).map((record) => ({
-      id: record.id,
-      threadId: record.threadId,
-      type: record.type,
-      name: record.name,
-      createdAt: record.createdAt,
-      editedAt: record.editedAt,
-      orderIndex: record.orderIndex,
-      isStarred: record.isStarred,
-      imageGroupId: record.imageGroupId,
-      entityVersion: record.lastMutationVersion,
-      lastEventVersion: record.lastEventVersion,
-      ...(typeof record.mediaId === 'string' ? { mediaId: record.mediaId } : {}),
-      ...(typeof record.mimeType === 'string' ? { mimeType: record.mimeType } : {}),
-      ...(typeof record.title === 'string' ? { title: record.title } : {}),
-      ...(typeof record.size === 'number' || record.size === null ? { size: record.size } : {}),
-    }));
-  }
-
   private getOrderedVisibleRecords(
+    recordsById: ReadonlyMap<string, RuntimeRecord>,
     visibleThreadIds: ReadonlySet<string>,
     threadOrder: ReadonlyMap<string, number>,
-  ): readonly CanonicalRecord[] {
-    const orderedRecords: CanonicalRecord[] = [];
+  ): readonly RuntimeRecord[] {
+    const orderedRecords: RuntimeRecord[] = [];
 
-    for (const record of this.records.values()) {
+    for (const record of recordsById.values()) {
       if (record.deleted || !visibleThreadIds.has(record.threadId)) {
         continue;
       }
@@ -832,7 +789,7 @@ export class VaultDomainProjection {
     });
   }
 
-  private isFolderVisible(folderId: string): boolean {
+  private isFolderVisible(foldersById: ReadonlyMap<string, RuntimeFolder>, folderId: string): boolean {
     const visited = new Set<string>();
     let currentFolderId: string | null = folderId;
 
@@ -843,7 +800,7 @@ export class VaultDomainProjection {
 
       visited.add(currentFolderId);
 
-      const folder = this.folders.get(currentFolderId);
+      const folder = foldersById.get(currentFolderId);
       if (!folder || folder.deleted) {
         return false;
       }
@@ -852,6 +809,25 @@ export class VaultDomainProjection {
     }
 
     return true;
+  }
+
+  private getDerivedImageGroupVersion(
+    recordsById: ReadonlyMap<string, RuntimeRecord>,
+    imageGroupId: string,
+  ): number | null {
+    let currentVersion: number | null = null;
+
+    for (const record of recordsById.values()) {
+      if (record.deleted || record.imageGroupId !== imageGroupId) {
+        continue;
+      }
+
+      currentVersion = currentVersion === null
+        ? record.entityVersion
+        : Math.max(currentVersion, record.entityVersion);
+    }
+
+    return currentVersion;
   }
 
   private hasOwn(payload: Record<string, unknown>, key: string): boolean {

@@ -5,15 +5,14 @@ import {
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { WebRelayClient } from '../../transport/web-relay-client';
 import { ExplorerLayoutContainerComponent } from '../explorer.layout.container';
 import type { ProjectionUpdate } from '../projection/projection.models';
 import { ExplorerActions } from './explorer_actions';
 import { RecordEditor } from './record_editor';
+import type { ExplorerMutationEntityType } from './explorer_mutation_gateway';
 import { ExplorerContentPaneContainer } from '../explorer_content_pane.container';
 import { ExplorerFolderTreeContainer } from '../explorer_folder_tree.container';
 import { NavigationContainer } from '../navigation.container';
-import type { MutationEntityType } from '../../transport';
 import {
   type RecordViewModel,
 } from '../../viewmodels';
@@ -55,7 +54,6 @@ import {
 export class ExplorerComponent {
   private readonly actions = inject(ExplorerActions);
   private readonly recordEditor = inject(RecordEditor);
-  private readonly relay = inject(WebRelayClient);
   private readonly contentPaneContainer = inject(ExplorerContentPaneContainer);
   private readonly folderTreeContainer = inject(ExplorerFolderTreeContainer);
   private readonly navigation = inject(NavigationContainer);
@@ -93,9 +91,7 @@ export class ExplorerComponent {
 
   constructor() {
     effect(() => {
-      console.log(
-        `EXPLORER_RENDER type=projection_render sessionId=${this.relay.sessionId() ?? 'null'}`,
-      );
+      console.log('EXPLORER_RENDER type=projection_render');
     });
   }
 
@@ -131,19 +127,19 @@ export class ExplorerComponent {
     this.actions.onCreateThread(folderId, title);
   }
 
-  onRenameEntity(entityType: MutationEntityType, entityId: string, newTitle: string): void {
+  onRenameEntity(entityType: ExplorerMutationEntityType, entityId: string, newTitle: string): void {
     this.actions.onRenameEntity(entityType, entityId, newTitle);
   }
 
-  onMoveEntity(entityType: MutationEntityType, entityId: string, targetId: string): void {
+  onMoveEntity(entityType: ExplorerMutationEntityType, entityId: string, targetId: string): void {
     this.actions.onMoveEntity(entityType, entityId, targetId);
   }
 
-  onSoftDelete(entityType: MutationEntityType, entityId: string): void {
+  onSoftDelete(entityType: ExplorerMutationEntityType, entityId: string): void {
     this.actions.onSoftDelete(entityType, entityId);
   }
 
-  onRestore(entityType: MutationEntityType, entityId: string): void {
+  onRestore(entityType: ExplorerMutationEntityType, entityId: string): void {
     this.actions.onRestore(entityType, entityId);
   }
 
@@ -187,7 +183,7 @@ export class ExplorerComponent {
     this.recordEditor.createRecord(threadId, body);
   }
 
-  promptRenameEntity(entityType: MutationEntityType, entityId: string, currentTitle: string, event: Event): void {
+  promptRenameEntity(entityType: ExplorerMutationEntityType, entityId: string, currentTitle: string, event: Event): void {
     event.stopPropagation();
 
     const newTitle = globalThis.prompt('Rename item', currentTitle);
@@ -221,7 +217,7 @@ export class ExplorerComponent {
     this.recordEditor.renameRecord(record.id, newTitle);
   }
 
-  promptMoveEntity(entityType: Extract<MutationEntityType, 'thread' | 'record'>, entityId: string, currentName: string, event: Event): void {
+  promptMoveEntity(entityType: Extract<ExplorerMutationEntityType, 'thread' | 'record'>, entityId: string, currentName: string, event: Event): void {
     event.stopPropagation();
 
     const targetLabel = entityType === 'thread' ? 'target folder id' : 'target thread id';
@@ -244,7 +240,7 @@ export class ExplorerComponent {
     this.actions.onMoveEntity('record', record.id, targetId);
   }
 
-  triggerSoftDelete(entityType: MutationEntityType, entityId: string, event: Event): void {
+  triggerSoftDelete(entityType: ExplorerMutationEntityType, entityId: string, event: Event): void {
     event.stopPropagation();
     this.onSoftDelete(entityType, entityId);
   }

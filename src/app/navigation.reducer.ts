@@ -1,7 +1,7 @@
 import type { ProjectionState } from './projection/projection.models';
 import type { NavigationState } from './navigation.state';
 import { EMPTY_NAVIGATION_STATE } from './navigation.state';
-import { selectResolvedNavigationState } from './navigation.selectors';
+import { selectNavigationAuthorityState } from './navigation.selectors';
 
 export type NavigationAction =
   | {
@@ -26,13 +26,13 @@ export function navigationReducer(
 ): NavigationState {
   switch (action.type) {
     case 'selectFolder':
-      return createNavigationState(action.folderId, null, 'folder');
+      return createNavigationState(action.folderId, null);
     case 'selectThread':
-      return createNavigationState(state.selectedFolderId, action.threadId, 'thread');
+      return createNavigationState(state.selectedFolderId, action.threadId);
     case 'clearSelection':
       return EMPTY_NAVIGATION_STATE;
     case 'restoreFromProjection':
-      return selectResolvedNavigationState(action.snapshotState, state);
+      return selectNavigationAuthorityState(action.snapshotState, state);
   }
 }
 
@@ -66,11 +66,9 @@ export function restoreFromProjection(snapshotState: ProjectionState): Navigatio
 function createNavigationState(
   selectedFolderId: string | null,
   selectedThreadId: string | null,
-  activePane: NavigationState['activePane'],
 ): NavigationState {
   return Object.freeze({
     selectedFolderId,
     selectedThreadId,
-    activePane,
   });
 }

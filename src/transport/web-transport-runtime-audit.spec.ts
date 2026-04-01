@@ -1,7 +1,11 @@
+// @vitest-environment jsdom
+
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PairingComponent } from '../app/pairing/pairing';
 import { ProjectionStore } from '../app/projection/projection.store';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import { CommandResultHandler } from './command-result-handler';
 import { MutationCommandSender } from './mutation-command-sender';
 import { WebRelayClient } from './web-relay-client';
@@ -115,6 +119,7 @@ describe('Web transport runtime audit', () => {
   let capturedLogs: unknown[][];
 
   beforeEach(async () => {
+    ensureAngularTestEnvironment();
     capturedLogs = [];
 
     await TestBed.configureTestingModule({
@@ -142,9 +147,11 @@ describe('Web transport runtime audit', () => {
   });
 
   afterEach(() => {
-    fixture.destroy();
-    logSpy.mockRestore();
+    client?.disconnect();
+    fixture?.destroy();
+    logSpy?.mockRestore();
     vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
   function parsedEnvelope(type: string): TransportEnvelope {
@@ -282,8 +289,8 @@ describe('Web transport runtime audit', () => {
     title: string,
   ): Promise<TransportEnvelope> {
     const payload = {
-      uuid: entityId,
-      folderUuid: FOLDER_ID,
+      id: entityId,
+      folderId: FOLDER_ID,
       title,
     };
 
@@ -405,8 +412,8 @@ describe('Web transport runtime audit', () => {
         operation: 'create',
         timestamp: 1_710_000_006,
         payload: {
-          uuid: '123e4567-e89b-42d3-a456-426614174043',
-          folderUuid: FOLDER_ID,
+          id: '123e4567-e89b-42d3-a456-426614174043',
+          folderId: FOLDER_ID,
           title: 'From event stream',
         },
         checksum: expect.any(String),

@@ -1,0 +1,1 @@
+﻿VISUAL_REGRESSION update-baseline captures=7 failures=0

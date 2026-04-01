@@ -253,10 +253,10 @@ function createEventPayload(
   payloadOverrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    uuid: EXTRA_RECORD_ID,
-    threadUuid: THREAD_ID,
+    id: EXTRA_RECORD_ID,
+    threadId: THREAD_ID,
     type: 'text',
-    body: `Record ${eventVersion}`,
+    name: `Record ${eventVersion}`,
     createdAt: 1710000000 + eventVersion,
     editedAt: 1710000000 + eventVersion,
     orderIndex: eventVersion - (BASE_EVENT_VERSION + 1),
@@ -510,15 +510,15 @@ describe('Projection pipeline audit', () => {
     engine.applySnapshot(createSnapshotDocument(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Record 102',
+      id: EXTRA_RECORD_ID,
+      name: 'Record 102',
     }, {
       eventId: 102,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
-        uuid: EXTRA_RECORD_ID,
-        body: 'Record 102',
+        id: EXTRA_RECORD_ID,
+        name: 'Record 102',
       }),
     });
 
@@ -538,27 +538,27 @@ describe('Projection pipeline audit', () => {
     engine.applySnapshot(createSnapshotDocument(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Record 102',
+      id: EXTRA_RECORD_ID,
+      name: 'Record 102',
     }, {
       eventId: 102,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
-        uuid: EXTRA_RECORD_ID,
-        body: 'Record 102',
+        id: EXTRA_RECORD_ID,
+        name: 'Record 102',
       }),
     });
     const duplicate102 = await createEventStreamEnvelope(102, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Record 102 duplicate',
+      id: EXTRA_RECORD_ID,
+      name: 'Record 102 duplicate',
     }, {
       eventId: 1002,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
-        uuid: EXTRA_RECORD_ID,
-        body: 'Record 102 duplicate',
+        id: EXTRA_RECORD_ID,
+        name: 'Record 102 duplicate',
       }),
     });
 
@@ -579,20 +579,20 @@ describe('Projection pipeline audit', () => {
     engine.applySnapshot(createSnapshotDocument(), BASE_EVENT_VERSION);
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Record 102',
+      id: EXTRA_RECORD_ID,
+      name: 'Record 102',
     }, {
       eventId: 102,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
-        uuid: EXTRA_RECORD_ID,
-        body: 'Record 102',
+        id: EXTRA_RECORD_ID,
+        name: 'Record 102',
       }),
     });
     const gap105 = await createEventStreamEnvelope(105, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Gap Event 105',
+      id: EXTRA_RECORD_ID,
+      name: 'Gap Event 105',
     }, {
       eventId: 105,
     });
@@ -615,8 +615,8 @@ describe('Projection pipeline audit', () => {
     const event101 = await createEventStreamEnvelope(101);
     const duplicate101 = await createEventStreamEnvelope(101);
     const gap105 = await createEventStreamEnvelope(105, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Gap Event 105',
+      id: EXTRA_RECORD_ID,
+      name: 'Gap Event 105',
     }, {
       eventId: 105,
     });
@@ -641,32 +641,32 @@ describe('Projection pipeline audit', () => {
     const snapshot = createSnapshotDocument();
     const event101 = await createEventStreamEnvelope(101);
     const event102 = await createEventStreamEnvelope(102, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Record 102',
+      id: EXTRA_RECORD_ID,
+      name: 'Record 102',
     }, {
       eventId: 102,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
-        uuid: EXTRA_RECORD_ID,
-        body: 'Record 102',
+        id: EXTRA_RECORD_ID,
+        name: 'Record 102',
       }),
     });
     const duplicate102 = await createEventStreamEnvelope(102, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Record 102',
+      id: EXTRA_RECORD_ID,
+      name: 'Record 102',
     }, {
       eventId: 1002,
       entityId: EXTRA_RECORD_ID,
       operation: 'update',
       payload: createEventPayload(102, {
-        uuid: EXTRA_RECORD_ID,
-        body: 'Record 102',
+        id: EXTRA_RECORD_ID,
+        name: 'Record 102',
       }),
     });
     const gap105 = await createEventStreamEnvelope(105, {
-      uuid: EXTRA_RECORD_ID,
-      body: 'Gap Event 105',
+      id: EXTRA_RECORD_ID,
+      name: 'Gap Event 105',
     }, {
       eventId: 105,
     });

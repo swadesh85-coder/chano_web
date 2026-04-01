@@ -1,0 +1,848 @@
+
+ RUN  v4.0.18 C:/Users/Taboo/chano_web
+
+stdout | src/transport/mutation-command-sender.spec.ts > MutationCommandSender > mutation_command_send
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174001 entity=thread op=create entityId=null
+
+stdout | src/transport/mutation-command-sender.spec.ts > MutationCommandSender > create_command_without_entityId
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174011 entity=thread op=create entityId=null
+
+stdout | src/transport/mutation-command-sender.spec.ts > MutationCommandSender > no_web_entityId_generation
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174022 entity=thread op=create entityId=null
+
+stdout | src/transport/mutation-command-sender.spec.ts > MutationCommandSender > create_command_accepts_explicit_null_entityId
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174031 entity=thread op=create entityId=null
+
+stdout | src/transport/mutation-command-sender.spec.ts > MutationCommandSender > record_create_command_accepts_minimal_ui_payload
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174041 entity=record op=create entityId=null
+
+ G£ô src/transport/mutation-command-sender.spec.ts > MutationCommandSender > mutation_command_send 35ms
+ G£ô src/transport/mutation-command-sender.spec.ts > MutationCommandSender > mutation_command_schema_valid 6ms
+ G£ô src/transport/mutation-command-sender.spec.ts > MutationCommandSender > create_command_without_entityId 6ms
+ G£ô src/transport/mutation-command-sender.spec.ts > MutationCommandSender > no_web_entityId_generation 4ms
+ G£ô src/transport/mutation-command-sender.spec.ts > MutationCommandSender > create_command_accepts_explicit_null_entityId 4ms
+ G£ô src/transport/mutation-command-sender.spec.ts > MutationCommandSender > record_create_command_accepts_minimal_ui_payload 4ms
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid
+WEB_SESSION_CREATED sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+WEB_RELAY_CONNECT ws://relay.audit.local/relay
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid
+EXPLORER_RENDER type=projection_render
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_start","sessionId":"3ad4cbd1-4fe2-4c72-9424-69ad82323d38","timestamp":1710000001,"sequence":1,"payload":{"snapshotId":"snapshot-mutation-audit-1","totalChunks":1, type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_start","sequence":1,"hash":"7a97e91e"}
+RELAY_INGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+WS_MESSAGE_PARSED type=snapshot_start sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_start
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_start'[39m,
+  sessionId: [32m'3ad4cbd1-4fe2-4c72-9424-69ad82323d38'[39m,
+  timestamp: [33m1710000001[39m,
+  sequence: [33m1[39m,
+  payload: {
+    snapshotId: [32m'snapshot-mutation-audit-1'[39m,
+    totalChunks: [33m1[39m,
+    totalBytes: [33m427[39m,
+    snapshotVersion: [33m1[39m,
+    protocolVersion: [33m2[39m,
+    schemaVersion: [33m1[39m,
+    baseEventVersion: [33m50[39m,
+    entityCount: [33m1[39m,
+    checksum: [32m'06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960'[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_start target=projection
+SNAPSHOT_RECEIVE_START snapshotId=snapshot-mutation-audit-1 totalChunks=1 type=snapshot_start sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+SNAPSHOT_ASSEMBLY_STARTED snapshotId=snapshot-mutation-audit-1
+HANDLE_MESSAGE type=snapshot_start sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38 handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_chunk","sessionId":"3ad4cbd1-4fe2-4c72-9424-69ad82323d38","timestamp":1710000002,"sequence":2,"payload":{"index":0,"data":"eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29 type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_chunk","sequence":2,"hash":"b5d13d1e"}
+RELAY_INGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+WS_MESSAGE_PARSED type=snapshot_chunk sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_chunk
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_chunk'[39m,
+  sessionId: [32m'3ad4cbd1-4fe2-4c72-9424-69ad82323d38'[39m,
+  timestamp: [33m1710000002[39m,
+  sequence: [33m2[39m,
+  payload: {
+    index: [33m0[39m,
+    data: [32m'eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29sVmVyc2lvbiI6Miwic2NoZW1hVmVyc2lvbiI6MSwiYmFzZUV2ZW50VmVyc2lvbiI6NTAsImdlbmVyYXRlZEF0IjoiMjAyNi0wMy0yOFQwMDowMDowMC4wMDBaIiwiZW50aXR5Q291bnQiOjEsImNoZWNrc3VtIjoic25hcHNob3QtbXV0YXRpb24tYXVkaXQtcm9vdCIsImVudGl0aWVzIjpbeyJlbnRpdHlUeXBlIjoiZm9sZGVyIiwiZW50aXR5VXVpZCI6IjEyM2U0NTY3LWU4OWItNDJkMy1hNDU2LTQyNjYxNDE3NDMwMSIsImVudGl0eVZlcnNpb24iOjEsImxhc3RFdmVudFZlcnNpb24iOjUwLCJvd25lclVzZXJJZCI6Im93bmVyLTEiLCJkYXRhIjp7InV1aWQiOiIxMjNlNDU2Ny1lODliLTQyZDMtYTQ1Ni00MjY2MTQxNzQzMDEiLCJuYW1lIjoiSW5ib3giLCJwYXJlbnRGb2xkZXJVdWlkIjpudWxsfX1dfQ=='[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_chunk target=projection
+SNAPSHOT_RECEIVE_CHUNK index=0 type=snapshot_chunk sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+HANDLE_MESSAGE type=snapshot_chunk sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38 handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_complete","sessionId":"3ad4cbd1-4fe2-4c72-9424-69ad82323d38","timestamp":1710000003,"sequence":3,"payload":{"totalChunks":1}} type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_complete","sequence":3,"hash":"13892d78"}
+RELAY_INGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+WS_MESSAGE_PARSED type=snapshot_complete sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_complete
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_complete'[39m,
+  sessionId: [32m'3ad4cbd1-4fe2-4c72-9424-69ad82323d38'[39m,
+  timestamp: [33m1710000003[39m,
+  sequence: [33m3[39m,
+  payload: { totalChunks: [33m1[39m }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_complete target=projection
+SNAPSHOT_RECEIVE_COMPLETE totalChunks=1 type=snapshot_complete sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+HANDLE_MESSAGE type=snapshot_complete sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38 handled=true
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid
+SNAPSHOT_CHECKSUM_VALID
+SNAPSHOT_RECONSTRUCTED checksum=06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid
+PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+ORDERING_VALIDATION entity=folder status=OK
+PROJECTION_SNAPSHOT_APPLIED baseEventVersion=50
+PROJECTION_BUILD_COMPLETE entityCount=1
+BUFFER_PROCESS_START
+SNAPSHOT_SCHEMA_BASELINE {"entity":"folder","fields":["entityVersion","id","lastEventVersion","name","parentId"]}
+PROJECTION_APPLY entityCount=1 type=snapshot_apply sessionId=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid
+EXPLORER_RENDER snapshot_loaded
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid
+NAVIGATION action=selectFolder folder=123e4567-e89b-42d3-a456-426614174301 thread=null pane=folder
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid
+UI_ACTION create_thread folder=123e4567-e89b-42d3-a456-426614174301
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174303 entity=thread op=create entityId=null
+WEB_SEND mutation_command session=3ad4cbd1-4fe2-4c72-9424-69ad82323d38 seq=1
+RELAY_SEND type=mutation_command sequence=1
+RELAY_ROUTE webGåÆmobile type=mutation_command session=3ad4cbd1-4fe2-4c72-9424-69ad82323d38
+PENDING_SET commandId=123e4567-e89b-42d3-a456-426614174303 entityId=null
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing
+WEB_SESSION_CREATED sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+WEB_RELAY_CONNECT ws://relay.audit.local/relay
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_start","sessionId":"ae998019-c665-476a-9c9a-cb515d1a05ad","timestamp":1710000001,"sequence":1,"payload":{"snapshotId":"snapshot-mutation-audit-1","totalChunks":1, type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_start","sequence":1,"hash":"c43901c9"}
+RELAY_INGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+WS_MESSAGE_PARSED type=snapshot_start sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_start
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_start'[39m,
+  sessionId: [32m'ae998019-c665-476a-9c9a-cb515d1a05ad'[39m,
+  timestamp: [33m1710000001[39m,
+  sequence: [33m1[39m,
+  payload: {
+    snapshotId: [32m'snapshot-mutation-audit-1'[39m,
+    totalChunks: [33m1[39m,
+    totalBytes: [33m427[39m,
+    snapshotVersion: [33m1[39m,
+    protocolVersion: [33m2[39m,
+    schemaVersion: [33m1[39m,
+    baseEventVersion: [33m50[39m,
+    entityCount: [33m1[39m,
+    checksum: [32m'06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960'[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_start target=projection
+SNAPSHOT_RECEIVE_START snapshotId=snapshot-mutation-audit-1 totalChunks=1 type=snapshot_start sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+SNAPSHOT_ASSEMBLY_STARTED snapshotId=snapshot-mutation-audit-1
+HANDLE_MESSAGE type=snapshot_start sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_chunk","sessionId":"ae998019-c665-476a-9c9a-cb515d1a05ad","timestamp":1710000002,"sequence":2,"payload":{"index":0,"data":"eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29 type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_chunk","sequence":2,"hash":"35d57b09"}
+RELAY_INGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+WS_MESSAGE_PARSED type=snapshot_chunk sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_chunk
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_chunk'[39m,
+  sessionId: [32m'ae998019-c665-476a-9c9a-cb515d1a05ad'[39m,
+  timestamp: [33m1710000002[39m,
+  sequence: [33m2[39m,
+  payload: {
+    index: [33m0[39m,
+    data: [32m'eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29sVmVyc2lvbiI6Miwic2NoZW1hVmVyc2lvbiI6MSwiYmFzZUV2ZW50VmVyc2lvbiI6NTAsImdlbmVyYXRlZEF0IjoiMjAyNi0wMy0yOFQwMDowMDowMC4wMDBaIiwiZW50aXR5Q291bnQiOjEsImNoZWNrc3VtIjoic25hcHNob3QtbXV0YXRpb24tYXVkaXQtcm9vdCIsImVudGl0aWVzIjpbeyJlbnRpdHlUeXBlIjoiZm9sZGVyIiwiZW50aXR5VXVpZCI6IjEyM2U0NTY3LWU4OWItNDJkMy1hNDU2LTQyNjYxNDE3NDMwMSIsImVudGl0eVZlcnNpb24iOjEsImxhc3RFdmVudFZlcnNpb24iOjUwLCJvd25lclVzZXJJZCI6Im93bmVyLTEiLCJkYXRhIjp7InV1aWQiOiIxMjNlNDU2Ny1lODliLTQyZDMtYTQ1Ni00MjY2MTQxNzQzMDEiLCJuYW1lIjoiSW5ib3giLCJwYXJlbnRGb2xkZXJVdWlkIjpudWxsfX1dfQ=='[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_chunk target=projection
+SNAPSHOT_RECEIVE_CHUNK index=0 type=snapshot_chunk sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+HANDLE_MESSAGE type=snapshot_chunk sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_complete","sessionId":"ae998019-c665-476a-9c9a-cb515d1a05ad","timestamp":1710000003,"sequence":3,"payload":{"totalChunks":1}} type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_complete","sequence":3,"hash":"f47906af"}
+RELAY_INGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+WS_MESSAGE_PARSED type=snapshot_complete sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_complete
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_complete'[39m,
+  sessionId: [32m'ae998019-c665-476a-9c9a-cb515d1a05ad'[39m,
+  timestamp: [33m1710000003[39m,
+  sequence: [33m3[39m,
+  payload: { totalChunks: [33m1[39m }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_complete target=projection
+SNAPSHOT_RECEIVE_COMPLETE totalChunks=1 type=snapshot_complete sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+HANDLE_MESSAGE type=snapshot_complete sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad handled=true
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing
+EXPLORER_RENDER type=projection_render
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing
+SNAPSHOT_CHECKSUM_VALID
+SNAPSHOT_RECONSTRUCTED checksum=06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing
+PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+ORDERING_VALIDATION entity=folder status=OK
+PROJECTION_SNAPSHOT_APPLIED baseEventVersion=50
+PROJECTION_BUILD_COMPLETE entityCount=1
+BUFFER_PROCESS_START
+SNAPSHOT_SCHEMA_BASELINE {"entity":"folder","fields":["entityVersion","id","lastEventVersion","name","parentId"]}
+PROJECTION_APPLY entityCount=1 type=snapshot_apply sessionId=ae998019-c665-476a-9c9a-cb515d1a05ad
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing
+EXPLORER_RENDER snapshot_loaded
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing
+NAVIGATION action=selectFolder folder=123e4567-e89b-42d3-a456-426614174301 thread=null pane=folder
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing
+UI_ACTION create_thread folder=123e4567-e89b-42d3-a456-426614174301
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174303 entity=thread op=create entityId=null
+WEB_SEND mutation_command session=ae998019-c665-476a-9c9a-cb515d1a05ad seq=1
+RELAY_SEND type=mutation_command sequence=1
+RELAY_ROUTE webGåÆmobile type=mutation_command session=ae998019-c665-476a-9c9a-cb515d1a05ad
+PENDING_SET commandId=123e4567-e89b-42d3-a456-426614174303 entityId=null
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+WEB_SESSION_CREATED sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+WEB_RELAY_CONNECT ws://relay.audit.local/relay
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_start","sessionId":"d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac","timestamp":1710000001,"sequence":1,"payload":{"snapshotId":"snapshot-mutation-audit-1","totalChunks":1, type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_start","sequence":1,"hash":"ad09b181"}
+RELAY_INGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+WS_MESSAGE_PARSED type=snapshot_start sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_start
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_start'[39m,
+  sessionId: [32m'd5ed7f69-bf22-49aa-87f4-4ed162cdc4ac'[39m,
+  timestamp: [33m1710000001[39m,
+  sequence: [33m1[39m,
+  payload: {
+    snapshotId: [32m'snapshot-mutation-audit-1'[39m,
+    totalChunks: [33m1[39m,
+    totalBytes: [33m427[39m,
+    snapshotVersion: [33m1[39m,
+    protocolVersion: [33m2[39m,
+    schemaVersion: [33m1[39m,
+    baseEventVersion: [33m50[39m,
+    entityCount: [33m1[39m,
+    checksum: [32m'06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960'[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_start target=projection
+SNAPSHOT_RECEIVE_START snapshotId=snapshot-mutation-audit-1 totalChunks=1 type=snapshot_start sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+SNAPSHOT_ASSEMBLY_STARTED snapshotId=snapshot-mutation-audit-1
+HANDLE_MESSAGE type=snapshot_start sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_chunk","sessionId":"d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac","timestamp":1710000002,"sequence":2,"payload":{"index":0,"data":"eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29 type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_chunk","sequence":2,"hash":"47912941"}
+RELAY_INGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+WS_MESSAGE_PARSED type=snapshot_chunk sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_chunk
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_chunk'[39m,
+  sessionId: [32m'd5ed7f69-bf22-49aa-87f4-4ed162cdc4ac'[39m,
+  timestamp: [33m1710000002[39m,
+  sequence: [33m2[39m,
+  payload: {
+    index: [33m0[39m,
+    data: [32m'eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29sVmVyc2lvbiI6Miwic2NoZW1hVmVyc2lvbiI6MSwiYmFzZUV2ZW50VmVyc2lvbiI6NTAsImdlbmVyYXRlZEF0IjoiMjAyNi0wMy0yOFQwMDowMDowMC4wMDBaIiwiZW50aXR5Q291bnQiOjEsImNoZWNrc3VtIjoic25hcHNob3QtbXV0YXRpb24tYXVkaXQtcm9vdCIsImVudGl0aWVzIjpbeyJlbnRpdHlUeXBlIjoiZm9sZGVyIiwiZW50aXR5VXVpZCI6IjEyM2U0NTY3LWU4OWItNDJkMy1hNDU2LTQyNjYxNDE3NDMwMSIsImVudGl0eVZlcnNpb24iOjEsImxhc3RFdmVudFZlcnNpb24iOjUwLCJvd25lclVzZXJJZCI6Im93bmVyLTEiLCJkYXRhIjp7InV1aWQiOiIxMjNlNDU2Ny1lODliLTQyZDMtYTQ1Ni00MjY2MTQxNzQzMDEiLCJuYW1lIjoiSW5ib3giLCJwYXJlbnRGb2xkZXJVdWlkIjpudWxsfX1dfQ=='[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_chunk target=projection
+SNAPSHOT_RECEIVE_CHUNK index=0 type=snapshot_chunk sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+HANDLE_MESSAGE type=snapshot_chunk sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_complete","sessionId":"d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac","timestamp":1710000003,"sequence":3,"payload":{"totalChunks":1}} type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_complete","sequence":3,"hash":"35062d67"}
+RELAY_INGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+WS_MESSAGE_PARSED type=snapshot_complete sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_complete
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_complete'[39m,
+  sessionId: [32m'd5ed7f69-bf22-49aa-87f4-4ed162cdc4ac'[39m,
+  timestamp: [33m1710000003[39m,
+  sequence: [33m3[39m,
+  payload: { totalChunks: [33m1[39m }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_complete target=projection
+SNAPSHOT_RECEIVE_COMPLETE totalChunks=1 type=snapshot_complete sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+HANDLE_MESSAGE type=snapshot_complete sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac handled=true
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+EXPLORER_RENDER type=projection_render
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+SNAPSHOT_CHECKSUM_VALID
+SNAPSHOT_RECONSTRUCTED checksum=06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+ORDERING_VALIDATION entity=folder status=OK
+PROJECTION_SNAPSHOT_APPLIED baseEventVersion=50
+PROJECTION_BUILD_COMPLETE entityCount=1
+BUFFER_PROCESS_START
+SNAPSHOT_SCHEMA_BASELINE {"entity":"folder","fields":["entityVersion","id","lastEventVersion","name","parentId"]}
+PROJECTION_APPLY entityCount=1 type=snapshot_apply sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+EXPLORER_RENDER snapshot_loaded
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+NAVIGATION action=selectFolder folder=123e4567-e89b-42d3-a456-426614174301 thread=null pane=folder
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+UI_ACTION create_thread folder=123e4567-e89b-42d3-a456-426614174301
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174303 entity=thread op=create entityId=null
+WEB_SEND mutation_command session=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac seq=1
+RELAY_SEND type=mutation_command sequence=1
+RELAY_ROUTE webGåÆmobile type=mutation_command session=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+PENDING_SET commandId=123e4567-e89b-42d3-a456-426614174303 entityId=null
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"command_result","sessionId":"d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac","timestamp":1710000210,"sequence":10,"payload":{"commandId":"123e4567-e89b-42d3-a456-426614174303","stat type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"command_result","sequence":10,"hash":"7123a7ba"}
+WS_MESSAGE_PARSED type=command_result sessionId=d5ed7f69-bf22-49aa-87f4-4ed162cdc4ac
+WEB_RELAY_ENVELOPE_RECEIVED type=command_result
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'command_result'[39m,
+  sessionId: [32m'd5ed7f69-bf22-49aa-87f4-4ed162cdc4ac'[39m,
+  timestamp: [33m1710000210[39m,
+  sequence: [33m10[39m,
+  payload: {
+    commandId: [32m'123e4567-e89b-42d3-a456-426614174303'[39m,
+    status: [32m'applied'[39m,
+    entityType: [32m'thread'[39m,
+    entityId: [32m'123e4567-e89b-42d3-a456-426614174302'[39m,
+    operation: [32m'create'[39m,
+    eventVersion: [33m110[39m,
+    entityVersion: [33m1[39m,
+    message: [32m'Applied on mobile'[39m
+  }
+}
+MESSAGE_ROUTED type=command_result target=command_result
+COMMAND_RESULT_RECEIVED commandId=123e4567-e89b-42d3-a456-426614174303 status=applied
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation
+WEB_SESSION_CREATED sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+WEB_RELAY_CONNECT ws://relay.audit.local/relay
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_start","sessionId":"dc26a2f5-d31b-493a-b7e2-48873b10d44c","timestamp":1710000001,"sequence":1,"payload":{"snapshotId":"snapshot-mutation-audit-1","totalChunks":1, type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_start","sequence":1,"hash":"5c94a4e7"}
+RELAY_INGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+WS_MESSAGE_PARSED type=snapshot_start sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_start
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_start'[39m,
+  sessionId: [32m'dc26a2f5-d31b-493a-b7e2-48873b10d44c'[39m,
+  timestamp: [33m1710000001[39m,
+  sequence: [33m1[39m,
+  payload: {
+    snapshotId: [32m'snapshot-mutation-audit-1'[39m,
+    totalChunks: [33m1[39m,
+    totalBytes: [33m427[39m,
+    snapshotVersion: [33m1[39m,
+    protocolVersion: [33m2[39m,
+    schemaVersion: [33m1[39m,
+    baseEventVersion: [33m50[39m,
+    entityCount: [33m1[39m,
+    checksum: [32m'06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960'[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_start target=projection
+SNAPSHOT_RECEIVE_START snapshotId=snapshot-mutation-audit-1 totalChunks=1 type=snapshot_start sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+SNAPSHOT_ASSEMBLY_STARTED snapshotId=snapshot-mutation-audit-1
+HANDLE_MESSAGE type=snapshot_start sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_chunk","sessionId":"dc26a2f5-d31b-493a-b7e2-48873b10d44c","timestamp":1710000002,"sequence":2,"payload":{"index":0,"data":"eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29 type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_chunk","sequence":2,"hash":"6f8b9367"}
+RELAY_INGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+WS_MESSAGE_PARSED type=snapshot_chunk sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_chunk
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_chunk'[39m,
+  sessionId: [32m'dc26a2f5-d31b-493a-b7e2-48873b10d44c'[39m,
+  timestamp: [33m1710000002[39m,
+  sequence: [33m2[39m,
+  payload: {
+    index: [33m0[39m,
+    data: [32m'eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29sVmVyc2lvbiI6Miwic2NoZW1hVmVyc2lvbiI6MSwiYmFzZUV2ZW50VmVyc2lvbiI6NTAsImdlbmVyYXRlZEF0IjoiMjAyNi0wMy0yOFQwMDowMDowMC4wMDBaIiwiZW50aXR5Q291bnQiOjEsImNoZWNrc3VtIjoic25hcHNob3QtbXV0YXRpb24tYXVkaXQtcm9vdCIsImVudGl0aWVzIjpbeyJlbnRpdHlUeXBlIjoiZm9sZGVyIiwiZW50aXR5VXVpZCI6IjEyM2U0NTY3LWU4OWItNDJkMy1hNDU2LTQyNjYxNDE3NDMwMSIsImVudGl0eVZlcnNpb24iOjEsImxhc3RFdmVudFZlcnNpb24iOjUwLCJvd25lclVzZXJJZCI6Im93bmVyLTEiLCJkYXRhIjp7InV1aWQiOiIxMjNlNDU2Ny1lODliLTQyZDMtYTQ1Ni00MjY2MTQxNzQzMDEiLCJuYW1lIjoiSW5ib3giLCJwYXJlbnRGb2xkZXJVdWlkIjpudWxsfX1dfQ=='[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_chunk target=projection
+SNAPSHOT_RECEIVE_CHUNK index=0 type=snapshot_chunk sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+HANDLE_MESSAGE type=snapshot_chunk sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_complete","sessionId":"dc26a2f5-d31b-493a-b7e2-48873b10d44c","timestamp":1710000003,"sequence":3,"payload":{"totalChunks":1}} type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_complete","sequence":3,"hash":"1dff0501"}
+RELAY_INGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+WS_MESSAGE_PARSED type=snapshot_complete sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_complete
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_complete'[39m,
+  sessionId: [32m'dc26a2f5-d31b-493a-b7e2-48873b10d44c'[39m,
+  timestamp: [33m1710000003[39m,
+  sequence: [33m3[39m,
+  payload: { totalChunks: [33m1[39m }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_complete target=projection
+SNAPSHOT_RECEIVE_COMPLETE totalChunks=1 type=snapshot_complete sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+HANDLE_MESSAGE type=snapshot_complete sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c handled=true
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation
+EXPLORER_RENDER type=projection_render
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation
+SNAPSHOT_CHECKSUM_VALID
+SNAPSHOT_RECONSTRUCTED checksum=06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation
+PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+ORDERING_VALIDATION entity=folder status=OK
+PROJECTION_SNAPSHOT_APPLIED baseEventVersion=50
+PROJECTION_BUILD_COMPLETE entityCount=1
+BUFFER_PROCESS_START
+SNAPSHOT_SCHEMA_BASELINE {"entity":"folder","fields":["entityVersion","id","lastEventVersion","name","parentId"]}
+PROJECTION_APPLY entityCount=1 type=snapshot_apply sessionId=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation
+EXPLORER_RENDER snapshot_loaded
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation
+NAVIGATION action=selectFolder folder=123e4567-e89b-42d3-a456-426614174301 thread=null pane=folder
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation
+UI_ACTION create_thread folder=123e4567-e89b-42d3-a456-426614174301
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174303 entity=thread op=create entityId=null
+WEB_SEND mutation_command session=dc26a2f5-d31b-493a-b7e2-48873b10d44c seq=1
+RELAY_SEND type=mutation_command sequence=1
+RELAY_ROUTE webGåÆmobile type=mutation_command session=dc26a2f5-d31b-493a-b7e2-48873b10d44c
+PENDING_SET commandId=123e4567-e89b-42d3-a456-426614174303 entityId=null
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+WEB_SESSION_CREATED sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+WEB_RELAY_CONNECT ws://relay.audit.local/relay
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_start","sessionId":"cfe62516-3f37-4778-8449-d0b327f56b05","timestamp":1710000001,"sequence":1,"payload":{"snapshotId":"snapshot-mutation-audit-1","totalChunks":1, type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_start","sequence":1,"hash":"88ed7c21"}
+RELAY_INGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+WS_MESSAGE_PARSED type=snapshot_start sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_start
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_start'[39m,
+  sessionId: [32m'cfe62516-3f37-4778-8449-d0b327f56b05'[39m,
+  timestamp: [33m1710000001[39m,
+  sequence: [33m1[39m,
+  payload: {
+    snapshotId: [32m'snapshot-mutation-audit-1'[39m,
+    totalChunks: [33m1[39m,
+    totalBytes: [33m427[39m,
+    snapshotVersion: [33m1[39m,
+    protocolVersion: [33m2[39m,
+    schemaVersion: [33m1[39m,
+    baseEventVersion: [33m50[39m,
+    entityCount: [33m1[39m,
+    checksum: [32m'06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960'[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_start target=projection
+SNAPSHOT_RECEIVE_START snapshotId=snapshot-mutation-audit-1 totalChunks=1 type=snapshot_start sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+SNAPSHOT_ASSEMBLY_STARTED snapshotId=snapshot-mutation-audit-1
+HANDLE_MESSAGE type=snapshot_start sessionId=cfe62516-3f37-4778-8449-d0b327f56b05 handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_chunk","sessionId":"cfe62516-3f37-4778-8449-d0b327f56b05","timestamp":1710000002,"sequence":2,"payload":{"index":0,"data":"eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29 type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_chunk","sequence":2,"hash":"f3701d21"}
+RELAY_INGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+WS_MESSAGE_PARSED type=snapshot_chunk sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_chunk
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_chunk'[39m,
+  sessionId: [32m'cfe62516-3f37-4778-8449-d0b327f56b05'[39m,
+  timestamp: [33m1710000002[39m,
+  sequence: [33m2[39m,
+  payload: {
+    index: [33m0[39m,
+    data: [32m'eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29sVmVyc2lvbiI6Miwic2NoZW1hVmVyc2lvbiI6MSwiYmFzZUV2ZW50VmVyc2lvbiI6NTAsImdlbmVyYXRlZEF0IjoiMjAyNi0wMy0yOFQwMDowMDowMC4wMDBaIiwiZW50aXR5Q291bnQiOjEsImNoZWNrc3VtIjoic25hcHNob3QtbXV0YXRpb24tYXVkaXQtcm9vdCIsImVudGl0aWVzIjpbeyJlbnRpdHlUeXBlIjoiZm9sZGVyIiwiZW50aXR5VXVpZCI6IjEyM2U0NTY3LWU4OWItNDJkMy1hNDU2LTQyNjYxNDE3NDMwMSIsImVudGl0eVZlcnNpb24iOjEsImxhc3RFdmVudFZlcnNpb24iOjUwLCJvd25lclVzZXJJZCI6Im93bmVyLTEiLCJkYXRhIjp7InV1aWQiOiIxMjNlNDU2Ny1lODliLTQyZDMtYTQ1Ni00MjY2MTQxNzQzMDEiLCJuYW1lIjoiSW5ib3giLCJwYXJlbnRGb2xkZXJVdWlkIjpudWxsfX1dfQ=='[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_chunk target=projection
+SNAPSHOT_RECEIVE_CHUNK index=0 type=snapshot_chunk sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+HANDLE_MESSAGE type=snapshot_chunk sessionId=cfe62516-3f37-4778-8449-d0b327f56b05 handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_complete","sessionId":"cfe62516-3f37-4778-8449-d0b327f56b05","timestamp":1710000003,"sequence":3,"payload":{"totalChunks":1}} type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_complete","sequence":3,"hash":"07565dc7"}
+RELAY_INGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+WS_MESSAGE_PARSED type=snapshot_complete sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_complete
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_complete'[39m,
+  sessionId: [32m'cfe62516-3f37-4778-8449-d0b327f56b05'[39m,
+  timestamp: [33m1710000003[39m,
+  sequence: [33m3[39m,
+  payload: { totalChunks: [33m1[39m }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_complete target=projection
+SNAPSHOT_RECEIVE_COMPLETE totalChunks=1 type=snapshot_complete sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+HANDLE_MESSAGE type=snapshot_complete sessionId=cfe62516-3f37-4778-8449-d0b327f56b05 handled=true
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+EXPLORER_RENDER type=projection_render
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+SNAPSHOT_CHECKSUM_VALID
+SNAPSHOT_RECONSTRUCTED checksum=06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+ORDERING_VALIDATION entity=folder status=OK
+PROJECTION_SNAPSHOT_APPLIED baseEventVersion=50
+PROJECTION_BUILD_COMPLETE entityCount=1
+BUFFER_PROCESS_START
+SNAPSHOT_SCHEMA_BASELINE {"entity":"folder","fields":["entityVersion","id","lastEventVersion","name","parentId"]}
+PROJECTION_APPLY entityCount=1 type=snapshot_apply sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+EXPLORER_RENDER snapshot_loaded
+
+ G£ô src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_envelope_valid 330ms
+ G£ô src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > mutation_command_routing 20ms
+ G£ô src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_result_handling 17ms
+ G£ô src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > no_local_projection_mutation 15ms
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+NAVIGATION action=selectFolder folder=123e4567-e89b-42d3-a456-426614174301 thread=null pane=folder
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+UI_ACTION create_thread folder=123e4567-e89b-42d3-a456-426614174301
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174303 entity=thread op=create entityId=null
+WEB_SEND mutation_command session=cfe62516-3f37-4778-8449-d0b327f56b05 seq=1
+RELAY_SEND type=mutation_command sequence=1
+RELAY_ROUTE webGåÆmobile type=mutation_command session=cfe62516-3f37-4778-8449-d0b327f56b05
+PENDING_SET commandId=123e4567-e89b-42d3-a456-426614174303 entityId=null
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"event_stream","sessionId":"cfe62516-3f37-4778-8449-d0b327f56b05","timestamp":1710000151,"sequence":11,"payload":{"eventId":"evt-51","originDeviceId":"mobile-1","eventVersi type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"event_stream","sequence":11,"hash":"4e099eee"}
+RELAY_INGRESS_HASH {"type":"event_stream","sequence":11,"hash":"994a9d4b"}
+WS_MESSAGE_PARSED type=event_stream sessionId=cfe62516-3f37-4778-8449-d0b327f56b05
+WEB_RELAY_ENVELOPE_RECEIVED type=event_stream
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'event_stream'[39m,
+  sessionId: [32m'cfe62516-3f37-4778-8449-d0b327f56b05'[39m,
+  timestamp: [33m1710000151[39m,
+  sequence: [33m11[39m,
+  payload: {
+    eventId: [32m'evt-51'[39m,
+    originDeviceId: [32m'mobile-1'[39m,
+    eventVersion: [33m51[39m,
+    entityType: [32m'thread'[39m,
+    entityId: [32m'123e4567-e89b-42d3-a456-426614174302'[39m,
+    operation: [32m'create'[39m,
+    timestamp: [33m1710000151[39m,
+    payload: {
+      commandId: [32m'123e4567-e89b-42d3-a456-426614174303'[39m,
+      id: [32m'123e4567-e89b-42d3-a456-426614174302'[39m,
+      folderId: [32m'123e4567-e89b-42d3-a456-426614174301'[39m,
+      title: [32m'Authoritative thread'[39m
+    },
+    checksum: [32m'524dbb8131592f707952ec90bcd42a2871ccca6e62f3173590ea02f52d061628'[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"event_stream","sequence":11,"hash":"994a9d4b"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=event_stream target=projection
+HANDLE_MESSAGE type=event_stream sessionId=cfe62516-3f37-4778-8449-d0b327f56b05 handled=true
+EVENT_SCHEMA_INCOMING {"entity":"thread","fields":["commandId","folderId","id","title"],"eventId":"evt-51","sequence":11}
+EVENT_SCHEMA_CANONICAL {"entity":"thread","fields":["folderId","id","title"],"eventId":"evt-51","sequence":11}
+EVENT_SCHEMA_INCOMING {"entity":"thread","fields":["commandId","folderId","id","title"],"eventId":"evt-51","sequence":11}
+EVENT_SCHEMA_CANONICAL {"entity":"thread","fields":["folderId","id","title"],"eventId":"evt-51","sequence":11}
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+EVENT_VALIDATION_SUCCESS eventVersion=51
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+PENDING_CLEAR commandId=123e4567-e89b-42d3-a456-426614174303 entityId=null
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+EVENT_VALIDATION_SUCCESS eventVersion=51
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update
+EVENT_FORWARDED_TO_ENGINE eventVersion=51
+BOUNDARY_CHECK expected=51 received=51
+BOUNDARY_OK start=51
+BOUNDARY_CHECK expected=51 received=51
+BOUNDARY_OK start=51
+EVENT_APPLY version=51
+EVENT_APPLY eventVersion=51 lastApplied=50
+APPLY eventVersion=51 entity=thread id=123e4567-e89b-42d3-a456-426614174302 op=create
+ORDERING_VALIDATION entity=thread status=OK
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+WEB_SESSION_CREATED sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+WEB_RELAY_CONNECT ws://relay.audit.local/relay
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_start","sessionId":"1927deec-7fac-4208-8c0e-7a79a4ee65da","timestamp":1710000001,"sequence":1,"payload":{"snapshotId":"snapshot-mutation-audit-1","totalChunks":1, type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_start","sequence":1,"hash":"b23887db"}
+RELAY_INGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+WS_MESSAGE_PARSED type=snapshot_start sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_start
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_start'[39m,
+  sessionId: [32m'1927deec-7fac-4208-8c0e-7a79a4ee65da'[39m,
+  timestamp: [33m1710000001[39m,
+  sequence: [33m1[39m,
+  payload: {
+    snapshotId: [32m'snapshot-mutation-audit-1'[39m,
+    totalChunks: [33m1[39m,
+    totalBytes: [33m427[39m,
+    snapshotVersion: [33m1[39m,
+    protocolVersion: [33m2[39m,
+    schemaVersion: [33m1[39m,
+    baseEventVersion: [33m50[39m,
+    entityCount: [33m1[39m,
+    checksum: [32m'06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960'[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_start","sequence":1,"hash":"d5d4458d"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_start target=projection
+SNAPSHOT_RECEIVE_START snapshotId=snapshot-mutation-audit-1 totalChunks=1 type=snapshot_start sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+SNAPSHOT_ASSEMBLY_STARTED snapshotId=snapshot-mutation-audit-1
+HANDLE_MESSAGE type=snapshot_start sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_chunk","sessionId":"1927deec-7fac-4208-8c0e-7a79a4ee65da","timestamp":1710000002,"sequence":2,"payload":{"index":0,"data":"eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29 type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_chunk","sequence":2,"hash":"c0823f9b"}
+RELAY_INGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+WS_MESSAGE_PARSED type=snapshot_chunk sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_chunk
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_chunk'[39m,
+  sessionId: [32m'1927deec-7fac-4208-8c0e-7a79a4ee65da'[39m,
+  timestamp: [33m1710000002[39m,
+  sequence: [33m2[39m,
+  payload: {
+    index: [33m0[39m,
+    data: [32m'eyJzbmFwc2hvdFZlcnNpb24iOjEsInByb3RvY29sVmVyc2lvbiI6Miwic2NoZW1hVmVyc2lvbiI6MSwiYmFzZUV2ZW50VmVyc2lvbiI6NTAsImdlbmVyYXRlZEF0IjoiMjAyNi0wMy0yOFQwMDowMDowMC4wMDBaIiwiZW50aXR5Q291bnQiOjEsImNoZWNrc3VtIjoic25hcHNob3QtbXV0YXRpb24tYXVkaXQtcm9vdCIsImVudGl0aWVzIjpbeyJlbnRpdHlUeXBlIjoiZm9sZGVyIiwiZW50aXR5VXVpZCI6IjEyM2U0NTY3LWU4OWItNDJkMy1hNDU2LTQyNjYxNDE3NDMwMSIsImVudGl0eVZlcnNpb24iOjEsImxhc3RFdmVudFZlcnNpb24iOjUwLCJvd25lclVzZXJJZCI6Im93bmVyLTEiLCJkYXRhIjp7InV1aWQiOiIxMjNlNDU2Ny1lODliLTQyZDMtYTQ1Ni00MjY2MTQxNzQzMDEiLCJuYW1lIjoiSW5ib3giLCJwYXJlbnRGb2xkZXJVdWlkIjpudWxsfX1dfQ=='[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_chunk","sequence":2,"hash":"ee99e776"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_chunk target=projection
+SNAPSHOT_RECEIVE_CHUNK index=0 type=snapshot_chunk sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+HANDLE_MESSAGE type=snapshot_chunk sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da handled=true
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"snapshot_complete","sessionId":"1927deec-7fac-4208-8c0e-7a79a4ee65da","timestamp":1710000003,"sequence":3,"payload":{"totalChunks":1}} type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"snapshot_complete","sequence":3,"hash":"55af89bd"}
+RELAY_INGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+WS_MESSAGE_PARSED type=snapshot_complete sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+WEB_RELAY_ENVELOPE_RECEIVED type=snapshot_complete
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'snapshot_complete'[39m,
+  sessionId: [32m'1927deec-7fac-4208-8c0e-7a79a4ee65da'[39m,
+  timestamp: [33m1710000003[39m,
+  sequence: [33m3[39m,
+  payload: { totalChunks: [33m1[39m }
+}
+RELAY_EGRESS_HASH {"type":"snapshot_complete","sequence":3,"hash":"34e4d6e2"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=snapshot_complete target=projection
+SNAPSHOT_RECEIVE_COMPLETE totalChunks=1 type=snapshot_complete sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+HANDLE_MESSAGE type=snapshot_complete sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da handled=true
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+EXPLORER_RENDER type=projection_render
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+SNAPSHOT_CHECKSUM_VALID
+SNAPSHOT_RECONSTRUCTED checksum=06eb5a96b7871e6f83b2385de2ca42a4e5b4d7cc81eb456fe8cd5eb0c1e1a960
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+PROJECTION_BUILD_TRIGGERED type=snapshot_complete sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+ORDERING_VALIDATION entity=folder status=OK
+PROJECTION_SNAPSHOT_APPLIED baseEventVersion=50
+PROJECTION_BUILD_COMPLETE entityCount=1
+BUFFER_PROCESS_START
+SNAPSHOT_SCHEMA_BASELINE {"entity":"folder","fields":["entityVersion","id","lastEventVersion","name","parentId"]}
+PROJECTION_APPLY entityCount=1 type=snapshot_apply sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+EXPLORER_RENDER snapshot_loaded
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174303 entity=thread op=create entityId=null
+WEB_SEND mutation_command session=1927deec-7fac-4208-8c0e-7a79a4ee65da seq=1
+RELAY_SEND type=mutation_command sequence=1
+RELAY_ROUTE webGåÆmobile type=mutation_command session=1927deec-7fac-4208-8c0e-7a79a4ee65da
+MUTATION_SEND commandId=123e4567-e89b-42d3-a456-426614174303 entity=thread op=create entityId=null
+WEB_SEND mutation_command session=1927deec-7fac-4208-8c0e-7a79a4ee65da seq=2
+RELAY_SEND type=mutation_command sequence=2
+RELAY_ROUTE webGåÆmobile type=mutation_command session=1927deec-7fac-4208-8c0e-7a79a4ee65da
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"command_result","sessionId":"1927deec-7fac-4208-8c0e-7a79a4ee65da","timestamp":1710000212,"sequence":12,"payload":{"commandId":"123e4567-e89b-42d3-a456-426614174303","stat type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"command_result","sequence":12,"hash":"d6d3e5a2"}
+WS_MESSAGE_PARSED type=command_result sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+WEB_RELAY_ENVELOPE_RECEIVED type=command_result
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'command_result'[39m,
+  sessionId: [32m'1927deec-7fac-4208-8c0e-7a79a4ee65da'[39m,
+  timestamp: [33m1710000212[39m,
+  sequence: [33m12[39m,
+  payload: {
+    commandId: [32m'123e4567-e89b-42d3-a456-426614174303'[39m,
+    status: [32m'applied'[39m,
+    entityType: [32m'thread'[39m,
+    entityId: [32m'123e4567-e89b-42d3-a456-426614174302'[39m,
+    operation: [32m'create'[39m,
+    eventVersion: [33m112[39m,
+    entityVersion: [33m1[39m,
+    message: [32m'Applied on mobile'[39m
+  }
+}
+MESSAGE_ROUTED type=command_result target=command_result
+COMMAND_RESULT_RECEIVED commandId=123e4567-e89b-42d3-a456-426614174303 status=applied
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"event_stream","sessionId":"1927deec-7fac-4208-8c0e-7a79a4ee65da","timestamp":1710000151,"sequence":13,"payload":{"eventId":"evt-51","originDeviceId":"mobile-1","eventVersi type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"event_stream","sequence":13,"hash":"c163db03"}
+RELAY_INGRESS_HASH {"type":"event_stream","sequence":13,"hash":"18a09dfe"}
+WS_MESSAGE_PARSED type=event_stream sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+WEB_RELAY_ENVELOPE_RECEIVED type=event_stream
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'event_stream'[39m,
+  sessionId: [32m'1927deec-7fac-4208-8c0e-7a79a4ee65da'[39m,
+  timestamp: [33m1710000151[39m,
+  sequence: [33m13[39m,
+  payload: {
+    eventId: [32m'evt-51'[39m,
+    originDeviceId: [32m'mobile-1'[39m,
+    eventVersion: [33m51[39m,
+    entityType: [32m'thread'[39m,
+    entityId: [32m'123e4567-e89b-42d3-a456-426614174302'[39m,
+    operation: [32m'create'[39m,
+    timestamp: [33m1710000151[39m,
+    payload: {
+      commandId: [32m'123e4567-e89b-42d3-a456-426614174303'[39m,
+      id: [32m'123e4567-e89b-42d3-a456-426614174302'[39m,
+      folderId: [32m'123e4567-e89b-42d3-a456-426614174301'[39m,
+      title: [32m'Idempotent Thread'[39m
+    },
+    checksum: [32m'ab1fd8df48a7b0caf0cbb44434c27c3a31499d8871093f9a3cfdfb33c0f3785b'[39m
+  }
+}
+RELAY_EGRESS_HASH {"type":"event_stream","sequence":13,"hash":"18a09dfe"}
+PAYLOAD_REFERENCE_EQUALITY true
+MESSAGE_ROUTED type=event_stream target=projection
+HANDLE_MESSAGE type=event_stream sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da handled=true
+EVENT_SCHEMA_INCOMING {"entity":"thread","fields":["commandId","folderId","id","title"],"eventId":"evt-51","sequence":13}
+EVENT_SCHEMA_CANONICAL {"entity":"thread","fields":["folderId","id","title"],"eventId":"evt-51","sequence":13}
+EVENT_SCHEMA_INCOMING {"entity":"thread","fields":["commandId","folderId","id","title"],"eventId":"evt-51","sequence":13}
+EVENT_SCHEMA_CANONICAL {"entity":"thread","fields":["folderId","id","title"],"eventId":"evt-51","sequence":13}
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+EVENT_VALIDATION_SUCCESS eventVersion=51
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+EVENT_VALIDATION_SUCCESS eventVersion=51
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+EVENT_FORWARDED_TO_ENGINE eventVersion=51
+BOUNDARY_CHECK expected=51 received=51
+BOUNDARY_OK start=51
+BOUNDARY_CHECK expected=51 received=51
+BOUNDARY_OK start=51
+EVENT_APPLY version=51
+EVENT_APPLY eventVersion=51 lastApplied=50
+APPLY eventVersion=51 entity=thread id=123e4567-e89b-42d3-a456-426614174302 op=create
+ORDERING_VALIDATION entity=thread status=OK
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+WS_MESSAGE_RECEIVED raw={"protocolVersion":2,"type":"command_result","sessionId":"1927deec-7fac-4208-8c0e-7a79a4ee65da","timestamp":1710000214,"sequence":14,"payload":{"commandId":"123e4567-e89b-42d3-a456-426614174303","stat type=unknown sessionId=unknown
+TRANSPORT_FRAME_HASH {"type":"command_result","sequence":14,"hash":"df78276a"}
+WS_MESSAGE_PARSED type=command_result sessionId=1927deec-7fac-4208-8c0e-7a79a4ee65da
+WEB_RELAY_ENVELOPE_RECEIVED type=command_result
+TRANSPORT_ENVELOPE_PARSED {
+  protocolVersion: [33m2[39m,
+  type: [32m'command_result'[39m,
+  sessionId: [32m'1927deec-7fac-4208-8c0e-7a79a4ee65da'[39m,
+  timestamp: [33m1710000214[39m,
+  sequence: [33m14[39m,
+  payload: {
+    commandId: [32m'123e4567-e89b-42d3-a456-426614174303'[39m,
+    status: [32m'alreadyApplied'[39m,
+    entityType: [32m'thread'[39m,
+    entityId: [32m'123e4567-e89b-42d3-a456-426614174302'[39m,
+    operation: [32m'create'[39m,
+    eventVersion: [33m114[39m,
+    entityVersion: [33m1[39m,
+    message: [32m'Duplicate command ignored'[39m
+  }
+}
+MESSAGE_ROUTED type=command_result target=command_result
+COMMAND_RESULT_RECEIVED commandId=123e4567-e89b-42d3-a456-426614174303 status=alreadyApplied
+
+stdout | src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency
+EXPLORER_RENDER event_applied entity=thread
+
+ G£ô src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > event_driven_projection_update 20ms
+ G£ô src/transport/mutation_command_audit.spec.ts > MutationCommandSender audit > command_idempotency 15ms
+
+ Test Files  2 passed (2)
+      Tests  12 passed (12)
+   Start at  20:34:41
+   Duration  2.95s (transform 875ms, setup 0ms, import 1.92s, tests 480ms, environment 2.30s)
+

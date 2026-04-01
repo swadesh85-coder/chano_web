@@ -87,6 +87,5 @@ export class NavigationContainer {
 
 function isSameNavigationState(left: typeof EMPTY_NAVIGATION_STATE, right: typeof EMPTY_NAVIGATION_STATE): boolean {
   return left.selectedFolderId === right.selectedFolderId
-    && left.selectedThreadId === right.selectedThreadId
-    && left.activePane === right.activePane;
+    && left.selectedThreadId === right.selectedThreadId;
 }

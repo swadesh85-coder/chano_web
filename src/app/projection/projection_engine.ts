@@ -108,12 +108,11 @@ export class ProjectionEngine {
   private isSnapshotInProgress = false;
   private resyncRequired = false;
   private bufferedEvents: EventEnvelope[] = [];
-  private vaultDomainProjection = new VaultDomainProjection();
+  private readonly vaultDomainProjection = new VaultDomainProjection();
 
   constructor(private readonly options: ProjectionEngineOptions = {}) {}
 
   reset(): void {
-    this.vaultDomainProjection = new VaultDomainProjection();
     this._state = EMPTY_PROJECTION_STATE;
     this.baseEventVersion = null;
     this.lastAppliedEventVersion = null;
@@ -158,18 +157,16 @@ export class ProjectionEngine {
     const entityCount = (snapshot.folders?.length ?? 0)
       + (snapshot.threads?.length ?? 0)
       + (snapshot.records?.length ?? 0);
-    const nextProjection = new VaultDomainProjection();
     let nextState: ProjectionState;
 
     try {
-      nextState = this.freezeProjectionState(nextProjection.applySnapshot(snapshot));
+      nextState = this.freezeProjectionState(this.vaultDomainProjection.applySnapshot(snapshot));
     } catch (error: unknown) {
       const reason = error instanceof Error ? error.message : 'UNKNOWN_SNAPSHOT_REJECTION';
       console.error(`SNAPSHOT_REJECTED reason=${reason}`);
       throw error;
     }
 
-    this.vaultDomainProjection = nextProjection;
     this._state = nextState;
     this.baseEventVersion = baseEventVersion;
     this.lastAppliedEventVersion = baseEventVersion;
@@ -222,6 +219,14 @@ export class ProjectionEngine {
     if (!this.hasStartedEventStream) {
       if (validationResult.status === 'IGNORE_DUPLICATE') {
         return this.ignoreDuplicateEvent(eventEnvelope);
+      }
+
+      if (validationResult.status === 'RESYNC_REQUIRED') {
+        return this.requireResyncForGap(
+          eventEnvelope,
+          validationResult.expectedEventVersion,
+          validationResult.receivedEventVersion,
+        );
       }
 
       return this.onFirstEventAfterSnapshot(eventEnvelope);
@@ -368,7 +373,7 @@ export class ProjectionEngine {
     console.log(`EVENT_APPLY version=${eventEnvelope.eventVersion}`);
     console.log(`EVENT_APPLY eventVersion=${eventEnvelope.eventVersion} lastApplied=${this.lastAppliedEventVersion}`);
 
-    this._state = this.freezeProjectionState(this.vaultDomainProjection.applyEvent(eventEnvelope));
+    this._state = this.freezeProjectionState(this.vaultDomainProjection.applyEvent(this._state, eventEnvelope));
     this.lastAppliedEventVersion = eventEnvelope.eventVersion;
 
     return {
@@ -409,12 +414,7 @@ export class ProjectionEngine {
 
   private freezeProjectionState(state: ProjectionState): ProjectionState {
     this.assertOrderingState(state);
-
-    return Object.freeze({
-      folders: Object.freeze(state.folders.map((folder) => Object.freeze({ ...folder }))),
-      threads: Object.freeze(state.threads.map((thread) => Object.freeze({ ...thread }))),
-      records: Object.freeze(state.records.map((record) => Object.freeze({ ...record }))),
-    });
+    return state;
   }
 
   private assertOrderingState(state: ProjectionState): void {
@@ -461,29 +461,16 @@ export class ProjectionEngine {
     return this.resyncRequired;
   }
 
-  serializeProjectionState(): string {
-    return this.vaultDomainProjection.serializeSnapshotDocument();
-  }
-
-  async computeProjectionChecksum(): Promise<string> {
-    const encoded = new TextEncoder().encode(this.serializeProjectionState());
-    const copy = new Uint8Array(encoded.byteLength);
-    copy.set(encoded);
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', copy.buffer);
-
-    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
-  }
-
   getEntityVersion(entityType: EventEntity, entityId: string): number | null {
-    return this.vaultDomainProjection.getEntityVersion(entityType, entityId);
+    return this.vaultDomainProjection.getEntityVersion(this._state, entityType, entityId);
   }
 
   getRecordLastEventVersion(entityId: string): number | null {
-    return this.vaultDomainProjection.getRecordLastEventVersion(entityId);
+    return this.vaultDomainProjection.getRecordLastEventVersion(this._state, entityId);
   }
 
   hasEntityId(entityId: string): boolean {
-    return this.vaultDomainProjection.hasEntityId(entityId);
+    return this.vaultDomainProjection.hasEntityId(this._state, entityId);
   }
 
   private processBufferedEvents(baseEventVersion: number): {
@@ -491,9 +478,7 @@ export class ProjectionEngine {
     readonly state: ProjectionState;
     readonly appliedBufferedEventVersions: readonly number[];
   } {
-    const bufferedEvents = [...this.bufferedEvents].sort(
-      (left, right) => left.eventVersion - right.eventVersion,
-    );
+    const bufferedEvents = [...this.bufferedEvents];
 
     this.isSnapshotInProgress = false;
     this.bufferedEvents = [];

@@ -1,6 +1,6 @@
-import { TestBed } from '@angular/core/testing';
-import { vi } from 'vitest';
-import { PendingCommandStore } from './pending_command_store';
+import { Injector, runInInjectionContext } from '@angular/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PendingCommandStore } from '../../transport/pending-command-store';
 import { WebRelayClient } from '../../transport';
 
 describe('PendingCommandStore', () => {
@@ -18,9 +18,8 @@ describe('PendingCommandStore', () => {
     commandResultHandler = null;
     projectionHandler = null;
 
-    TestBed.configureTestingModule({
+    const injector = Injector.create({
       providers: [
-        PendingCommandStore,
         {
           provide: WebRelayClient,
           useValue: {
@@ -41,7 +40,11 @@ describe('PendingCommandStore', () => {
       ],
     });
 
-    store = TestBed.inject(PendingCommandStore);
+    store = runInInjectionContext(injector, () => new PendingCommandStore());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   function setPending(commandId = 'cmd-401', entityId: string | null = null): void {
@@ -132,8 +135,8 @@ describe('PendingCommandStore', () => {
     setPending();
 
     const eventPayload = {
-      uuid: 'generated-by-mobile',
-      folderUuid: 'folder-1',
+      id: 'generated-by-mobile',
+      folderId: 'folder-1',
       title: 'New Thread',
     };
 
@@ -163,8 +166,8 @@ describe('PendingCommandStore', () => {
 
     const eventPayload = {
       commandId: 'cmd-402',
-      uuid: 'generated-by-mobile',
-      folderUuid: 'folder-1',
+      id: 'generated-by-mobile',
+      folderId: 'folder-1',
       title: 'New Thread',
     };
 
@@ -207,9 +210,9 @@ describe('PendingCommandStore', () => {
     });
 
     const eventPayload = {
-      uuid: 'record:text-2',
-      threadUuid: 'thread:0001',
-      body: 'Created body',
+      id: 'record:text-2',
+      threadId: 'thread:0001',
+      name: 'Created body',
       type: 'text',
       createdAt: 1_710_000_010,
       editedAt: 1_710_000_010,

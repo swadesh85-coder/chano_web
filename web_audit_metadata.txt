@@ -1,0 +1,58 @@
+BRANCH=main REV=14f55a3
+ M src/app/explorer.container.audit.spec.ts
+ M src/app/explorer.container.ts
+ M src/app/explorer/explorer.spec.ts
+ M src/app/explorer/explorer.ts
+ M src/app/explorer/explorer_actions.spec.ts
+ M src/app/explorer/explorer_actions.ts
+ M src/app/explorer/pending_command_store.spec.ts
+ M src/app/explorer/pending_command_store.ts
+ M src/app/explorer/record_editor.spec.ts
+ M src/app/explorer/record_editor.ts
+ M src/app/explorer/thread_view.ts
+ M src/app/explorer_content_pane.container.audit.spec.ts
+ M src/app/explorer_content_pane.container.ts
+ M src/app/explorer_folder_tree.container.audit.spec.ts
+ M src/app/explorer_folder_tree.container.ts
+ M src/app/navigation.container.audit.spec.ts
+ M src/app/navigation.container.ts
+ M src/app/navigation.reducer.spec.ts
+ M src/app/navigation.reducer.ts
+ M src/app/navigation.selectors.spec.ts
+ M src/app/navigation.selectors.ts
+ M src/app/navigation.state.ts
+ M src/app/pairing/pairing.spec.ts
+ M src/app/projection/projection.store.spec.ts
+ M src/app/projection/projection_engine.spec.ts
+ M src/app/projection/projection_engine.ts
+ M src/app/projection/projection_event_validation.spec.ts
+ M src/app/projection/projection_event_validation.ts
+ M src/app/projection/projection_pipeline_audit.spec.ts
+ M src/app/projection/projection_reconstruction_audit.spec.ts
+ M src/app/projection/projection_schema_validation_audit.spec.ts
+ M src/app/projection/projection_state.container.ts
+ M src/app/projection/vault_domain_projection.spec.ts
+ M src/app/projection/vault_domain_projection.ts
+ M src/app/projection/web_snapshot_ingestion_audit.spec.ts
+ M src/app/projection/web_sync_e2e.spec.ts
+ M src/app/split_pane.component.spec.ts
+ M src/app/virtual_list.component.spec.ts
+ M src/transport/index.ts
+ M src/transport/mutation_command_audit.spec.ts
+ M src/transport/mutation_flow_audit.spec.ts
+ M src/transport/web-transport-runtime-audit.spec.ts
+?? angular_targeted_subset_output.txt
+?? broader_wave5b_output.txt
+?? full_angular_harness_output.txt
+?? src/app/explorer/explorer_mutation_gateway.spec.ts
+?? src/app/explorer/explorer_mutation_gateway.ts
+?? src/testing/
+?? src/transport/pending-command-store.ts
+?? targeted_broader_subset_output.txt
+?? wave5a_focused_output.txt
+?? wave5a_second_slice_output.txt
+?? wave5b_focused_output.txt
+?? wave6-full-ng-test.log
+?? web_audit_metadata.txt
+?? web_current_audit_slice_output.txt
+?? web_sync_gap_output.txt

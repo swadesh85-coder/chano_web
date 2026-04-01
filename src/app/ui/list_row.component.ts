@@ -15,6 +15,7 @@ export type ListRowDensity = 'sidebar' | 'folder' | 'thread' | 'record';
 
 @Component({
   selector: 'app-list-row',
+  standalone: true,
   template: `
     <div
       class="ui-list-row"

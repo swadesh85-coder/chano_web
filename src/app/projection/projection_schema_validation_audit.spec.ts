@@ -1,28 +1,10 @@
 // @vitest-environment jsdom
 
 import { TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectionStore } from './projection.store';
 import { WebRelayClient } from '../../transport/web-relay-client';
-
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
+import { ensureAngularTestEnvironment } from '../../testing/ensure-angular-test-environment';
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -215,7 +197,7 @@ async function createSnapshotTransport(
   };
 }
 
-async function createLegacyCompatibleRecordEventEnvelope(
+async function createLegacyTransportRecordEventEnvelope(
   sessionId: string,
   eventVersion: number,
 ): Promise<Record<string, unknown>> {
@@ -320,7 +302,7 @@ describe('Projection Schema Validation Audit', () => {
     TestBed.resetTestingModule();
   });
 
-  it('captures deterministic raw_to_canonical_record_event evidence', async () => {
+  it('rejects legacy record transport payloads without canonical repair', async () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -338,15 +320,13 @@ describe('Projection Schema Validation Audit', () => {
 
     expect(store.phase()).toBe('ready');
 
-    const recordEvent = await createLegacyCompatibleRecordEventEnvelope(sessionId!, 101);
+    const recordEvent = await createLegacyTransportRecordEventEnvelope(sessionId!, 101);
     MockWebSocket.last.simulateMessage(recordEvent);
     await flushAsyncWork();
 
     const baselines = parseJsonLog<{ entity: string; fields: string[] }>(consoleLog.mock.calls, 'SNAPSHOT_SCHEMA_BASELINE');
     const incomingEvents = parseJsonLog<{ entity: string; fields: string[]; eventId: number; sequence: number }>(consoleLog.mock.calls, 'EVENT_SCHEMA_INCOMING');
     const canonicalEvents = parseJsonLog<{ entity: string; fields: string[]; eventId: number; sequence: number }>(consoleLog.mock.calls, 'EVENT_SCHEMA_CANONICAL');
-    const ingressHashes = parseJsonLog<{ type: string; sequence: number; hash: string }>(consoleLog.mock.calls, 'RELAY_INGRESS_HASH');
-    const egressHashes = parseJsonLog<{ type: string; sequence: number; hash: string }>(consoleLog.mock.calls, 'RELAY_EGRESS_HASH');
     const schemaErrors = parseJsonLog<{
       entity: string;
       missingInEvent: string[];
@@ -387,24 +367,39 @@ describe('Projection Schema Validation Audit', () => {
       sequence: 4,
     });
 
-    expect(canonicalEvents).toContainEqual({
-      entity: 'record',
-      fields: ['createdAt', 'editedAt', 'id', 'imageGroupId', 'isStarred', 'name', 'orderIndex', 'threadId', 'type'],
-      eventId: 101,
-      sequence: 4,
-    });
+    expect(canonicalEvents).toEqual([
+      {
+        entity: 'record',
+        fields: ['body', 'createdAt', 'editedAt', 'id', 'imageGroupId', 'isStarred', 'orderIndex', 'threadUuid', 'type', 'uuid'],
+        eventId: 101,
+        sequence: 4,
+      },
+    ]);
 
-    const eventIngressHash = ingressHashes.find((entry) => entry.type === 'event_stream' && entry.sequence === 4);
-    const eventEgressHash = egressHashes.find((entry) => entry.type === 'event_stream' && entry.sequence === 4);
-
-    expect(eventIngressHash).toBeDefined();
-    expect(eventEgressHash).toBeDefined();
-    expect(eventIngressHash?.hash).toBe(eventEgressHash?.hash);
-    expect(consoleLog.mock.calls).toContainEqual(['PAYLOAD_REFERENCE_EQUALITY true']);
-
-    expect(schemaErrors).toEqual([]);
-    expect(auditResults).toEqual([]);
-    expect(store.state().records).toContainEqual({
+    expect(schemaErrors).toEqual([
+      {
+        entity: 'record',
+        missingInEvent: ['entityVersion', 'lastEventVersion', 'name', 'threadId'],
+        extraInEvent: ['body', 'threadUuid', 'uuid'],
+        snapshotFields: ['createdAt', 'editedAt', 'entityVersion', 'id', 'imageGroupId', 'isStarred', 'lastEventVersion', 'name', 'orderIndex', 'threadId', 'type'],
+        eventFields: ['body', 'createdAt', 'editedAt', 'id', 'imageGroupId', 'isStarred', 'orderIndex', 'threadUuid', 'type', 'uuid'],
+        eventId: 101,
+        sequence: 4,
+      },
+    ]);
+    expect(auditResults).toEqual([
+      {
+        entity: 'record',
+        snapshotFields: ['createdAt', 'editedAt', 'entityVersion', 'id', 'imageGroupId', 'isStarred', 'lastEventVersion', 'name', 'orderIndex', 'threadId', 'type'],
+        eventFields: ['body', 'createdAt', 'editedAt', 'id', 'imageGroupId', 'isStarred', 'orderIndex', 'threadUuid', 'type', 'uuid'],
+        missingInEvent: ['entityVersion', 'lastEventVersion', 'name', 'threadId'],
+        extraInEvent: ['body', 'threadUuid', 'uuid'],
+        verdict: 'SCHEMA_MISMATCH_CONFIRMED',
+      },
+    ]);
+    expect(consoleError.mock.calls).toContainEqual(['EVENT_REJECTED reason=INVALID_SCHEMA']);
+    expect(consoleError.mock.calls).toContainEqual(['SNAPSHOT_RESYNC_REQUIRED reason=INVALID_SCHEMA']);
+    expect(store.state().records).not.toContainEqual({
       id: 'record-2',
       threadId: 'thread-1',
       type: 'text',
@@ -471,7 +466,7 @@ describe('Projection Schema Validation Audit', () => {
     expect(canonicalEvents).toEqual([
       {
         entity: 'thread',
-        fields: ['id', 'title'],
+        fields: ['contactId', 'createdAt', 'deviceId', 'entityVersion', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId', 'title'],
         eventId: 101,
         sequence: 5,
       },

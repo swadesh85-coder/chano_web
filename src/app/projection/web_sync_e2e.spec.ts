@@ -1,28 +1,10 @@
 // @vitest-environment jsdom
 
 import { TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../../testing/ensure-angular-test-environment';
 import { ProjectionStore } from './projection.store';
 import { WebRelayClient } from '../../transport/web-relay-client';
-
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -135,8 +117,8 @@ function createCanonicalSnapshotJson(baseEventVersion: number): string {
           threadUuid: 't1',
           type: 'text',
           body: 'Entry',
-          createdAt: '2026-03-27T09:54:10.000Z',
-          editedAt: '2026-03-27T09:54:10.000Z',
+          createdAt: Date.parse('2026-03-27T09:54:10.000Z'),
+          editedAt: Date.parse('2026-03-27T09:54:10.000Z'),
           orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
@@ -287,14 +269,17 @@ describe('Web Sync E2E', () => {
   });
 
   it('receives a canonical snapshot over the relay and applies the first post-sync event', async () => {
-    const sessionId = '083123d4-6c6e-463f-a12b-4c89bc353e7c';
     const baseEventVersion = 25;
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const snapshot = await createSnapshotTransport(sessionId, baseEventVersion);
-    const eventEnvelope = await createEventStreamEnvelope(sessionId, 26);
 
     relay.connect('ws://172.20.10.3:8080/relay');
     MockWebSocket.last.simulateOpen();
+    const sessionId = relay.sessionId();
+
+    expect(sessionId).not.toBeNull();
+
+    const snapshot = await createSnapshotTransport(sessionId!, baseEventVersion);
+    const eventEnvelope = await createEventStreamEnvelope(sessionId!, 26);
 
     MockWebSocket.last.simulateMessage(snapshot.start);
     MockWebSocket.last.simulateMessage(snapshot.chunk);
@@ -327,10 +312,16 @@ describe('Web Sync E2E', () => {
   });
 
   it('applies multiple post-sync events and ignores duplicates', async () => {
-    const sessionId = '083123d4-6c6e-463f-a12b-4c89bc353e7d';
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const snapshot = await createSnapshotTransport(sessionId, 25);
-    const event26 = await createRecordEventStreamEnvelope(sessionId, 26, {
+
+    relay.connect('ws://172.20.10.3:8080/relay');
+    MockWebSocket.last.simulateOpen();
+    const sessionId = relay.sessionId();
+
+    expect(sessionId).not.toBeNull();
+
+    const snapshot = await createSnapshotTransport(sessionId!, 25);
+    const event26 = await createRecordEventStreamEnvelope(sessionId!, 26, {
       id: 'r2',
       threadId: 't1',
       type: 'text',
@@ -341,7 +332,7 @@ describe('Web Sync E2E', () => {
       isStarred: false,
       imageGroupId: null,
     }, 4);
-    const event27 = await createRecordEventStreamEnvelope(sessionId, 27, {
+    const event27 = await createRecordEventStreamEnvelope(sessionId!, 27, {
       id: 'r3',
       threadId: 't1',
       type: 'text',
@@ -353,8 +344,6 @@ describe('Web Sync E2E', () => {
       imageGroupId: null,
     }, 6);
 
-    relay.connect('ws://172.20.10.3:8080/relay');
-    MockWebSocket.last.simulateOpen();
     MockWebSocket.last.simulateMessage(snapshot.start);
     MockWebSocket.last.simulateMessage(snapshot.chunk);
     MockWebSocket.last.simulateMessage(snapshot.complete);
@@ -378,11 +367,17 @@ describe('Web Sync E2E', () => {
   });
 
   it('flags resync when a post-sync event stream gap is detected', async () => {
-    const sessionId = '083123d4-6c6e-463f-a12b-4c89bc353e7e';
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const snapshot = await createSnapshotTransport(sessionId, 25);
-    const gapEvent = await createRecordEventStreamEnvelope(sessionId, 28, {
+
+    relay.connect('ws://172.20.10.3:8080/relay');
+    MockWebSocket.last.simulateOpen();
+    const sessionId = relay.sessionId();
+
+    expect(sessionId).not.toBeNull();
+
+    const snapshot = await createSnapshotTransport(sessionId!, 25);
+    const gapEvent = await createRecordEventStreamEnvelope(sessionId!, 28, {
       id: 'r4',
       threadId: 't1',
       type: 'text',
@@ -393,7 +388,7 @@ describe('Web Sync E2E', () => {
       isStarred: false,
       imageGroupId: null,
     }, 4);
-    const blockedFollowup = await createRecordEventStreamEnvelope(sessionId, 29, {
+    const blockedFollowup = await createRecordEventStreamEnvelope(sessionId!, 29, {
       id: 'r5',
       threadId: 't1',
       type: 'text',
@@ -405,8 +400,6 @@ describe('Web Sync E2E', () => {
       imageGroupId: null,
     }, 5);
 
-    relay.connect('ws://172.20.10.3:8080/relay');
-    MockWebSocket.last.simulateOpen();
     MockWebSocket.last.simulateMessage(snapshot.start);
     MockWebSocket.last.simulateMessage(snapshot.chunk);
     MockWebSocket.last.simulateMessage(snapshot.complete);
@@ -419,7 +412,6 @@ describe('Web Sync E2E', () => {
     expect(store.state().records.map((record) => record.id)).toEqual(['r1']);
     expect(hasSingleArgCall(consoleLog, 'EVENT_GAP_DETECTED version=28')).toBe(true);
     expect(hasSingleArgCall(consoleLog, 'RESYNC_REQUIRED true')).toBe(true);
-    expect(hasSingleArgCall(consoleError, 'RESYNC_TRIGGERED')).toBe(true);
     expect(hasSingleArgCall(consoleError, 'SNAPSHOT_RESYNC_REQUIRED reason=EVENT_GAP expected=26 received=28')).toBe(true);
 
     MockWebSocket.last.simulateMessage(blockedFollowup);

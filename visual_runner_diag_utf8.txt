@@ -1,0 +1,13 @@
+﻿node : VISUAL_EXPLORER_READY_TIMEOUT path=/pair 
+title="ChanoWeb" hasFolderTree=false hasContentPane=false 
+body="ChanoPair with your mobile deviceSyncing your 
+dataΓÇª"
+At line:1 char:1
++ node scripts/visual-regression-runner.mjs *> 
+visual_runner_diag.txt
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (VISUAL_EXPLO 
+   RER...g your dataΓÇª":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

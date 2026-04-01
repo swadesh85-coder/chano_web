@@ -158,6 +158,7 @@ export async function runVisualRegression(options = {}) {
       await resetToExplorerRoot(page);
       await capture.prepare(page);
       await settleExplorer(page);
+      await neutralizeInteractiveState(page);
       captures.push(await captureRegion(page, capture.id, capture.selector, updateBaseline));
     }
 
@@ -273,7 +274,16 @@ function createVisualSnapshotDocument() {
     ));
   }
 
-  return { folders, threads, records };
+  return {
+    snapshotVersion: 1,
+    protocolVersion: transportProtocolVersion,
+    schemaVersion: 1,
+    baseEventVersion: countSnapshotEntities({ folders, threads, records }),
+    generatedAt: '2026-04-01T00:00:00.000Z',
+    entityCount: folders.length + threads.length + records.length,
+    checksum: 'visual-snapshot-payload',
+    entities: [...folders, ...threads, ...records],
+  };
 }
 
 function createFolderEntity(entityUuid, name, parentFolderUuid, ownerUserId, eventVersion) {
@@ -329,6 +339,10 @@ function createRecordEntity(entityUuid, threadUuid, ownerUserId, eventVersion, o
 }
 
 function countSnapshotEntities(snapshotDocument) {
+  if (Array.isArray(snapshotDocument.entities)) {
+    return snapshotDocument.entities.length;
+  }
+
   return snapshotDocument.folders.length + snapshotDocument.threads.length + snapshotDocument.records.length;
 }
 
@@ -489,6 +503,22 @@ async function installRuntimeOverrides(page) {
           caret-color: transparent !important;
           scroll-behavior: auto !important;
         }
+
+        .ui-list-row:hover {
+          background: var(--explorer-row-bg) !important;
+          border-color: transparent !important;
+        }
+
+        .ui-list-row:hover .ui-list-row__main:not(:disabled) {
+          color: inherit !important;
+        }
+
+        .panel-action-button:hover:not(:disabled),
+        .ui-pill-button:hover:not(:disabled) {
+          background: var(--explorer-button-bg) !important;
+          color: var(--color-text-secondary) !important;
+          border-color: var(--color-border) !important;
+        }
       `;
       document.head.append(style);
     });
@@ -496,12 +526,58 @@ async function installRuntimeOverrides(page) {
 }
 
 async function waitForExplorer(page) {
-  await page.waitForFunction(() => globalThis.location.pathname === '/explorer', { timeout: 60_000 });
+  try {
+    await page.waitForFunction(() => {
+      if (globalThis.location.pathname === '/explorer') {
+        return true;
+      }
+
+      return document.querySelector('[aria-label="Folder tree panel"]') !== null
+        && document.querySelector('[aria-label="Content pane panel"]') !== null;
+    }, { timeout: 60_000 });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      pathname: globalThis.location.pathname,
+      title: document.title,
+      bodyText: document.body?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 240) ?? '',
+      hasFolderTree: document.querySelector('[aria-label="Folder tree panel"]') !== null,
+      hasContentPane: document.querySelector('[aria-label="Content pane panel"]') !== null,
+    }));
+    throw new Error(`VISUAL_EXPLORER_READY_TIMEOUT path=${diagnostics.pathname} title=${JSON.stringify(diagnostics.title)} hasFolderTree=${diagnostics.hasFolderTree} hasContentPane=${diagnostics.hasContentPane} body=${JSON.stringify(diagnostics.bodyText)}`);
+  }
   await page.waitForSelector('[aria-label="Folder tree panel"]', { timeout: 60_000 });
   await page.waitForSelector('[aria-label="Content pane panel"]', { timeout: 60_000 });
 }
 
 async function injectStableRendering(page) {
+  await page.evaluate(() => {
+    const existing = document.querySelector('style[data-visual-regression-hover-reset="true"]');
+    if (existing instanceof HTMLStyleElement) {
+      return;
+    }
+
+    const style = document.createElement('style');
+    style.setAttribute('data-visual-regression-hover-reset', 'true');
+    style.textContent = `
+      .ui-list-row:hover {
+        background: var(--explorer-row-bg) !important;
+        border-color: transparent !important;
+      }
+
+      .ui-list-row:hover .ui-list-row__main:not(:disabled) {
+        color: inherit !important;
+      }
+
+      .panel-action-button:hover:not(:disabled),
+      .ui-pill-button:hover:not(:disabled) {
+        background: var(--explorer-button-bg) !important;
+        color: var(--color-text-secondary) !important;
+        border-color: var(--color-border) !important;
+      }
+    `;
+    document.head.append(style);
+  });
+
   await page.waitForFunction(async () => {
     if (!('fonts' in document) || document.fonts === undefined) {
       return true;
@@ -529,6 +605,16 @@ async function settleExplorer(page) {
     }
   });
   await delay(120);
+}
+
+async function neutralizeInteractiveState(page) {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  await page.mouse.move(12, 12);
+  await delay(32);
 }
 
 async function ensureTargetThreadOpen(page) {

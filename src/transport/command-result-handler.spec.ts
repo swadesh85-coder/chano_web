@@ -1,4 +1,8 @@
+// @vitest-environment jsdom
+
 import { TestBed } from '@angular/core/testing';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import { CommandResultHandler } from './command-result-handler';
 import { WebRelayClient } from './web-relay-client';
 
@@ -10,6 +14,8 @@ describe('CommandResultHandler', () => {
   }) => void) | null;
 
   beforeEach(() => {
+    TestBed.resetTestingModule();
+    ensureAngularTestEnvironment();
     relayHandler = null;
 
     TestBed.configureTestingModule({
@@ -34,6 +40,7 @@ describe('CommandResultHandler', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
   it('command_result_handling', () => {

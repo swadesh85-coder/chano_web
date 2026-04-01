@@ -1,30 +1,14 @@
+// @vitest-environment jsdom
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import { NavigationContainer } from './navigation.container';
 import { ProjectionStateContainer } from './projection/projection_state.container';
 import type { ProjectionState } from './projection/projection.models';
-
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
 
 function createProjectionState(): ProjectionState {
   return {

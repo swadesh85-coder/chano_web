@@ -10,6 +10,7 @@ import { SidebarItemComponent } from '../ui/sidebar_item.component';
 
 @Component({
   selector: 'app-folder-tree',
+  standalone: true,
   imports: [NgTemplateOutlet, SidebarItemComponent],
   template: `
     <ng-template #folderTreeNodes let-nodes let-depth="depth">
@@ -44,7 +45,7 @@ import { SidebarItemComponent } from '../ui/sidebar_item.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderTreeComponent {
-  readonly nodes = input.required<readonly FolderTreeViewModel[]>();
+  readonly nodes = input<readonly FolderTreeViewModel[]>([]);
   readonly selectedFolderId = input<string | null>(null);
   readonly folderSelected = output<string>();
 

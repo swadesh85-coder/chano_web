@@ -1,165 +1,92 @@
 import { Injectable, inject } from '@angular/core';
 import {
-  MutationCommandSender,
-  type MutationCommand,
-  type MutationEntityType,
-  type TransportEnvelope,
-} from '../../transport';
-import { PendingCommandStore } from './pending_command_store';
+  ExplorerMutationGateway,
+  type ExplorerMutationEntityType,
+  type ExplorerMutationEnvelope,
+} from './explorer_mutation_gateway';
 
 @Injectable({ providedIn: 'root' })
 export class ExplorerActions {
-  private readonly sender = inject(MutationCommandSender);
-  private readonly pending = inject(PendingCommandStore);
+  private readonly mutations = inject(ExplorerMutationGateway);
 
-  onCreateThread(folderId: string, title: string): TransportEnvelope<MutationCommand> | null {
+  onCreateThread(folderId: string, title: string): ExplorerMutationEnvelope | null {
     const normalizedTitle = normalizeRequiredText(title, 'INVALID_THREAD_TITLE');
 
-    if (this.pending.isCreatePending('thread')) {
+    if (this.mutations.isCreatePending('thread')) {
       return null;
     }
 
     console.log(`UI_ACTION create_thread folder=${folderId}`);
-
-    const envelope = this.sender.sendCommand({
-      entityType: 'thread',
-      operation: 'create',
-      payload: {
-        title: normalizedTitle,
-        kind: 'manual',
-        folderUuid: folderId,
-      },
-    });
-
-    this.trackPending(envelope);
-    return envelope;
+    return this.mutations.createThread(folderId, normalizedTitle);
   }
 
   onRenameEntity(
-    entityType: MutationEntityType,
+    entityType: ExplorerMutationEntityType,
     entityId: string,
     newTitle: string,
-  ): TransportEnvelope<MutationCommand> | null {
+  ): ExplorerMutationEnvelope | null {
     const normalizedTitle = normalizeRequiredText(newTitle, 'INVALID_ENTITY_TITLE');
 
-    if (this.pending.isPending(entityId)) {
+    if (this.mutations.isPending(entityId)) {
       return null;
     }
 
     console.log(`UI_ACTION rename entity=${entityType} id=${entityId}`);
-
-    const envelope = this.sender.sendCommand({
-      entityType,
-      entityId,
-      operation: 'rename',
-      payload: {
-        newTitle: normalizedTitle,
-      },
-    });
-
-    this.trackPending(envelope);
-    return envelope;
+    return this.mutations.renameEntity(entityType, entityId, normalizedTitle);
   }
 
   onMoveEntity(
-    entityType: MutationEntityType,
+    entityType: ExplorerMutationEntityType,
     entityId: string,
     targetId: string,
-  ): TransportEnvelope<MutationCommand> | null {
+  ): ExplorerMutationEnvelope | null {
     const normalizedTargetId = normalizeRequiredText(targetId, 'INVALID_MOVE_TARGET');
 
-    if (this.pending.isPending(entityId)) {
+    if (this.mutations.isPending(entityId)) {
       return null;
     }
 
     console.log(`UI_ACTION move entity=${entityType} id=${entityId} target=${normalizedTargetId}`);
 
     switch (entityType) {
-      case 'thread': {
-        const envelope = this.sender.sendCommand({
-          entityType,
-          entityId,
-          operation: 'move',
-          payload: {
-            targetFolderUuid: normalizedTargetId,
-          },
-        });
-        this.trackPending(envelope);
-        return envelope;
-      }
-      case 'record': {
-        const envelope = this.sender.sendCommand({
-          entityType,
-          entityId,
-          operation: 'move',
-          payload: {
-            targetThreadUuid: normalizedTargetId,
-          },
-        });
-        this.trackPending(envelope);
-        return envelope;
-      }
+      case 'thread':
+      case 'record':
+        return this.mutations.moveEntity(entityType, entityId, normalizedTargetId);
       default:
         throw new Error('UNSUPPORTED_MOVE_ENTITY');
     }
   }
 
   onSoftDelete(
-    entityType: MutationEntityType,
+    entityType: ExplorerMutationEntityType,
     entityId: string,
-  ): TransportEnvelope<MutationCommand> | null {
-    if (this.pending.isPending(entityId)) {
+  ): ExplorerMutationEnvelope | null {
+    if (this.mutations.isPending(entityId)) {
       return null;
     }
 
     console.log(`UI_ACTION soft_delete entity=${entityType} id=${entityId}`);
-
-    const envelope = this.sender.sendCommand({
-      entityType,
-      entityId,
-      operation: 'softDelete',
-      payload: {},
-    });
-
-    this.trackPending(envelope);
-    return envelope;
+    return this.mutations.softDelete(entityType, entityId);
   }
 
   onRestore(
-    entityType: MutationEntityType,
+    entityType: ExplorerMutationEntityType,
     entityId: string,
-  ): TransportEnvelope<MutationCommand> | null {
-    if (this.pending.isPending(entityId)) {
+  ): ExplorerMutationEnvelope | null {
+    if (this.mutations.isPending(entityId)) {
       return null;
     }
 
     console.log(`UI_ACTION restore entity=${entityType} id=${entityId}`);
-
-    const envelope = this.sender.sendCommand({
-      entityType,
-      entityId,
-      operation: 'restore',
-      payload: {},
-    });
-
-    this.trackPending(envelope);
-    return envelope;
+    return this.mutations.restore(entityType, entityId);
   }
 
   isPending(entityId: string): boolean {
-    return this.pending.isPending(entityId);
+    return this.mutations.isPending(entityId);
   }
 
-  isCreatePending(entityType: MutationEntityType): boolean {
-    return this.pending.isCreatePending(entityType);
-  }
-
-  private trackPending(envelope: TransportEnvelope<MutationCommand> | null): void {
-    if (envelope === null) {
-      return;
-    }
-
-    this.pending.setPending(envelope.payload);
+  isCreatePending(entityType: ExplorerMutationEntityType): boolean {
+    return this.mutations.isCreatePending(entityType);
   }
 }
 

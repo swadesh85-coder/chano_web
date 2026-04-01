@@ -1,31 +1,13 @@
 // @vitest-environment jsdom
 
 import { TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { Subject } from 'rxjs';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../../testing/ensure-angular-test-environment';
 import { ProjectionStore } from './projection.store';
 import { selectFolderTree } from '../../projection/selectors';
 import type { TransportEnvelope } from '../../transport/transport-envelope';
 import { WebRelayClient } from '../../transport/web-relay-client';
-
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
 
 describe('ProjectionStore', () => {
   let store: ProjectionStore;
@@ -481,25 +463,25 @@ describe('ProjectionStore', () => {
 
     emitRaw('snapshot_start', protocol.start);
     emitRaw('snapshot_chunk', protocol.chunks[0]!);
-    await emitRecordEvent(102, 'record-2', {
-      uuid: 'record-2',
-      threadUuid: 'thread-1',
-      type: 'text',
-      body: 'Buffered second',
-      createdAt: 2,
-      editedAt: 2,
-      orderIndex: 1,
-      isStarred: false,
-      imageGroupId: null,
-    });
     await emitRecordEvent(101, 'record-1', {
-      uuid: 'record-1',
-      threadUuid: 'thread-1',
+      id: 'record-1',
+      threadId: 'thread-1',
       type: 'text',
-      body: 'Buffered first',
+      name: 'Buffered first',
       createdAt: 1,
       editedAt: 1,
       orderIndex: 0,
+      isStarred: false,
+      imageGroupId: null,
+    });
+    await emitRecordEvent(102, 'record-2', {
+      id: 'record-2',
+      threadId: 'thread-1',
+      type: 'text',
+      name: 'Buffered second',
+      createdAt: 2,
+      editedAt: 2,
+      orderIndex: 1,
       isStarred: false,
       imageGroupId: null,
     });

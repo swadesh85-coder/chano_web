@@ -15,7 +15,7 @@ import { ProjectionStateContainer } from '../projection/projection_state.contain
 import { WebRelayClient } from '../../transport';
 import type { TransportEnvelope } from '../../transport';
 
-const RELAY_URL = 'ws://172.20.10.3:8080/relay';
+const RELAY_URL = 'ws://127.0.0.1:8082/relay';
 const TRANSPORT_PROTOCOL_VERSION = 2;
 
 type PairingStatus =

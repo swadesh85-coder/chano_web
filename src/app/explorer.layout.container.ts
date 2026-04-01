@@ -30,8 +30,89 @@ const PERSISTENCE_DEBOUNCE_MS = 150;
     FolderTreePaneComponent,
     ExplorerContentPaneShellComponent,
   ],
-  templateUrl: './explorer.layout.html',
-  styleUrl: './explorer.layout.css',
+  template: `
+    <section class="chano-explorer explorer-layout-shell" role="main" aria-label="Vault explorer">
+      <app-explorer-toolbar (viewToggleRequested)="toggleSidebar()"></app-explorer-toolbar>
+
+      <div class="explorer-layout-shell__body">
+        <app-split-pane
+          [ratio]="splitRatio()"
+          [collapsed]="sidebarCollapsed()"
+          (ratioChanged)="updateSplitRatio($event)"
+        >
+          <app-folder-tree-pane
+            pane-left
+            [nodes]="folderTree()"
+            [selectedFolderId]="selectedFolderId()"
+            [selectedFolder]="selectedFolder()"
+            [activePane]="activePane()"
+            [createThreadDisabled]="createThreadDisabled()"
+            (folderSelected)="folderSelected.emit($event)"
+            (createThreadRequested)="createThreadRequested.emit($event)"
+          ></app-folder-tree-pane>
+
+          <app-explorer-content-pane
+            pane-right
+            [activePane]="activePane()"
+            [content]="content()"
+            [childFolders]="visibleFolders()"
+            [selectedThreadId]="selectedThreadId()"
+            [selectedFolderId]="selectedFolderId()"
+            [selectedFolder]="selectedFolder()"
+            [isThreadDisabled]="isThreadDisabled()"
+            [isRecordDisabled]="isRecordDisabled()"
+            [createRecordDisabled]="createRecordDisabled()"
+            (folderSelected)="folderSelected.emit($event)"
+            (threadSelected)="threadSelected.emit($event)"
+            (threadRenameRequested)="threadRenameRequested.emit($event)"
+            (threadMoveRequested)="threadMoveRequested.emit($event)"
+            (threadDeleteRequested)="threadDeleteRequested.emit($event)"
+            (createRecordRequested)="createRecordRequested.emit($event)"
+            (recordEditRequested)="recordEditRequested.emit($event)"
+            (recordRenameRequested)="recordRenameRequested.emit($event)"
+            (recordMoveRequested)="recordMoveRequested.emit($event)"
+            (recordDeleteRequested)="recordDeleteRequested.emit($event)"
+          ></app-explorer-content-pane>
+        </app-split-pane>
+      </div>
+    </section>
+  `,
+  styles: [`
+    :host {
+      display: block;
+      height: 100dvh;
+      min-height: 100dvh;
+    }
+
+    @media (max-width: 720px) {
+      .split-pane {
+        grid-template-columns: 1fr;
+        grid-template-rows:
+          minmax(var(--explorer-mobile-sidebar-min-height), var(--explorer-mobile-sidebar-max-height))
+          var(--explorer-split-divider-size)
+          minmax(var(--explorer-mobile-content-min-height), 1fr);
+      }
+
+      .split-pane--collapsed {
+        grid-template-columns: 1fr;
+        grid-template-rows: 0 var(--explorer-split-divider-size) minmax(var(--explorer-mobile-content-min-height), 1fr);
+      }
+
+      .split-pane__divider {
+        width: 100%;
+        cursor: row-resize;
+      }
+
+      .split-pane__divider::before {
+        inset: var(--explorer-split-divider-mobile-inset-block) var(--explorer-split-divider-mobile-inset-inline);
+      }
+
+      .split-pane__divider-handle {
+        width: var(--explorer-mobile-divider-handle-width);
+        height: var(--explorer-mobile-divider-handle-height);
+      }
+    }
+  `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExplorerLayoutContainerComponent {

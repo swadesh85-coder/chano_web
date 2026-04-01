@@ -9,6 +9,7 @@ import { EXPLORER_SIDEBAR_INDENT_STEP_PX } from './explorer_visual.tokens';
 
 @Component({
   selector: 'app-sidebar-item',
+  standalone: true,
   imports: [ListRowComponent],
   template: `
     <app-list-row

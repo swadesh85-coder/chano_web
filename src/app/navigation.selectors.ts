@@ -4,6 +4,11 @@ import { EMPTY_NAVIGATION_STATE } from './navigation.state';
 import { selectFolderById, selectThreadById } from '../projection/selectors';
 
 const ROOT_FOLDER_ID = 'root';
+const EMPTY_RESOLVED_NAVIGATION_STATE: ResolvedNavigationState = Object.freeze({
+  selectedFolderId: null,
+  selectedThreadId: null,
+  activePane: 'empty',
+});
 
 export interface ResolvedNavigationState {
   readonly selectedFolderId: string | null;
@@ -14,20 +19,15 @@ export interface ResolvedNavigationState {
 export function selectResolvedNavigationState(
   projectionState: ProjectionState,
   navigationState: NavigationState,
-): NavigationState {
-  const resolved = selectResolvedNavigation(projectionState, navigationState);
-  return createNavigationState(
-    resolved.selectedFolderId,
-    resolved.selectedThreadId,
-    resolved.activePane,
-  );
+): ResolvedNavigationState {
+  return selectResolvedNavigation(projectionState, navigationState);
 }
 
 export function selectResolvedNavigation(
   projectionState: ProjectionState,
   navigationState: NavigationState,
 ): ResolvedNavigationState {
-  if (navigationState.activePane === 'thread') {
+  if (navigationState.selectedThreadId !== null) {
     const thread = selectThreadById(projectionState, navigationState.selectedThreadId);
     if (thread !== null) {
       return Object.freeze({
@@ -46,33 +46,33 @@ export function selectResolvedNavigation(
       });
     }
 
-    return EMPTY_NAVIGATION_STATE;
+    return EMPTY_RESOLVED_NAVIGATION_STATE;
   }
 
-  if (navigationState.activePane === 'folder') {
-    if (isFolderSelectionValid(projectionState, navigationState.selectedFolderId)) {
-      return Object.freeze({
-        selectedFolderId: selectValidFolderId(projectionState, navigationState.selectedFolderId),
-        selectedThreadId: null,
-        activePane: 'folder',
-      });
+  if (isFolderSelectionValid(projectionState, navigationState.selectedFolderId)) {
+    if (navigationState.selectedFolderId === null) {
+      return EMPTY_RESOLVED_NAVIGATION_STATE;
     }
 
-    return EMPTY_NAVIGATION_STATE;
+    return Object.freeze({
+      selectedFolderId: selectValidFolderId(projectionState, navigationState.selectedFolderId),
+      selectedThreadId: null,
+      activePane: 'folder',
+    });
   }
 
-  return EMPTY_NAVIGATION_STATE;
+  return EMPTY_RESOLVED_NAVIGATION_STATE;
 }
 
-export function selectSelectedFolderId(navigationState: NavigationState): string | null {
+export function selectSelectedFolderId(navigationState: Pick<ResolvedNavigationState, 'selectedFolderId'>): string | null {
   return navigationState.selectedFolderId;
 }
 
-export function selectSelectedThreadId(navigationState: NavigationState): string | null {
+export function selectSelectedThreadId(navigationState: Pick<ResolvedNavigationState, 'selectedThreadId'>): string | null {
   return navigationState.selectedThreadId;
 }
 
-export function selectActivePane(navigationState: NavigationState): NavigationPane {
+export function selectActivePane(navigationState: Pick<ResolvedNavigationState, 'activePane'>): NavigationPane {
   return navigationState.activePane;
 }
 
@@ -112,14 +112,23 @@ function selectValidFolderId(
   return folderId;
 }
 
-function createNavigationState(
+export function selectNavigationAuthorityState(
+  projectionState: ProjectionState,
+  navigationState: NavigationState,
+): NavigationState {
+  const resolved = selectResolvedNavigation(projectionState, navigationState);
+  return createNavigationAuthorityState(
+    resolved.selectedFolderId,
+    resolved.selectedThreadId,
+  );
+}
+
+function createNavigationAuthorityState(
   selectedFolderId: string | null,
   selectedThreadId: string | null,
-  activePane: NavigationPane,
 ): NavigationState {
   return Object.freeze({
     selectedFolderId,
     selectedThreadId,
-    activePane,
   });
 }

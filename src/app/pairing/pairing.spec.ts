@@ -1,32 +1,19 @@
 // @vitest-environment jsdom
 
 import { TestBed } from '@angular/core/testing';
-import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { Router, provideRouter } from '@angular/router';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../../testing/ensure-angular-test-environment';
 import { PairingComponent } from './pairing';
 import { ProjectionStore } from '../projection/projection.store';
 import { WebRelayClient } from '../../transport';
 import QRCode from 'qrcode';
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-let angularTestEnvironmentInitialized = false;
-
-function ensureAngularTestEnvironment(): void {
-  if (angularTestEnvironmentInitialized) {
-    return;
-  }
-
-  try {
-    TestBed.initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('Cannot set base providers because it has already been called')) {
-      throw error;
-    }
-  }
-
-  angularTestEnvironmentInitialized = true;
-}
+const SNAPSHOT_FOLDER_ID = '123e4567-e89b-42d3-a456-426614174301';
+const SNAPSHOT_THREAD_ID = '123e4567-e89b-42d3-a456-426614174302';
+const SNAPSHOT_RECORD_ID = '123e4567-e89b-42d3-a456-426614174303';
+const INCREMENTAL_RECORD_ID = '123e4567-e89b-42d3-a456-426614174304';
 
 // Helper to mock QRCode.toDataURL with proper typing
 function mockQrToDataURL(returnValue: string) {
@@ -215,33 +202,32 @@ function createCanonicalSnapshotJson(): string {
     entities: [
       {
         entityType: 'folder',
-        entityUuid: 'f1',
+        entityUuid: SNAPSHOT_FOLDER_ID,
         entityVersion: 1,
         lastEventVersion: 25,
         ownerUserId: 'owner-1',
-        data: { uuid: 'f1', name: 'Work', parentFolderUuid: null },
+        data: { name: 'Work', parentFolderUuid: null },
       },
       {
         entityType: 'thread',
-        entityUuid: 't1',
+        entityUuid: SNAPSHOT_THREAD_ID,
         entityVersion: 1,
         lastEventVersion: 25,
         ownerUserId: 'owner-1',
-        data: { uuid: 't1', folderUuid: 'f1', title: 'Log' },
+        data: { folderUuid: SNAPSHOT_FOLDER_ID, title: 'Log' },
       },
       {
         entityType: 'record',
-        entityUuid: 'r1',
+        entityUuid: SNAPSHOT_RECORD_ID,
         entityVersion: 1,
         lastEventVersion: 25,
         ownerUserId: 'owner-1',
         data: {
-          uuid: 'r1',
-          threadUuid: 't1',
+          threadUuid: SNAPSHOT_THREAD_ID,
           type: 'text',
           body: 'Entry',
-          createdAt: '2026-03-27T09:54:10.000Z',
-          editedAt: '2026-03-27T09:54:10.000Z',
+          createdAt: Date.parse('2026-03-27T09:54:10.000Z'),
+          editedAt: Date.parse('2026-03-27T09:54:10.000Z'),
           orderIndex: 0,
           isStarred: false,
           imageGroupId: null,
@@ -252,6 +238,7 @@ function createCanonicalSnapshotJson(): string {
 }
 
 async function createEventStreamMessage(
+  sessionId: string,
   eventVersion: number,
   payload: Record<string, unknown>,
   sequence: number,
@@ -262,7 +249,7 @@ async function createEventStreamMessage(
   return {
     protocolVersion: 2,
     type: 'event_stream',
-    sessionId: '123e4567-e89b-42d3-a456-426614174105',
+    sessionId,
     timestamp: Date.parse(timestampIso),
     sequence,
     payload: {
@@ -270,7 +257,7 @@ async function createEventStreamMessage(
       originDeviceId: 'mobile-1',
       eventVersion,
       entityType: 'record',
-      entityId: payload['uuid'],
+      entityId: payload['id'] ?? payload['uuid'],
       operation: 'create',
       timestamp: timestampIso,
       payload,
@@ -288,6 +275,16 @@ async function flushSnapshotAsyncWork(): Promise<void> {
 async function waitForProjectionReady(store: ProjectionStore): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (store.phase() === 'ready') {
+      return;
+    }
+
+    await flushSnapshotAsyncWork();
+  }
+}
+
+async function waitForLastAppliedEventVersion(store: ProjectionStore, eventVersion: number): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (store.lastAppliedEventVersion() === eventVersion) {
       return;
     }
 
@@ -526,12 +523,13 @@ describe('PairingComponent', () => {
       const ws = MockWebSocket.last;
       ws.simulateOpen();
       const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
+      const sessionId = sessionCreateEnvelope.sessionId as string;
 
       const expiresAtMs = Date.now() + 120_000;
       const expiresAtIso = new Date(expiresAtMs).toISOString();
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: '123e4567-e89b-42d3-a456-426614174100',
+        sessionId,
         payload: { expiresAt: expiresAtMs },
       });
 
@@ -540,7 +538,7 @@ describe('PairingComponent', () => {
       expect(qrSpy).toHaveBeenCalledOnce();
       const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
       expect(payload).toEqual({
-        sessionId: '123e4567-e89b-42d3-a456-426614174100',
+        sessionId,
         token: sessionCreateEnvelope.payload.token,
         relayUrl: 'ws://172.20.10.3:8080/relay',
         expiresAt: expiresAtIso,
@@ -559,10 +557,11 @@ describe('PairingComponent', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: '123e4567-e89b-42d3-a456-426614174101',
+        sessionId: sessionCreateEnvelope.sessionId,
         payload: { expiresAt: Date.now() + 60_000 },
       });
 
@@ -585,15 +584,16 @@ describe('PairingComponent', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: '123e4567-e89b-42d3-a456-426614174102',
+        sessionId: sessionCreateEnvelope.sessionId,
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
 
-      ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateMessage({ type: 'pair_approved', sessionId: sessionCreateEnvelope.sessionId });
 
       expect(component.status()).toBe('paired');
       expect(component.statusText()).toBe('Connected to Mobile');
@@ -683,18 +683,20 @@ describe('PairingComponent', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
+      const sessionId = sessionCreateEnvelope.sessionId as string;
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: '123e4567-e89b-42d3-a456-426614174103',
+        sessionId,
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
 
-      ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateMessage({ type: 'pair_approved', sessionId });
       ws.simulateMessage({
         type: 'protocol_handshake',
-        sessionId: '123e4567-e89b-42d3-a456-426614174103',
+        sessionId,
       });
 
       expect(component.status()).toBe('syncing');
@@ -703,7 +705,7 @@ describe('PairingComponent', () => {
       expect(JSON.parse(ws.sent[1])).toEqual({
         protocolVersion: 2,
         type: 'protocol_handshake',
-        sessionId: '123e4567-e89b-42d3-a456-426614174103',
+        sessionId,
         timestamp: expect.any(Number),
         sequence: 2,
         payload: {
@@ -723,19 +725,21 @@ describe('PairingComponent', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
+      const sessionId = sessionCreateEnvelope.sessionId as string;
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: '123e4567-e89b-42d3-a456-426614174104',
+        sessionId,
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
 
-      ws.simulateMessage({ type: 'pair_approved' });
-      ws.simulateMessage({ type: 'protocol_handshake' });
-      ws.simulateMessage(snapshot.start);
-      snapshot.chunks.forEach((message) => ws.simulateMessage(message));
-      ws.simulateMessage(snapshot.complete);
+      ws.simulateMessage({ type: 'pair_approved', sessionId });
+      ws.simulateMessage({ type: 'protocol_handshake', sessionId });
+      ws.simulateMessage({ ...snapshot.start, sessionId, sequence: 3 });
+      snapshot.chunks.forEach((message, index) => ws.simulateMessage({ ...message, sessionId, sequence: 4 + index }));
+      ws.simulateMessage({ ...snapshot.complete, sessionId, sequence: 5 });
 
       await waitForProjectionReady(store);
       fixture.detectChanges();
@@ -755,20 +759,22 @@ describe('PairingComponent', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
+      const sessionId = sessionCreateEnvelope.sessionId as string;
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-acc',
+        sessionId,
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
 
-      ws.simulateMessage({ type: 'pair_approved' });
-      ws.simulateMessage({ type: 'protocol_handshake' });
-      ws.simulateMessage(snapshot.start);
-      snapshot.chunks.forEach((message) => ws.simulateMessage(message));
-      ws.simulateMessage(snapshot.complete);
-      await flushSnapshotAsyncWork();
+      ws.simulateMessage({ type: 'pair_approved', sessionId });
+      ws.simulateMessage({ type: 'protocol_handshake', sessionId });
+      ws.simulateMessage({ ...snapshot.start, sessionId, sequence: 3 });
+      snapshot.chunks.forEach((message, index) => ws.simulateMessage({ ...message, sessionId, sequence: 4 + index }));
+      ws.simulateMessage({ ...snapshot.complete, sessionId, sequence: 5 });
+      await waitForProjectionReady(store);
       fixture.detectChanges();
 
       expect(store.phase()).toBe('ready');
@@ -784,11 +790,17 @@ describe('PairingComponent', () => {
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
       const store = TestBed.inject(ProjectionStore);
       const snapshot = await createSnapshotMessages(createCanonicalSnapshotJson());
-      const eventMessage = await createEventStreamMessage(26, {
-        uuid: 'r2',
-        threadUuid: 't1',
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
+      const sessionId = sessionCreateEnvelope.sessionId as string;
+      const eventMessage = await createEventStreamMessage(sessionId, 26, {
+        id: INCREMENTAL_RECORD_ID,
+        threadId: SNAPSHOT_THREAD_ID,
         type: 'text',
-        body: 'Follow-up entry',
+        name: 'Follow-up entry',
         createdAt: Date.parse('2026-03-27T09:54:11.000Z'),
         editedAt: Date.parse('2026-03-27T09:54:11.000Z'),
         orderIndex: 1,
@@ -796,35 +808,31 @@ describe('PairingComponent', () => {
         imageGroupId: null,
       }, 6);
 
-      fixture.detectChanges();
-      const ws = MockWebSocket.last;
-      ws.simulateOpen();
-
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: '123e4567-e89b-42d3-a456-426614174105',
+        sessionId,
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
 
-      ws.simulateMessage({ type: 'pair_approved', sessionId: '123e4567-e89b-42d3-a456-426614174105' });
-      ws.simulateMessage({ type: 'protocol_handshake', sessionId: '123e4567-e89b-42d3-a456-426614174105' });
-      ws.simulateMessage({ ...snapshot.start, sessionId: '123e4567-e89b-42d3-a456-426614174105', sequence: 3 });
+      ws.simulateMessage({ type: 'pair_approved', sessionId });
+      ws.simulateMessage({ type: 'protocol_handshake', sessionId });
+      ws.simulateMessage({ ...snapshot.start, sessionId, sequence: 3 });
       snapshot.chunks.forEach((message, index) => {
-        ws.simulateMessage({ ...message, sessionId: '123e4567-e89b-42d3-a456-426614174105', sequence: 4 + index });
+        ws.simulateMessage({ ...message, sessionId, sequence: 4 + index });
       });
-      ws.simulateMessage({ ...snapshot.complete, sessionId: '123e4567-e89b-42d3-a456-426614174105', sequence: 5 });
+      ws.simulateMessage({ ...snapshot.complete, sessionId, sequence: 5 });
 
       await waitForProjectionReady(store);
       ws.simulateMessage(eventMessage);
-      await flushSnapshotAsyncWork();
+      await waitForLastAppliedEventVersion(store, 26);
       fixture.detectChanges();
 
       expect(store.phase()).toBe('ready');
       expect(store.baseEventVersion()).toBe(25);
       expect(store.lastAppliedEventVersion()).toBe(26);
-      expect(store.state().records.map((record) => record.id)).toEqual(['r1', 'r2']);
-      expect(store.state().records.find((record) => record.id === 'r2')?.name).toBe('Follow-up entry');
+      expect(store.state().records.map((record) => record.id)).toEqual([SNAPSHOT_RECORD_ID, INCREMENTAL_RECORD_ID]);
+      expect(store.state().records.find((record) => record.id === INCREMENTAL_RECORD_ID)?.name).toBe('Follow-up entry');
       expect(store.lastProjectionUpdate()).toEqual({
         reason: 'event_applied',
         entityType: 'record',
@@ -856,10 +864,11 @@ describe('PairingComponent', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-close',
+        sessionId: sessionCreateEnvelope.sessionId,
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
@@ -878,15 +887,16 @@ describe('PairingComponent', () => {
       fixture.detectChanges();
       const ws = MockWebSocket.last;
       ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
 
       ws.simulateMessage({
         type: 'qr_session_ready',
-        sessionId: 'sess-stay',
+        sessionId: sessionCreateEnvelope.sessionId,
         payload: { expiresAt: Date.now() + 120_000 },
       });
       await fixture.whenStable();
 
-      ws.simulateMessage({ type: 'pair_approved' });
+      ws.simulateMessage({ type: 'pair_approved', sessionId: sessionCreateEnvelope.sessionId });
       ws.simulateClose();
 
       expect(component.status()).toBe('paired');

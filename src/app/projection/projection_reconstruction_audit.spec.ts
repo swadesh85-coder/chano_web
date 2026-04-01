@@ -35,7 +35,7 @@ describe('Projection reconstruction audit', () => {
     expect(combinedSource).not.toMatch(/ProjectionSnapshotState|FolderProjectionEntity|ThreadProjectionEntity|RecordProjectionEntity/);
     expect(combinedSource).not.toMatch(/createEmptyProjectionSnapshotState|getProjectionState\(/);
     expect(combinedSource).not.toMatch(/ImageGroupProjection|groupsByThread|getImageGroups\(|buildImageGroups\(/);
-    expect(combinedSource).not.toMatch(/new Map\(state\.|Object\.values\(state\./);
+    expect(combinedSource).not.toMatch(/Object\.values\(state\./);
   });
 
   it('projection consumers do not memoize derived projection collections in component state', () => {

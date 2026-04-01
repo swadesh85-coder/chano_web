@@ -1,0 +1,49 @@
+﻿
+> chano-web@0.0.0 test:visual
+> npm run build && npx vitest run src/app/visual_regression.spec.ts
+
+
+> chano-web@0.0.0 build
+> ng build
+
+[33mΓ¥»[39m Building...
+[32mΓ£ö[39m Building...
+[1mInitial chunk files[22m[2m | [22m[1mNames[22m        [2m | [22m [1mRaw size[22m[2m | [22m[1mEstimated transfer size[22m
+[32mchunk-VQZRH2ZE.js[39m  [2m | [22m[2m-[22m            [2m | [22m[36m198.88 kB[39m[2m | [22m               [36m52.54 kB[39m
+[32mchunk-EH2FSOCV.js[39m  [2m | [22m[2m-[22m            [2m | [22m [36m79.74 kB[39m[2m | [22m               [36m20.30 kB[39m
+[32mstyles-LDUMMKQ7.css[39m[2m | [22m[2mstyles[22m       [2m | [22m [36m19.87 kB[39m[2m | [22m                [36m3.70 kB[39m
+[32mmain-AVSCE74N.js[39m   [2m | [22m[2mmain[22m         [2m | [22m[36m771 bytes[39m[2m | [22m              [36m771 bytes[39m
+
+[1m [22m                  [2m | [22m[1mInitial total[22m[2m | [22m[1m299.27 kB[22m[2m | [22m               [1m77.31 kB[22m
+
+[1mLazy chunk files[22m   [2m | [22m[1mNames[22m        [2m | [22m [1mRaw size[22m[2m | [22m[1mEstimated transfer size[22m
+[32mchunk-MDQI6L4B.js[39m  [2m | [22m[2mexplorer[22m     [2m | [22m [36m69.51 kB[39m[2m | [22m               [36m13.84 kB[39m
+[32mchunk-PF5H6ALZ.js[39m  [2m | [22m[2mpairing[22m      [2m | [22m [36m34.73 kB[39m[2m | [22m               [36m11.38 kB[39m
+[32mchunk-V6IJSCJJ.js[39m  [2m | [22m[2m-[22m            [2m | [22m [36m11.30 kB[39m[2m | [22m                [36m2.61 kB[39m
+
+Application bundle generation complete. [4.900 seconds] - 2026-04-01T11:37:16.205Z
+
+node.exe : [1m[33m[33mΓû▓ 
+[43;33m[[43;30mWARNING[43;33m][0m [1mModule 'qrcode' 
+used by 'src/app/pairing/pairing.ts' is not ESM[0m
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program 
+Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([1m[33m[3 
+   3mΓ... is not ESM[0m:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+  CommonJS or AMD dependencies can cause optimization 
+bailouts.
+  For more information see: [4mhttps://angular.dev/tools/
+cli/build#configuring-commonjs-dependencies[0m
+
+[39m[22m
+Output location: C:\Users\Taboo\chano_web\dist\chano_web
+
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90mC:/Users/Taboo/chano_web[39m
+

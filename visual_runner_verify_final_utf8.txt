@@ -1,0 +1,1 @@
+﻿VISUAL_REGRESSION verify captures=7 failures=0

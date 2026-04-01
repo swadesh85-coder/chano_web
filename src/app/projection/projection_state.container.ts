@@ -19,12 +19,18 @@ export class ProjectionStateContainer {
 
     switch (entityType) {
       case 'folder':
-      case 'imageGroup':
         return state.folders.find((entity) => entity.id === entityId)?.entityVersion ?? null;
       case 'thread':
         return state.threads.find((entity) => entity.id === entityId)?.entityVersion ?? null;
       case 'record':
         return state.records.find((entity) => entity.id === entityId)?.entityVersion ?? null;
+      case 'imageGroup': {
+        const imageGroupVersions = state.records
+          .filter((entity) => entity.imageGroupId === entityId)
+          .map((entity) => entity.entityVersion);
+
+        return imageGroupVersions.length === 0 ? null : Math.max(...imageGroupVersions);
+      }
     }
   }
 }

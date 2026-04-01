@@ -1,10 +1,13 @@
+// @vitest-environment jsdom
+
 import { TestBed } from '@angular/core/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectionStore } from '../app/projection/projection.store';
-import { PendingCommandStore } from '../app/explorer/pending_command_store';
+import { PendingCommandStore } from './pending-command-store';
 import { RecordEditor } from '../app/explorer/record_editor';
 import { CommandResultHandler } from './command-result-handler';
 import { auditMutationFlow } from './mutation_flow_audit';
+import { ensureAngularTestEnvironment } from '../testing/ensure-angular-test-environment';
 import type { CommandResultStatus } from './mutation-command';
 import type { TransportEnvelope } from './transport-envelope';
 import { WebRelayClient } from './web-relay-client';
@@ -204,10 +207,10 @@ async function createRecordEventEnvelope(
 ): Promise<TransportEnvelope> {
   const payload = {
     commandId,
-    uuid: GENERATED_RECORD_ID,
-    threadUuid: THREAD_ID,
+    id: GENERATED_RECORD_ID,
+    threadId: THREAD_ID,
     type: 'text',
-    body,
+    name: body,
     createdAt: 1_710_000_201,
     editedAt: 1_710_000_201,
     orderIndex: 0,
@@ -263,6 +266,8 @@ describe('auditMutationFlow', () => {
   let recordEditor: RecordEditor;
 
   beforeEach(async () => {
+    ensureAngularTestEnvironment();
+    TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
       providers: [
         ProjectionStore,
@@ -287,6 +292,7 @@ describe('auditMutationFlow', () => {
   afterEach(() => {
     client.disconnect();
     vi.restoreAllMocks();
+    TestBed.resetTestingModule();
   });
 
   it('mutation_command_send', async () => {

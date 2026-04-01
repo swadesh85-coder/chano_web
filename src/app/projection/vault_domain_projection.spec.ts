@@ -130,9 +130,9 @@ describe('VaultDomainProjection', () => {
 
   it('event_create_apply', () => {
     const projection = new VaultDomainProjection();
-    projection.applySnapshot(createSnapshotDocument());
+    const initialState = projection.applySnapshot(createSnapshotDocument());
 
-    const state = projection.applyEvent(createEventEnvelope(101, {
+    const state = projection.applyEvent(initialState, createEventEnvelope(101, {
       entityType: 'record',
       entityId: 'record:0002',
       operation: 'create',
@@ -177,10 +177,10 @@ describe('VaultDomainProjection', () => {
 
   it('event_update_apply', () => {
     const projection = new VaultDomainProjection();
-    projection.applySnapshot(createSnapshotDocument());
-    projection.applyEvent(createEventEnvelope(101));
+    const initialState = projection.applySnapshot(createSnapshotDocument());
+    const createdState = projection.applyEvent(initialState, createEventEnvelope(101));
 
-    const state = projection.applyEvent(createEventEnvelope(102, {
+    const state = projection.applyEvent(createdState, createEventEnvelope(102, {
       entityId: 'record:0002',
       operation: 'update',
       payload: {
@@ -207,7 +207,7 @@ describe('VaultDomainProjection', () => {
 
   it('event_move_apply', () => {
     const projection = new VaultDomainProjection();
-    projection.applySnapshot({
+    const initialState = projection.applySnapshot({
       ...createSnapshotDocument(),
       threads: [
         ...createSnapshotDocument().threads!,
@@ -247,7 +247,7 @@ describe('VaultDomainProjection', () => {
       ],
     });
 
-    const state = projection.applyEvent(createEventEnvelope(103, {
+    const state = projection.applyEvent(initialState, createEventEnvelope(103, {
       entityId: 'record:0002',
       operation: 'move',
       payload: {

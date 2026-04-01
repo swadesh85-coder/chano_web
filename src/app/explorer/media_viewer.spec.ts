@@ -1,38 +1,60 @@
-import { signal } from '@angular/core';
+// @vitest-environment jsdom
+
+import { Component, ViewChild, computed, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureAngularTestEnvironment } from '../../testing/ensure-angular-test-environment';
 import { MediaViewerComponent } from './media_viewer';
-import { ProjectionStore } from '../projection/projection.store';
+import { ProjectionStateContainer } from '../projection/projection_state.container';
 import type { ProjectionState, RecordEntry } from '../projection/projection.models';
 
+@Component({
+  standalone: true,
+  imports: [MediaViewerComponent],
+  template: '<app-media-viewer [threadId]="threadId"></app-media-viewer>',
+})
+class TestHostComponent {
+  threadId: string | null = 'thread:0001';
+
+  @ViewChild(MediaViewerComponent)
+  mediaViewer!: MediaViewerComponent;
+}
+
 describe('MediaViewerComponent', () => {
-  let fixture: ComponentFixture<MediaViewerComponent>;
+  let fixture: ComponentFixture<TestHostComponent>;
   let component: MediaViewerComponent;
+  let host: TestHostComponent;
   let consoleLog: ReturnType<typeof vi.spyOn>;
   let projectionRecords: ReturnType<typeof signal<RecordEntry[]>>;
 
   beforeEach(async () => {
+    ensureAngularTestEnvironment();
     consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     projectionRecords = signal<RecordEntry[]>([]);
 
     await TestBed.configureTestingModule({
-      imports: [MediaViewerComponent],
+      imports: [TestHostComponent],
       providers: [
         {
-          provide: ProjectionStore,
+          provide: ProjectionStateContainer,
           useValue: {
-            state: (): ProjectionState => ({
+            state: computed<ProjectionState>(() => ({
               folders: [],
               threads: [],
               records: projectionRecords(),
-            }),
+            })),
+            projectionUpdate: signal(null).asReadonly(),
+            phase: signal<'idle' | 'receiving' | 'ready'>('ready').asReadonly(),
           },
         },
       ],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(MediaViewerComponent);
-    component = fixture.componentInstance;
+    fixture = TestBed.createComponent(TestHostComponent);
+    host = fixture.componentInstance;
+    fixture.detectChanges();
+    fixture.detectChanges();
+    component = host.mediaViewer;
   });
 
   afterEach(() => {
@@ -91,7 +113,6 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
-    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     fixture.detectChanges();
 
@@ -120,7 +141,6 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
-    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-file');
     fixture.detectChanges();
 
@@ -144,7 +164,6 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
-    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-audio');
     fixture.detectChanges();
 
@@ -168,7 +187,6 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
-    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     fixture.detectChanges();
 
@@ -186,7 +204,6 @@ describe('MediaViewerComponent', () => {
     ]);
     const beforeHash = JSON.stringify(projectionRecords());
 
-    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     component.closeMediaViewer();
 
@@ -213,8 +230,6 @@ describe('MediaViewerComponent', () => {
       ]),
     );
 
-    fixture.componentRef.setInput('threadId', 'thread:0001');
-
     expect(() => {
       component.openMedia('rec-1');
       fixture.detectChanges();
@@ -233,7 +248,6 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
-    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     fixture.detectChanges();
     component.closeMediaViewer();
@@ -262,7 +276,6 @@ describe('MediaViewerComponent', () => {
       }),
     ]);
 
-    fixture.componentRef.setInput('threadId', 'thread:0001');
     component.openMedia('rec-1');
     fixture.detectChanges();
     const firstRender = fixture.nativeElement.querySelector('[data-testid="media-viewer-overlay"]')?.textContent?.replace(/\s+/g, ' ').trim();

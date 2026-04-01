@@ -282,140 +282,38 @@ function normalizeEventPayload(
     case 'thread':
       return normalizeCanonicalThreadPayload(entityId, sanitizedPayload);
     case 'record':
-      return normalizeRecordPayloadWithApprovedCompatibility(entityId, sanitizedPayload);
+      return normalizeCanonicalRecordPayload(entityId, sanitizedPayload);
   }
 }
 
 function normalizeCanonicalFolderPayload(
-  entityId: string,
+  _entityId: string,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
-  const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
-
-  if (id === undefined) {
-    return { status: 'INVALID' };
-  }
-
   return {
     status: 'VALID',
-    payload: {
-      id,
-      ...pickIfPresent(payload, 'name'),
-      ...pickIfPresent(payload, 'parentId'),
-    },
+    payload,
   };
 }
 
 function normalizeCanonicalThreadPayload(
-  entityId: string,
+  _entityId: string,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
-  const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
-
-  if (id === undefined) {
-    return { status: 'INVALID' };
-  }
-
   return {
     status: 'VALID',
-    payload: {
-      id,
-      ...pickIfPresent(payload, 'folderId'),
-      ...pickIfPresent(payload, 'title'),
-    },
+    payload,
   };
 }
 
-function normalizeRecordPayloadWithApprovedCompatibility(
-  entityId: string,
+function normalizeCanonicalRecordPayload(
+  _entityId: string,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
-  const id = resolveCanonicalIdentity(payload, entityId, 'id', 'uuid');
-  const threadId = resolveCanonicalAlias(payload, 'threadId', 'threadUuid');
-  const type = payload['type'];
-  const name = resolveCanonicalAlias(payload, 'name', 'body');
-
-  if (id === undefined) {
-    return { status: 'INVALID' };
-  }
-
   return {
     status: 'VALID',
-    payload: {
-      id,
-      ...pickCanonicalIfPresent(threadId, 'threadId'),
-      ...pickCanonicalIfPresent(type, 'type'),
-      ...pickCanonicalIfPresent(name, 'name'),
-      ...pickIfPresent(payload, 'createdAt'),
-      ...pickIfPresent(payload, 'editedAt'),
-      ...pickIfPresent(payload, 'orderIndex'),
-      ...pickIfPresent(payload, 'isStarred'),
-      ...pickIfPresent(payload, 'imageGroupId'),
-      ...pickIfPresent(payload, 'mediaId'),
-      ...pickIfPresent(payload, 'mimeType'),
-      ...pickIfPresent(payload, 'title'),
-      ...pickIfPresent(payload, 'size'),
-    },
+    payload,
   };
-}
-
-function resolveCanonicalIdentity(
-  payload: Record<string, unknown>,
-  fallbackEntityId: string,
-  canonicalKey: string,
-  legacyKey: string,
-): unknown {
-  const hasCanonical = canonicalKey in payload;
-  const hasLegacy = legacyKey in payload;
-  const resolved = resolveCanonicalAlias(payload, canonicalKey, legacyKey);
-
-  if (resolved === undefined && (hasCanonical || hasLegacy)) {
-    return undefined;
-  }
-
-  return resolved === undefined ? fallbackEntityId : resolved;
-}
-
-function pickIfPresent(
-  payload: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> {
-  if (!(key in payload)) {
-    return {};
-  }
-
-  return { [key]: payload[key] };
-}
-
-function pickCanonicalIfPresent(value: unknown, key: string): Record<string, unknown> {
-  if (value === undefined) {
-    return {};
-  }
-
-  return { [key]: value };
-}
-
-function resolveCanonicalAlias(
-  payload: Record<string, unknown>,
-  canonicalKey: string,
-  legacyKey: string,
-): unknown {
-  const hasCanonical = canonicalKey in payload;
-  const hasLegacy = legacyKey in payload;
-
-  if (hasCanonical && hasLegacy && payload[canonicalKey] !== payload[legacyKey]) {
-    return undefined;
-  }
-
-  if (hasCanonical) {
-    return payload[canonicalKey];
-  }
-
-  if (hasLegacy) {
-    return payload[legacyKey];
-  }
-
-  return undefined;
 }
 
 async function sha256PayloadHex(payload: Record<string, unknown>): Promise<string> {
