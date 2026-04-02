@@ -12,6 +12,9 @@ import { WebRelayClient } from './web-relay-client';
 import type { TransportEnvelope } from './transport-envelope';
 import QRCode from 'qrcode';
 
+const BROWSER_RELAY_URL = 'ws://localhost:8080/relay';
+const QR_RELAY_QUERY = `/?qrRelayUrl=${encodeURIComponent('ws://10.0.2.2:8080/relay')}`;
+
 const FOLDER_ID = '123e4567-e89b-42d3-a456-426614174151';
 
 function encodeUtf8(value: string): Uint8Array {
@@ -121,6 +124,7 @@ describe('Web transport runtime audit', () => {
   beforeEach(async () => {
     ensureAngularTestEnvironment();
     capturedLogs = [];
+    globalThis.history.replaceState({}, '', QR_RELAY_QUERY);
 
     await TestBed.configureTestingModule({
       imports: [PairingComponent],
@@ -318,7 +322,7 @@ describe('Web transport runtime audit', () => {
     const sessionId = await establishRelaySession();
     const sessionCreateEnvelope = JSON.parse(MockWebSocket.last.sent[0] as string);
 
-    expect(MockWebSocket.last.url).toBe('ws://172.20.10.3:8080/relay');
+    expect(MockWebSocket.last.url).toBe(BROWSER_RELAY_URL);
     expect(sessionCreateEnvelope).toEqual({
       protocolVersion: 2,
       type: 'qr_session_create',
@@ -343,7 +347,7 @@ describe('Web transport runtime audit', () => {
       },
     });
 
-    expect(capturedLogs).toContainEqual(['WEB_RELAY_CONNECT ws://172.20.10.3:8080/relay']);
+    expect(capturedLogs).toContainEqual([`WEB_RELAY_CONNECT ${BROWSER_RELAY_URL}`]);
     expect(capturedLogs).toContainEqual([`WEB_SEND qr_session_create session=${sessionId} seq=1`]);
     expect(capturedLogs).toContainEqual(['RELAY_ACCEPTED type=qr_session_create']);
     expect(capturedLogs).toContainEqual([`WEB_SESSION_CREATED sessionId=${sessionId}`]);

@@ -129,9 +129,8 @@ describe('EventValidation', () => {
     }
   });
 
-  it('event_validation_rejects_legacy_record_transport_payloads', async () => {
+  it('event_validation_accepts_authoritative_mobile_record_create_payloads', async () => {
     const envelope = await createEnvelope({
-      operation: 'update',
       payload: {
         threadUuid: 'thread-1',
         type: 'text',
@@ -140,7 +139,7 @@ describe('EventValidation', () => {
         imageGroupId: null,
         deviceId: 'mobile-1',
         ownerUserId: 'owner-1',
-        fieldName: 'body',
+        fieldName: null,
         spans: [],
         text: 'Body',
       },
@@ -148,10 +147,53 @@ describe('EventValidation', () => {
 
     const result = await validateEventEnvelope(envelope);
 
-    expect(result).toEqual({
-      status: 'INVALID',
-      reason: 'INVALID_SCHEMA',
+    expect(result.status).toBe('VALID');
+    if (result.status === 'VALID') {
+      expect(result.eventEnvelope.payload).toEqual({
+        id: 'uuid-1',
+        threadId: 'thread-1',
+        type: 'text',
+        name: 'Body',
+        createdAt: Date.parse('2026-03-27T00:00:00.000Z'),
+        editedAt: Date.parse('2026-03-27T00:00:00.000Z'),
+        orderIndex: 0,
+        isStarred: false,
+        imageGroupId: null,
+      });
+    }
+  });
+
+  it('event_validation_accepts_authoritative_mobile_record_update_payloads', async () => {
+    const envelope = await createEnvelope({
+      operation: 'update',
+      payload: {
+        threadUuid: 'thread-1',
+        type: 'text',
+        body: 'Updated Body',
+        orderIndex: 0,
+        imageGroupId: null,
+        deviceId: 'mobile-1',
+        ownerUserId: 'owner-1',
+        fieldName: 'body',
+        spans: [],
+        text: 'Updated Body',
+      },
     });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result.status).toBe('VALID');
+    if (result.status === 'VALID') {
+      expect(result.eventEnvelope.payload).toEqual({
+        id: 'uuid-1',
+        threadId: 'thread-1',
+        type: 'text',
+        name: 'Updated Body',
+        editedAt: Date.parse('2026-03-27T00:00:00.000Z'),
+        orderIndex: 0,
+        imageGroupId: null,
+      });
+    }
   });
 
   it('event_validation_rejects_legacy_thread_transport_payloads', async () => {
@@ -181,6 +223,40 @@ describe('EventValidation', () => {
       status: 'INVALID',
       reason: 'INVALID_SCHEMA',
     });
+  });
+
+  it('event_validation_accepts_authoritative_mobile_thread_update_payloads', async () => {
+    const envelope = await createEnvelope({
+      entityType: 'thread',
+      entityId: 'thread-2',
+      operation: 'update',
+      payload: {
+        folderUuid: null,
+        title: 'Smoke Rename 8082',
+        contactId: null,
+        createdAt: '2026-04-02T10:50:38.724510Z',
+        deviceId: 'mobile-1',
+        entityVersion: 3,
+        fieldName: 'title',
+        hasStarred: false,
+        isEmptyDraft: false,
+        isPrivate: false,
+        kind: 'manual',
+        lastUpdated: '2026-04-02T12:23:44.575345Z',
+        ownerUserId: 'owner-1',
+      },
+    });
+
+    const result = await validateEventEnvelope(envelope);
+
+    expect(result.status).toBe('VALID');
+    if (result.status === 'VALID') {
+      expect(result.eventEnvelope.payload).toEqual({
+        id: 'thread-2',
+        folderId: null,
+        title: 'Smoke Rename 8082',
+      });
+    }
   });
 
   it('event_validation_rejects_unsupported_record_type_alias', async () => {

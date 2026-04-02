@@ -37,6 +37,20 @@ describe('navigation selectors', () => {
     expect(selectActivePane(resolved)).toBe('folder');
   });
 
+  it('resolve navigation state treats explicit root selection as the root folder pane', () => {
+    const projectionState = createProjectionState();
+    const navigationState = {
+      selectedFolderId: 'root',
+      selectedThreadId: null,
+    } as const;
+
+    expect(selectResolvedNavigationState(projectionState, navigationState)).toEqual({
+      selectedFolderId: null,
+      selectedThreadId: null,
+      activePane: 'folder',
+    });
+  });
+
   it('resolve navigation state falls back from missing thread to the existing folder pane', () => {
     const projectionState = createProjectionState();
     const navigationState = {

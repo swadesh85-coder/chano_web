@@ -50,12 +50,11 @@ export function selectResolvedNavigation(
   }
 
   if (isFolderSelectionValid(projectionState, navigationState.selectedFolderId)) {
-    if (navigationState.selectedFolderId === null) {
-      return EMPTY_RESOLVED_NAVIGATION_STATE;
-    }
-
     return Object.freeze({
-      selectedFolderId: selectValidFolderId(projectionState, navigationState.selectedFolderId),
+      selectedFolderId: selectNormalizedFolderId(
+        selectValidFolderId(projectionState, navigationState.selectedFolderId),
+        projectionState,
+      ),
       selectedThreadId: null,
       activePane: 'folder',
     });
@@ -80,7 +79,7 @@ export function isFolderSelectionValid(
   projectionState: ProjectionState,
   folderId: string | null,
 ): boolean {
-  return folderId === null || selectFolderById(projectionState, folderId) !== null;
+  return folderId === ROOT_FOLDER_ID || (folderId !== null && selectFolderById(projectionState, folderId) !== null);
 }
 
 export function isThreadSelectionValid(

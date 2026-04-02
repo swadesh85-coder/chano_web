@@ -10,6 +10,9 @@ import { WebRelayClient } from '../../transport';
 import QRCode from 'qrcode';
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BROWSER_RELAY_URL = 'ws://localhost:8080/relay';
+const QR_RELAY_URL = 'ws://10.0.2.2:8080/relay';
+const QR_RELAY_QUERY = `/?qrRelayUrl=${encodeURIComponent(QR_RELAY_URL)}`;
 const SNAPSHOT_FOLDER_ID = '123e4567-e89b-42d3-a456-426614174301';
 const SNAPSHOT_THREAD_ID = '123e4567-e89b-42d3-a456-426614174302';
 const SNAPSHOT_RECORD_ID = '123e4567-e89b-42d3-a456-426614174303';
@@ -356,6 +359,11 @@ class MockWebSocket {
     this.onerror?.();
   }
 
+  /** Simulate a raw relay frame that is not a transport envelope. */
+  simulateRawFrame(frame: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(frame) });
+  }
+
   /** Simulate the connection closing. */
   simulateClose(): void {
     this.readyState = MockWebSocket.CLOSED;
@@ -385,6 +393,7 @@ describe('PairingComponent', () => {
   let router!: Router;
 
   beforeEach(async () => {
+    globalThis.history.replaceState({}, '', QR_RELAY_QUERY);
     TestBed.overrideComponent(PairingComponent, {
       set: {
         template: '',
@@ -405,7 +414,7 @@ describe('PairingComponent', () => {
   });
 
   afterEach(() => {
-    fixture.destroy();
+    fixture?.destroy();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
   });
@@ -446,7 +455,7 @@ describe('PairingComponent', () => {
     it('should open a WebSocket to the relay on init', () => {
       fixture.detectChanges();
       expect(MockWebSocket.last).toBeDefined();
-      expect(MockWebSocket.last.url).toBe('ws://172.20.10.3:8080/relay');
+      expect(MockWebSocket.last.url).toBe(BROWSER_RELAY_URL);
     });
 
     it('should set status to "connecting" initially', () => {
@@ -540,7 +549,7 @@ describe('PairingComponent', () => {
       expect(payload).toEqual({
         sessionId,
         token: sessionCreateEnvelope.payload.token,
-        relayUrl: 'ws://172.20.10.3:8080/relay',
+        relayUrl: QR_RELAY_URL,
         expiresAt: expiresAtIso,
       });
       expect(payload.token).toBeTruthy();
@@ -856,6 +865,19 @@ describe('PairingComponent', () => {
 
       expect(component.status()).toBe('error');
       expect(component.errorMessage()).toBe('Failed to connect to relay server');
+    });
+
+    it('should surface relay control errors during pairing bootstrap', () => {
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+      ws.simulateRawFrame({
+        type: 'control_error',
+        payload: { reason: 'web_socket_required' },
+      });
+
+      expect(component.status()).toBe('error');
+      expect(component.errorMessage()).toBe('web_socket_required');
     });
 
     it('should set error status when connection closes unexpectedly', async () => {

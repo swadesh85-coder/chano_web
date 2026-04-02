@@ -76,6 +76,13 @@ export class WebRelayClient {
 
             console.log(`WS_MESSAGE_RECEIVED raw=${truncateForAudit(rawMessage, 200)} type=unknown sessionId=unknown`);
             const raw = JSON.parse(rawMessage) as unknown;
+            const controlErrorReason = getControlErrorReason(raw);
+            if (controlErrorReason !== null) {
+              this.state.set('error');
+              console.warn(`WEB_RELAY_CONTROL_ERROR reason=${controlErrorReason}`);
+              this.emitError(controlErrorReason);
+              return;
+            }
             const envelope = this.parseEnvelope(raw);
 
             if (envelope !== null && this.isAuthorizedInboundEnvelope(envelope)) {
@@ -416,6 +423,26 @@ function truncateForAudit(value: string, limit: number): string {
 
 function getRawTransportFrame(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function getControlErrorReason(value: unknown): string | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const frame = value as Record<string, unknown>;
+  if (frame['type'] !== 'control_error') {
+    return null;
+  }
+
+  const payload = frame['payload'];
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    return 'Relay control error';
+  }
+
+  const payloadRecord = payload as Record<string, unknown>;
+  const reason = payloadRecord['reason'];
+  return typeof reason === 'string' && reason.length > 0 ? reason : 'Relay control error';
 }
 
 function formatSessionId(sessionId: string | null): string {

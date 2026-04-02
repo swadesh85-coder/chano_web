@@ -43,7 +43,7 @@ import { SidebarItemComponent } from './ui/sidebar_item.component';
           [kind]="'root'"
           [selected]="activePane() === 'folder' && selectedFolderId() === null"
           [ariaLabel]="'Select root folder'"
-          (activated)="folderSelected.emit(null)"
+          (activated)="folderSelected.emit('root')"
         >
         </app-sidebar-item>
 

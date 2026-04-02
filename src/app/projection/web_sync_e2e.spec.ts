@@ -233,6 +233,47 @@ async function createRecordEventStreamEnvelope(
   };
 }
 
+async function createAuthoritativeThreadUpdateEnvelope(
+  sessionId: string,
+  eventVersion: number,
+): Promise<Record<string, unknown>> {
+  const payload = {
+    folderUuid: 'f1',
+    title: 'Smoke Rename 8082',
+    contactId: null,
+    createdAt: '2026-03-27T09:54:12.000Z',
+    deviceId: 'mobile-1',
+    entityVersion: 2,
+    fieldName: 'title',
+    hasStarred: false,
+    isEmptyDraft: false,
+    isPrivate: false,
+    kind: 'manual',
+    lastUpdated: '2026-03-27T09:54:14.000Z',
+    ownerUserId: 'owner-1',
+  };
+  const eventTimestampMs = Date.parse('2026-03-27T09:54:14.000Z');
+
+  return {
+    protocolVersion: 2,
+    type: 'event_stream',
+    sessionId,
+    timestamp: eventTimestampMs,
+    sequence: 8,
+    payload: {
+      eventId: eventVersion,
+      originDeviceId: 'mobile-1',
+      eventVersion,
+      entityType: 'thread',
+      entityId: 't1',
+      operation: 'update',
+      timestamp: new Date(eventTimestampMs).toISOString(),
+      payload,
+      checksum: await sha256Hex(encodeUtf8(JSON.stringify(payload))),
+    },
+  };
+}
+
 async function flushAsyncWork(): Promise<void> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await Promise.resolve();
@@ -309,6 +350,35 @@ describe('Web Sync E2E', () => {
     expect(consoleLog.mock.calls).toContainEqual(['BOUNDARY_CHECK expected=26 received=26']);
     expect(consoleLog.mock.calls).toContainEqual(['BOUNDARY_OK start=26']);
     expect(consoleLog.mock.calls).toContainEqual(['EVENT_APPLY version=26']);
+  });
+
+  it('applies authoritative mobile thread updates after the snapshot boundary', async () => {
+    relay.connect('ws://172.20.10.3:8080/relay');
+    MockWebSocket.last.simulateOpen();
+    const sessionId = relay.sessionId();
+
+    expect(sessionId).not.toBeNull();
+
+    const snapshot = await createSnapshotTransport(sessionId!, 25);
+    MockWebSocket.last.simulateMessage(snapshot.start);
+    MockWebSocket.last.simulateMessage(snapshot.chunk);
+    MockWebSocket.last.simulateMessage(snapshot.complete);
+    await flushAsyncWork();
+
+    expect(store.phase()).toBe('ready');
+    expect(store.state().threads.find((thread) => thread.id === 't1')?.title).toBe('Log');
+
+    const threadUpdate = await createAuthoritativeThreadUpdateEnvelope(sessionId!, 26);
+    MockWebSocket.last.simulateMessage(threadUpdate);
+    await flushAsyncWork();
+
+    expect(store.lastAppliedEventVersion()).toBe(26);
+    expect(store.state().threads.find((thread) => thread.id === 't1')?.title).toBe('Smoke Rename 8082');
+    expect(store.lastProjectionUpdate()).toEqual({
+      reason: 'event_applied',
+      entityType: 'thread',
+      eventVersion: 26,
+    });
   });
 
   it('applies multiple post-sync events and ignores duplicates', async () => {

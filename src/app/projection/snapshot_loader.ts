@@ -80,6 +80,7 @@ type CanonicalSnapshotEntity = {
 
 type FolderEntityData = {
   readonly name?: string;
+  readonly title?: string;
   readonly parentFolderUuid: string | null;
 };
 
@@ -629,6 +630,11 @@ export class SnapshotLoader {
       throw new Error('INVALID_FOLDER_ENTITY');
     }
 
+    const folderName = this.readFolderName(entity.data);
+    if (folderName === null) {
+      throw new Error('INVALID_FOLDER_ENTITY');
+    }
+
     return {
       entityType: 'folder',
       entityUuid: entity.entityUuid,
@@ -637,7 +643,7 @@ export class SnapshotLoader {
       ownerUserId: entity.ownerUserId,
       data: {
         uuid: entity.entityUuid,
-        name: entity.data['name'],
+        name: folderName,
         parentFolderUuid: this.readNullableString(entity.data['parentFolderUuid']),
       },
     };
@@ -667,6 +673,12 @@ export class SnapshotLoader {
       throw new Error('INVALID_RECORD_ENTITY');
     }
 
+    const createdAt = this.readTimestampNumber(entity.data['createdAt']);
+    const editedAt = this.readTimestampNumber(entity.data['editedAt']);
+    if (createdAt === null || editedAt === null) {
+      throw new Error('INVALID_RECORD_ENTITY');
+    }
+
     return {
       entityType: 'record',
       entityUuid: entity.entityUuid,
@@ -678,8 +690,8 @@ export class SnapshotLoader {
         threadUuid: entity.data['threadUuid'] as string,
         type: entity.data['type'] as string,
         body: entity.data['body'] as string,
-        createdAt: entity.data['createdAt'] as number,
-        editedAt: entity.data['editedAt'] as number,
+        createdAt,
+        editedAt,
         orderIndex: entity.data['orderIndex'] as number,
         isStarred: entity.data['isStarred'] as boolean,
         imageGroupId: this.readNullableString(entity.data['imageGroupId']),
@@ -692,7 +704,7 @@ export class SnapshotLoader {
   }
 
   private isValidFolderEntityData(data: Record<string, unknown>): data is FolderEntityData {
-    return typeof data['name'] === 'string'
+    return this.readFolderName(data) !== null
       && (data['parentFolderUuid'] === undefined || this.isNullableString(data['parentFolderUuid']));
   }
 
@@ -705,8 +717,8 @@ export class SnapshotLoader {
     return this.isUuid(data['threadUuid'])
       && typeof data['type'] === 'string'
       && typeof data['body'] === 'string'
-      && typeof data['createdAt'] === 'number'
-      && typeof data['editedAt'] === 'number'
+      && this.readTimestampNumber(data['createdAt']) !== null
+      && this.readTimestampNumber(data['editedAt']) !== null
       && typeof data['orderIndex'] === 'number'
       && typeof data['isStarred'] === 'boolean'
       && this.isNullableString(data['imageGroupId'])
@@ -714,6 +726,14 @@ export class SnapshotLoader {
       && this.isOptionalNullableString(data['mimeType'])
       && this.isOptionalNullableString(data['title'])
       && this.isOptionalNullableNumber(data['size']);
+  }
+
+  private readFolderName(data: Record<string, unknown>): string | null {
+    if (typeof data['name'] === 'string') {
+      return data['name'];
+    }
+
+    return typeof data['title'] === 'string' ? data['title'] : null;
   }
 
   private hasExactKeys(obj: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -766,6 +786,19 @@ export class SnapshotLoader {
     }
 
     return typeof value === 'number' || value === null ? value : null;
+  }
+
+  private readTimestampNumber(value: unknown): number | null {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+
+    if (typeof value !== 'string' || value.length === 0) {
+      return null;
+    }
+
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   private isCanonicalSnapshotEntityType(value: unknown): value is CanonicalSnapshotEntityType {

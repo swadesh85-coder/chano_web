@@ -51,6 +51,11 @@ class MockWebSocket {
   simulateRawFrame(frame: unknown): void {
     this.onmessage?.({ data: JSON.stringify(frame) });
   }
+
+  simulateClose(): void {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.();
+  }
 }
 
 const OriginalWebSocket = globalThis.WebSocket;
@@ -278,6 +283,29 @@ describe('WebRelayClient', () => {
     expect(logSpy).not.toHaveBeenCalledWith('WEB_RELAY_ENVELOPE_RECEIVED type=event_stream');
 
     logSpy.mockRestore();
+  });
+
+  it('control_error_emits_error', () => {
+    client.connect('wss://relay.chano.app');
+    MockWebSocket.last.simulateOpen();
+
+    let receivedError: string | null = null;
+    client.onError((message) => {
+      receivedError = message;
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    MockWebSocket.last.simulateRawFrame({
+      type: 'control_error',
+      payload: { reason: 'web_socket_required' },
+    });
+
+    expect(receivedError).toBe('web_socket_required');
+    expect(client.state()).toBe('error');
+    expect(warnSpy).toHaveBeenCalledWith('WEB_RELAY_CONTROL_ERROR reason=web_socket_required');
+
+    warnSpy.mockRestore();
   });
 
   it('transport_parser_payload_passthrough', () => {

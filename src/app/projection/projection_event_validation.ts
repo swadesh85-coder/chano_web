@@ -132,7 +132,22 @@ export async function validateEventEnvelope(
     };
   }
 
-  const normalizedPayload = normalizeEventPayload(entityType, entityId, rawPayload);
+  const normalizedEventTimestamp = normalizeEventTimestamp(timestamp);
+  if (normalizedEventTimestamp === null) {
+    console.error('EVENT_REJECTED reason=INVALID_SCHEMA');
+    return {
+      status: 'INVALID',
+      reason: 'INVALID_SCHEMA',
+    };
+  }
+
+  const normalizedPayload = normalizeEventPayload(
+    entityType,
+    entityId,
+    operation,
+    rawPayload,
+    normalizedEventTimestamp,
+  );
   if (normalizedPayload.status !== 'VALID') {
     console.error('EVENT_REJECTED reason=INVALID_SCHEMA');
     return {
@@ -271,23 +286,26 @@ function sanitizeEventPayload(payload: Record<string, unknown>): Record<string, 
 function normalizeEventPayload(
   entityType: EventEntity,
   entityId: string,
+  operation: EventOperation,
   payload: Record<string, unknown>,
+  eventTimestampMs: number,
 ): PayloadNormalizationResult {
   const sanitizedPayload = sanitizeEventPayload(payload);
 
   switch (entityType) {
     case 'folder':
     case 'imageGroup':
-      return normalizeCanonicalFolderPayload(entityId, sanitizedPayload);
+      return normalizeCanonicalFolderPayload(entityId, operation, sanitizedPayload);
     case 'thread':
-      return normalizeCanonicalThreadPayload(entityId, sanitizedPayload);
+      return normalizeCanonicalThreadPayload(entityId, operation, sanitizedPayload);
     case 'record':
-      return normalizeCanonicalRecordPayload(entityId, sanitizedPayload);
+      return normalizeCanonicalRecordPayload(entityId, operation, sanitizedPayload, eventTimestampMs);
   }
 }
 
 function normalizeCanonicalFolderPayload(
   _entityId: string,
+  _operation: EventOperation,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
   return {
@@ -297,9 +315,34 @@ function normalizeCanonicalFolderPayload(
 }
 
 function normalizeCanonicalThreadPayload(
-  _entityId: string,
+  entityId: string,
+  operation: EventOperation,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
+  if (operation === 'update') {
+    const normalizedId = normalizeEntityId(entityId, payload);
+    if (normalizedId === null) {
+      return { status: 'INVALID' };
+    }
+
+    const normalizedPayload: Record<string, unknown> = { id: normalizedId };
+
+    const normalizedTitle = readOptionalStringAlias(payload, ['title']);
+    if (normalizedTitle !== undefined) {
+      normalizedPayload['title'] = normalizedTitle;
+    }
+
+    const normalizedFolderId = readOptionalNormalizedFolderAlias(payload, ['folderId', 'folderUuid']);
+    if (normalizedFolderId !== undefined) {
+      normalizedPayload['folderId'] = normalizedFolderId;
+    }
+
+    return {
+      status: 'VALID',
+      payload: normalizedPayload,
+    };
+  }
+
   return {
     status: 'VALID',
     payload,
@@ -307,12 +350,98 @@ function normalizeCanonicalThreadPayload(
 }
 
 function normalizeCanonicalRecordPayload(
-  _entityId: string,
+  entityId: string,
+  operation: EventOperation,
   payload: Record<string, unknown>,
+  eventTimestampMs: number,
 ): PayloadNormalizationResult {
+  const normalizedId = normalizeEntityId(entityId, payload);
+  if (normalizedId === null) {
+    return { status: 'INVALID' };
+  }
+
+  const normalizedPayload: Record<string, unknown> = { id: normalizedId };
+
+  const normalizedThreadId = readOptionalStringAlias(payload, ['threadId', 'threadUuid']);
+  if (normalizedThreadId !== undefined) {
+    normalizedPayload['threadId'] = normalizedThreadId;
+  }
+
+  const normalizedType = readOptionalStringAlias(payload, ['type']);
+  if (normalizedType !== undefined) {
+    normalizedPayload['type'] = normalizedType;
+  }
+
+  const normalizedName = readOptionalStringAlias(payload, ['name', 'body', 'text']);
+  if (normalizedName !== undefined) {
+    normalizedPayload['name'] = normalizedName;
+  }
+
+  const normalizedCreatedAt = readOptionalTimestampAlias(payload, ['createdAt']);
+  const normalizedEditedAt = readOptionalTimestampAlias(payload, ['editedAt']);
+
+  if (operation === 'create') {
+    normalizedPayload['createdAt'] = normalizedCreatedAt ?? eventTimestampMs;
+    normalizedPayload['editedAt'] = normalizedEditedAt ?? normalizedPayload['createdAt'];
+
+    const normalizedOrderIndex = readOptionalNumberAlias(payload, ['orderIndex']);
+    if (normalizedOrderIndex === undefined) {
+      return { status: 'INVALID' };
+    }
+
+    normalizedPayload['orderIndex'] = normalizedOrderIndex;
+    normalizedPayload['isStarred'] = readOptionalBooleanAlias(payload, ['isStarred']) ?? false;
+    normalizedPayload['imageGroupId'] = readOptionalNullableStringAlias(payload, ['imageGroupId']) ?? null;
+  } else {
+    if (normalizedCreatedAt !== undefined) {
+      normalizedPayload['createdAt'] = normalizedCreatedAt;
+    }
+
+    if (normalizedEditedAt !== undefined) {
+      normalizedPayload['editedAt'] = normalizedEditedAt;
+    } else if (operation === 'update' || operation === 'rename') {
+      normalizedPayload['editedAt'] = eventTimestampMs;
+    }
+
+    const normalizedOrderIndex = readOptionalNumberAlias(payload, ['orderIndex']);
+    if (normalizedOrderIndex !== undefined) {
+      normalizedPayload['orderIndex'] = normalizedOrderIndex;
+    }
+
+    const normalizedIsStarred = readOptionalBooleanAlias(payload, ['isStarred']);
+    if (normalizedIsStarred !== undefined) {
+      normalizedPayload['isStarred'] = normalizedIsStarred;
+    }
+
+    const normalizedImageGroupId = readOptionalNullableStringAlias(payload, ['imageGroupId']);
+    if (normalizedImageGroupId !== undefined) {
+      normalizedPayload['imageGroupId'] = normalizedImageGroupId;
+    }
+  }
+
+  const normalizedMediaId = readOptionalStringAlias(payload, ['mediaId']);
+  if (normalizedMediaId !== undefined) {
+    normalizedPayload['mediaId'] = normalizedMediaId;
+  }
+
+  const normalizedMimeType = readOptionalStringAlias(payload, ['mimeType']);
+  if (normalizedMimeType !== undefined) {
+    normalizedPayload['mimeType'] = normalizedMimeType;
+  }
+
+  const normalizedTitle = readOptionalStringAlias(payload, ['title']);
+  if (normalizedTitle !== undefined) {
+    normalizedPayload['title'] = normalizedTitle;
+  }
+
+  const normalizedSize = readOptionalNullableNumberAlias(payload, ['size']);
+  if (normalizedSize !== undefined) {
+    normalizedPayload['size'] = normalizedSize;
+  }
+
   return {
     status: 'VALID',
-    payload,
+    payload: normalizedPayload,
   };
 }
 
@@ -620,7 +749,157 @@ function isEventId(value: unknown): value is number | string {
     || (typeof value === 'string' && value.length > 0);
 }
 
+function normalizeEntityId(entityId: string, payload: Record<string, unknown>): string | null {
+  const payloadId = payload['id'];
+  if (payloadId !== undefined && payloadId !== entityId) {
+    return null;
+  }
+
+  const payloadUuid = payload['uuid'];
+  if (payloadUuid !== undefined && payloadUuid !== entityId) {
+    return null;
+  }
+
+  return entityId;
+}
+
+function readOptionalStringAlias(
+  payload: Record<string, unknown>,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    if (!(key in payload)) {
+      continue;
+    }
+
+    const value = payload[key];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  return undefined;
+}
+
+function readOptionalNormalizedFolderAlias(
+  payload: Record<string, unknown>,
+  keys: readonly string[],
+): string | null | undefined {
+  for (const key of keys) {
+    if (!(key in payload)) {
+      continue;
+    }
+
+    const value = payload[key];
+    if (value === null || value === 'root') {
+      return null;
+    }
+
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  return undefined;
+}
+
+function readOptionalNumberAlias(
+  payload: Record<string, unknown>,
+  keys: readonly string[],
+): number | undefined {
+  for (const key of keys) {
+    if (!(key in payload)) {
+      continue;
+    }
+
+    const value = payload[key];
+    return typeof value === 'number' ? value : undefined;
+  }
+
+  return undefined;
+}
+
+function readOptionalBooleanAlias(
+  payload: Record<string, unknown>,
+  keys: readonly string[],
+): boolean | undefined {
+  for (const key of keys) {
+    if (!(key in payload)) {
+      continue;
+    }
+
+    const value = payload[key];
+    return typeof value === 'boolean' ? value : undefined;
+  }
+
+  return undefined;
+}
+
+function readOptionalNullableStringAlias(
+  payload: Record<string, unknown>,
+  keys: readonly string[],
+): string | null | undefined {
+  for (const key of keys) {
+    if (!(key in payload)) {
+      continue;
+    }
+
+    const value = payload[key];
+    if (value === null) {
+      return null;
+    }
+
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  return undefined;
+}
+
+function readOptionalNullableNumberAlias(
+  payload: Record<string, unknown>,
+  keys: readonly string[],
+): number | null | undefined {
+  for (const key of keys) {
+    if (!(key in payload)) {
+      continue;
+    }
+
+    const value = payload[key];
+    if (value === null) {
+      return null;
+    }
+
+    return typeof value === 'number' ? value : undefined;
+  }
+
+  return undefined;
+}
+
+function readOptionalTimestampAlias(
+  payload: Record<string, unknown>,
+  keys: readonly string[],
+): number | undefined {
+  for (const key of keys) {
+    if (!(key in payload)) {
+      continue;
+    }
+
+    const normalized = normalizeEventTimestamp(payload[key]);
+    return normalized ?? undefined;
+  }
+
+  return undefined;
+}
+
+function normalizeEventTimestamp(value: unknown): number | null {
+  if (isNonNegativeInteger(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.length > 0) {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 function isEventTimestamp(value: unknown): value is string | number {
-  return isNonNegativeInteger(value)
-    || (typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value)));
+  return normalizeEventTimestamp(value) !== null;
 }

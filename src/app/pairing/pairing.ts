@@ -15,8 +15,64 @@ import { ProjectionStateContainer } from '../projection/projection_state.contain
 import { WebRelayClient } from '../../transport';
 import type { TransportEnvelope } from '../../transport';
 
-const RELAY_URL = 'ws://127.0.0.1:8082/relay';
+const DEFAULT_RELAY_PORT = '8080';
+const DEFAULT_RELAY_PATH = '/relay';
+const DEFAULT_DEV_QR_RELAY_URL = `ws://10.0.2.2:${DEFAULT_RELAY_PORT}${DEFAULT_RELAY_PATH}`;
 const TRANSPORT_PROTOCOL_VERSION = 2;
+
+function getRuntimeLocation(): Location | null {
+  if (typeof globalThis.location !== 'object' || globalThis.location === null) {
+    return null;
+  }
+
+  return globalThis.location;
+}
+
+function createRelayUrl(host: string, protocol: string): string {
+  return `${protocol}://${host}:${DEFAULT_RELAY_PORT}${DEFAULT_RELAY_PATH}`;
+}
+
+export function resolveBrowserRelayUrl(location: Location | null = getRuntimeLocation()): string {
+  if (location === null) {
+    return createRelayUrl('localhost', 'ws');
+  }
+
+  const searchParams = new URLSearchParams(location.search);
+  const relayUrlOverride = searchParams.get('relayUrl');
+  if (relayUrlOverride !== null && relayUrlOverride.length > 0) {
+    return relayUrlOverride;
+  }
+
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const host = location.hostname.length > 0 ? location.hostname : 'localhost';
+  return createRelayUrl(host, protocol);
+}
+
+export function resolveQrRelayUrl(
+  browserRelayUrl: string,
+  location: Location | null = getRuntimeLocation(),
+): string {
+  if (location === null) {
+    return browserRelayUrl;
+  }
+
+  const searchParams = new URLSearchParams(location.search);
+  const qrRelayUrlOverride = searchParams.get('qrRelayUrl');
+  if (qrRelayUrlOverride !== null && qrRelayUrlOverride.length > 0) {
+    return qrRelayUrlOverride;
+  }
+
+  const relayUrlOverride = searchParams.get('relayUrl');
+  if (relayUrlOverride !== null && relayUrlOverride.length > 0) {
+    return relayUrlOverride;
+  }
+
+  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+    return DEFAULT_DEV_QR_RELAY_URL;
+  }
+
+  return browserRelayUrl;
+}
 
 type PairingStatus =
   | 'connecting'
@@ -325,6 +381,8 @@ export class PairingComponent implements OnInit {
 
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
   private expiresAtMs = 0;
+  private browserRelayUrl = resolveBrowserRelayUrl();
+  private qrRelayUrl = resolveQrRelayUrl(this.browserRelayUrl);
 
   readonly status = signal<PairingStatus>('connecting');
   readonly qrDataUrl = signal('');
@@ -389,7 +447,9 @@ export class PairingComponent implements OnInit {
     this.stopCountdown();
     this.status.set('connecting');
     this.errorMessage.set('');
-    this.relay.connect(RELAY_URL);
+    this.browserRelayUrl = resolveBrowserRelayUrl();
+    this.qrRelayUrl = resolveQrRelayUrl(this.browserRelayUrl);
+    this.relay.connect(this.browserRelayUrl);
   }
 
   private initiateSession(): void {
@@ -463,7 +523,7 @@ export class PairingComponent implements OnInit {
     const qrPayloadRecord = {
       sessionId,
       token,
-      relayUrl: RELAY_URL,
+      relayUrl: this.qrRelayUrl,
       expiresAt: expiresAtIso,
     };
     const qrPayload = JSON.stringify(qrPayloadRecord);

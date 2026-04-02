@@ -313,6 +313,113 @@ describe('SnapshotLoader', () => {
     ]);
   });
 
+  it('snapshot_accepts_authoritative_mobile_payload_shape', async () => {
+    const snapshotJson = JSON.stringify({
+      snapshotVersion: 2,
+      protocolVersion: 2,
+      schemaVersion: 2,
+      baseEventVersion: 3,
+      generatedAt: '2026-04-02T11:12:32.860320Z',
+      entityCount: 2,
+      checksum: 'mobile-root-checksum',
+      entities: [
+        {
+          entityType: 'record',
+          entityUuid: '4014ba41-c43f-412e-9a7d-e69569f37b6a',
+          entityVersion: 1,
+          lastEventVersion: 2,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: '4014ba41-c43f-412e-9a7d-e69569f37b6a',
+            threadUuid: 'bc7cdc41-dbbd-4020-9e1f-ecfcff47ab5e',
+            type: 'text',
+            title: null,
+            body: 'livesmokerecord8082',
+            text: 'livesmokerecord8082',
+            spans: [{ start: 4, end: 9, style: 'italic' }],
+            createdAt: '2026-04-02T11:12:32.860320Z',
+            editedAt: '2026-04-02T11:12:32.860320Z',
+            orderIndex: 1775128352860320,
+            isStarred: false,
+            isAiGenerated: null,
+            imageGroupId: null,
+          },
+        },
+        {
+          entityType: 'thread',
+          entityUuid: 'bc7cdc41-dbbd-4020-9e1f-ecfcff47ab5e',
+          entityVersion: 2,
+          lastEventVersion: 3,
+          ownerUserId: 'owner-1',
+          data: {
+            uuid: 'bc7cdc41-dbbd-4020-9e1f-ecfcff47ab5e',
+            title: 'Untitled Note',
+            kind: 'manual',
+            folderUuid: null,
+            contactId: null,
+            createdAt: '2026-04-02T10:50:38.724510Z',
+            lastUpdated: '2026-04-02T11:12:32.860320Z',
+            isPrivate: false,
+            hasStarred: false,
+            isEmptyDraft: false,
+          },
+        },
+      ],
+    });
+    const protocol = await createSnapshotProtocol(snapshotJson, 3);
+
+    loader.handleSnapshotStart(protocol.start);
+    for (const chunk of protocol.chunks) {
+      loader.handleSnapshotChunk(chunk);
+    }
+    await loader.handleSnapshotComplete(protocol.complete);
+
+    expect(events).toEqual([
+      {
+        type: 'SNAPSHOT_LOADED',
+        parsedSnapshot: {
+          folders: [],
+          threads: [
+            {
+              entityType: 'thread',
+              entityUuid: 'bc7cdc41-dbbd-4020-9e1f-ecfcff47ab5e',
+              entityVersion: 2,
+              lastEventVersion: 3,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: 'bc7cdc41-dbbd-4020-9e1f-ecfcff47ab5e',
+                folderUuid: null,
+                title: 'Untitled Note',
+              },
+            },
+          ],
+          records: [
+            {
+              entityType: 'record',
+              entityUuid: '4014ba41-c43f-412e-9a7d-e69569f37b6a',
+              entityVersion: 1,
+              lastEventVersion: 2,
+              ownerUserId: 'owner-1',
+              data: {
+                uuid: '4014ba41-c43f-412e-9a7d-e69569f37b6a',
+                threadUuid: 'bc7cdc41-dbbd-4020-9e1f-ecfcff47ab5e',
+                type: 'text',
+                body: 'livesmokerecord8082',
+                createdAt: Date.parse('2026-04-02T11:12:32.860320Z'),
+                editedAt: Date.parse('2026-04-02T11:12:32.860320Z'),
+                orderIndex: 1775128352860320,
+                isStarred: false,
+                imageGroupId: null,
+              },
+            },
+          ],
+        },
+        baseEventVersion: 3,
+        entityCount: 2,
+      },
+    ]);
+  });
+
   it('snapshot_rejects_noncanonical_entity_field_aliases_and_timestamp_coercion', async () => {
     const snapshotJson = JSON.stringify({
       snapshotVersion: 2,
