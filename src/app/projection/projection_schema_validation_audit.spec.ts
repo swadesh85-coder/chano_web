@@ -302,7 +302,7 @@ describe('Projection Schema Validation Audit', () => {
     TestBed.resetTestingModule();
   });
 
-  it('rejects legacy record transport payloads without canonical repair', async () => {
+  it('accepts authoritative mobile record payloads without snapshot-field equality', async () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -370,36 +370,17 @@ describe('Projection Schema Validation Audit', () => {
     expect(canonicalEvents).toEqual([
       {
         entity: 'record',
-        fields: ['body', 'createdAt', 'editedAt', 'id', 'imageGroupId', 'isStarred', 'orderIndex', 'threadUuid', 'type', 'uuid'],
+        fields: ['createdAt', 'editedAt', 'id', 'imageGroupId', 'isStarred', 'name', 'orderIndex', 'threadId', 'type'],
         eventId: 101,
         sequence: 4,
       },
     ]);
 
-    expect(schemaErrors).toEqual([
-      {
-        entity: 'record',
-        missingInEvent: ['entityVersion', 'lastEventVersion', 'name', 'threadId'],
-        extraInEvent: ['body', 'threadUuid', 'uuid'],
-        snapshotFields: ['createdAt', 'editedAt', 'entityVersion', 'id', 'imageGroupId', 'isStarred', 'lastEventVersion', 'name', 'orderIndex', 'threadId', 'type'],
-        eventFields: ['body', 'createdAt', 'editedAt', 'id', 'imageGroupId', 'isStarred', 'orderIndex', 'threadUuid', 'type', 'uuid'],
-        eventId: 101,
-        sequence: 4,
-      },
-    ]);
-    expect(auditResults).toEqual([
-      {
-        entity: 'record',
-        snapshotFields: ['createdAt', 'editedAt', 'entityVersion', 'id', 'imageGroupId', 'isStarred', 'lastEventVersion', 'name', 'orderIndex', 'threadId', 'type'],
-        eventFields: ['body', 'createdAt', 'editedAt', 'id', 'imageGroupId', 'isStarred', 'orderIndex', 'threadUuid', 'type', 'uuid'],
-        missingInEvent: ['entityVersion', 'lastEventVersion', 'name', 'threadId'],
-        extraInEvent: ['body', 'threadUuid', 'uuid'],
-        verdict: 'SCHEMA_MISMATCH_CONFIRMED',
-      },
-    ]);
-    expect(consoleError.mock.calls).toContainEqual(['EVENT_REJECTED reason=INVALID_SCHEMA']);
-    expect(consoleError.mock.calls).toContainEqual(['SNAPSHOT_RESYNC_REQUIRED reason=INVALID_SCHEMA']);
-    expect(store.state().records).not.toContainEqual({
+    expect(schemaErrors).toEqual([]);
+    expect(auditResults).toEqual([]);
+    expect(consoleError.mock.calls).not.toContainEqual(['EVENT_REJECTED reason=INVALID_SCHEMA']);
+    expect(consoleError.mock.calls).not.toContainEqual(['SNAPSHOT_RESYNC_REQUIRED reason=INVALID_SCHEMA']);
+    expect(store.state().records).toContainEqual({
       id: 'record-2',
       threadId: 'thread-1',
       type: 'text',
@@ -414,7 +395,7 @@ describe('Projection Schema Validation Audit', () => {
     });
   });
 
-  it('rejects unsupported legacy thread transport payloads', async () => {
+  it('accepts authoritative mobile thread create payloads without snapshot-field equality', async () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -466,35 +447,17 @@ describe('Projection Schema Validation Audit', () => {
     expect(canonicalEvents).toEqual([
       {
         entity: 'thread',
-        fields: ['contactId', 'createdAt', 'deviceId', 'entityVersion', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId', 'title'],
+        fields: ['folderId', 'id', 'title'],
         eventId: 101,
         sequence: 5,
       },
     ]);
-    expect(schemaErrors).toEqual([
-      {
-        entity: 'thread',
-        missingInEvent: ['folderId', 'id', 'lastEventVersion'],
-        extraInEvent: ['contactId', 'createdAt', 'deviceId', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId'],
-        snapshotFields: ['entityVersion', 'folderId', 'id', 'lastEventVersion', 'title'],
-        eventFields: ['contactId', 'createdAt', 'deviceId', 'entityVersion', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId', 'title'],
-        eventId: 101,
-        sequence: 5,
-      },
-    ]);
-    expect(auditResults).toEqual([
-      {
-        entity: 'thread',
-        snapshotFields: ['entityVersion', 'folderId', 'id', 'lastEventVersion', 'title'],
-        eventFields: ['contactId', 'createdAt', 'deviceId', 'entityVersion', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId', 'title'],
-        missingInEvent: ['folderId', 'id', 'lastEventVersion'],
-        extraInEvent: ['contactId', 'createdAt', 'deviceId', 'fieldName', 'folderUuid', 'hasStarred', 'isEmptyDraft', 'isPrivate', 'kind', 'lastUpdated', 'ownerUserId'],
-        verdict: 'SCHEMA_MISMATCH_CONFIRMED',
-      },
-    ]);
-    expect(consoleError.mock.calls).toContainEqual(['EVENT_REJECTED reason=INVALID_SCHEMA']);
-    expect(consoleError.mock.calls).toContainEqual(['SNAPSHOT_RESYNC_REQUIRED reason=INVALID_SCHEMA']);
-    expect(store.state().threads).not.toContainEqual({
+
+    expect(schemaErrors).toEqual([]);
+    expect(auditResults).toEqual([]);
+    expect(consoleError.mock.calls).not.toContainEqual(['EVENT_REJECTED reason=INVALID_SCHEMA']);
+    expect(consoleError.mock.calls).not.toContainEqual(['SNAPSHOT_RESYNC_REQUIRED reason=INVALID_SCHEMA']);
+    expect(store.state().threads).toContainEqual({
       id: 'thread-2',
       folderId: 'folder-1',
       title: 'Backlog',

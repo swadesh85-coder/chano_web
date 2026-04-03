@@ -4,14 +4,15 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ensureAngularTestEnvironment } from '../../testing/ensure-angular-test-environment';
-import { PairingComponent } from './pairing';
+import { isValidQrRelayUrl, PairingComponent } from './pairing';
 import { ProjectionStore } from '../projection/projection.store';
 import { WebRelayClient } from '../../transport';
 import QRCode from 'qrcode';
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const BROWSER_RELAY_URL = 'ws://localhost:8080/relay';
-const QR_RELAY_URL = 'ws://10.0.2.2:8080/relay';
+const BROWSER_RELAY_URL = 'ws://192.168.0.20:8080/relay';
+const BROWSER_RELAY_QUERY = `/?relayUrl=${encodeURIComponent(BROWSER_RELAY_URL)}`;
+const QR_RELAY_URL = 'ws://192.168.0.21:8080/relay';
 const QR_RELAY_QUERY = `/?qrRelayUrl=${encodeURIComponent(QR_RELAY_URL)}`;
 const SNAPSHOT_FOLDER_ID = '123e4567-e89b-42d3-a456-426614174301';
 const SNAPSHOT_THREAD_ID = '123e4567-e89b-42d3-a456-426614174302';
@@ -295,6 +296,12 @@ async function waitForLastAppliedEventVersion(store: ProjectionStore, eventVersi
   }
 }
 
+async function flushPairingAsyncWork(): Promise<void> {
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
+}
+
 type WsHandler = ((ev: { data: string }) => void) | null;
 
 class MockWebSocket {
@@ -371,18 +378,62 @@ class MockWebSocket {
   }
 }
 
+class MockRTCPeerConnection {
+  static discoveredHosts: string[] = [];
+
+  onicecandidate: ((event: { candidate: { candidate: string } | null }) => void) | null = null;
+
+  createDataChannel(): void {}
+
+  createOffer(): Promise<RTCSessionDescriptionInit> {
+    return Promise.resolve({ type: 'offer', sdp: 'mock-sdp' });
+  }
+
+  setLocalDescription(_: RTCSessionDescriptionInit): Promise<void> {
+    queueMicrotask(() => {
+      for (const host of MockRTCPeerConnection.discoveredHosts) {
+        this.onicecandidate?.({
+          candidate: {
+            candidate: `candidate:1 1 UDP 2122260223 ${host} 5000 typ host`,
+          },
+        });
+      }
+
+      this.onicecandidate?.({ candidate: null });
+    });
+
+    return Promise.resolve();
+  }
+
+  close(): void {}
+}
+
+type MockFetchResponse = {
+  ok: boolean;
+  json(): Promise<unknown>;
+};
+
+const mockFetch = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<MockFetchResponse>>();
+
 // ── Setup global mock ────────────────────────────────────────
 
 const OriginalWebSocket = globalThis.WebSocket;
+const OriginalRTCPeerConnection = globalThis.RTCPeerConnection;
+const OriginalFetch = globalThis.fetch;
 
 beforeAll(() => {
   ensureAngularTestEnvironment();
   (globalThis as Record<string, unknown>)['WebSocket'] =
     MockWebSocket as unknown as typeof WebSocket;
+  (globalThis as Record<string, unknown>)['RTCPeerConnection'] =
+    MockRTCPeerConnection as unknown as typeof RTCPeerConnection;
+  (globalThis as Record<string, unknown>)['fetch'] = mockFetch;
 });
 
 afterAll(() => {
   globalThis.WebSocket = OriginalWebSocket;
+  globalThis.RTCPeerConnection = OriginalRTCPeerConnection;
+  globalThis.fetch = OriginalFetch;
 });
 
 // ── Test suite ───────────────────────────────────────────────
@@ -393,7 +444,14 @@ describe('PairingComponent', () => {
   let router!: Router;
 
   beforeEach(async () => {
-    globalThis.history.replaceState({}, '', QR_RELAY_QUERY);
+    globalThis.history.replaceState({}, '', BROWSER_RELAY_QUERY);
+    MockWebSocket.last = undefined as unknown as MockWebSocket;
+    MockRTCPeerConnection.discoveredHosts = ['192.168.0.20'];
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ preferredIpv4: '192.168.0.20' }),
+    });
     TestBed.overrideComponent(PairingComponent, {
       set: {
         template: '',
@@ -458,9 +516,75 @@ describe('PairingComponent', () => {
       expect(MockWebSocket.last.url).toBe(BROWSER_RELAY_URL);
     });
 
+    it('should auto-discover a mobile-reachable IPv4 relay when browser relay is localhost', async () => {
+      globalThis.history.replaceState({}, '', '/?mode=localhost');
+      fixture.detectChanges();
+
+      await flushPairingAsyncWork();
+
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8080/relay-info', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      expect(MockWebSocket.last.url).toBe('ws://localhost:8080/relay');
+      expect(component.status()).toBe('connecting');
+      expect(isValidQrRelayUrl('ws://localhost:8080/relay')).toBe(false);
+    });
+
     it('should set status to "connecting" initially', () => {
       fixture.detectChanges();
       expect(component.status()).toBe('connecting');
+    });
+
+    it('should connect and generate a QR automatically on localhost after IPv4 discovery', async () => {
+      globalThis.history.replaceState({}, '', '/?mode=localhost');
+      const qrSpy = mockQrToDataURL('data:image/png;base64,LOCALHOST-REAL-DEVICE');
+
+      fixture.detectChanges();
+      await flushPairingAsyncWork();
+
+      expect(MockWebSocket.last.url).toBe('ws://localhost:8080/relay');
+
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
+      const sessionId = sessionCreateEnvelope.sessionId as string;
+
+      const expiresAtMs = Date.now() + 120_000;
+      const expiresAtIso = new Date(expiresAtMs).toISOString();
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId,
+        payload: { expiresAt: expiresAtMs },
+      });
+
+      await fixture.whenStable();
+
+      const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
+      expect(payload).toEqual({
+        sessionId,
+        token: sessionCreateEnvelope.payload.token,
+        relayUrl: BROWSER_RELAY_URL,
+        expiresAt: expiresAtIso,
+      });
+      expect(component.status()).toBe('waiting_for_scan');
+
+      qrSpy.mockRestore();
+    });
+
+    it('should set error status when localhost relay discovery cannot find a LAN IPv4', async () => {
+      globalThis.history.replaceState({}, '', '/?mode=localhost');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ preferredIpv4: null }),
+      });
+      MockRTCPeerConnection.discoveredHosts = [];
+
+      fixture.detectChanges();
+      await flushPairingAsyncWork();
+
+      expect(component.status()).toBe('error');
+      expect(component.errorMessage()).toContain('Unable to determine a mobile-reachable relay address automatically');
     });
   });
 
@@ -549,13 +673,49 @@ describe('PairingComponent', () => {
       expect(payload).toEqual({
         sessionId,
         token: sessionCreateEnvelope.payload.token,
-        relayUrl: QR_RELAY_URL,
+        relayUrl: BROWSER_RELAY_URL,
         expiresAt: expiresAtIso,
       });
       expect(payload.token).toBeTruthy();
 
       expect(component.status()).toBe('waiting_for_scan');
       expect(component.qrDataUrl()).toBe('data:image/png;base64,FAKE');
+
+      qrSpy.mockRestore();
+    });
+
+    it('should prefer an explicit qrRelayUrl override for real-device pairing', async () => {
+      globalThis.history.replaceState(
+        {},
+        '',
+        `${BROWSER_RELAY_QUERY}&qrRelayUrl=${encodeURIComponent(QR_RELAY_URL)}`,
+      );
+      const qrSpy = mockQrToDataURL('data:image/png;base64,FAKE');
+
+      fixture.detectChanges();
+      const ws = MockWebSocket.last;
+      ws.simulateOpen();
+      const sessionCreateEnvelope = JSON.parse(ws.sent[0]);
+      const sessionId = sessionCreateEnvelope.sessionId as string;
+
+      const expiresAtMs = Date.now() + 120_000;
+      const expiresAtIso = new Date(expiresAtMs).toISOString();
+      ws.simulateMessage({
+        type: 'qr_session_ready',
+        sessionId,
+        payload: { expiresAt: expiresAtMs },
+      });
+
+      await fixture.whenStable();
+
+      expect(qrSpy).toHaveBeenCalledOnce();
+      const payload = JSON.parse(qrSpy.mock.calls[0][0] as string);
+      expect(payload).toEqual({
+        sessionId,
+        token: sessionCreateEnvelope.payload.token,
+        relayUrl: QR_RELAY_URL,
+        expiresAt: expiresAtIso,
+      });
 
       qrSpy.mockRestore();
     });

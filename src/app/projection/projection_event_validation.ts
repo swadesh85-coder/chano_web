@@ -319,20 +319,25 @@ function normalizeCanonicalThreadPayload(
   operation: EventOperation,
   payload: Record<string, unknown>,
 ): PayloadNormalizationResult {
-  if (operation === 'update') {
-    const normalizedId = normalizeEntityId(entityId, payload);
-    if (normalizedId === null) {
+  const normalizedId = normalizeEntityId(entityId, payload);
+  if (normalizedId === null) {
+    return { status: 'INVALID' };
+  }
+
+  if (operation === 'create' || operation === 'update') {
+    const normalizedTitle = readOptionalStringAlias(payload, ['title']);
+    const normalizedFolderId = readOptionalNormalizedFolderAlias(payload, ['folderId', 'folderUuid']);
+
+    if (operation === 'create' && (normalizedTitle === undefined || normalizedFolderId === undefined)) {
       return { status: 'INVALID' };
     }
 
     const normalizedPayload: Record<string, unknown> = { id: normalizedId };
 
-    const normalizedTitle = readOptionalStringAlias(payload, ['title']);
     if (normalizedTitle !== undefined) {
       normalizedPayload['title'] = normalizedTitle;
     }
 
-    const normalizedFolderId = readOptionalNormalizedFolderAlias(payload, ['folderId', 'folderUuid']);
     if (normalizedFolderId !== undefined) {
       normalizedPayload['folderId'] = normalizedFolderId;
     }

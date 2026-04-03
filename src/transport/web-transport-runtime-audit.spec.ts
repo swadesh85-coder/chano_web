@@ -12,8 +12,8 @@ import { WebRelayClient } from './web-relay-client';
 import type { TransportEnvelope } from './transport-envelope';
 import QRCode from 'qrcode';
 
-const BROWSER_RELAY_URL = 'ws://localhost:8080/relay';
-const QR_RELAY_QUERY = `/?qrRelayUrl=${encodeURIComponent('ws://10.0.2.2:8080/relay')}`;
+const BROWSER_RELAY_URL = 'ws://192.168.0.20:8080/relay';
+const QR_RELAY_QUERY = `/?relayUrl=${encodeURIComponent(BROWSER_RELAY_URL)}&qrRelayUrl=${encodeURIComponent('ws://192.168.0.21:8080/relay')}`;
 
 const FOLDER_ID = '123e4567-e89b-42d3-a456-426614174151';
 

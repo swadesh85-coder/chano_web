@@ -825,7 +825,7 @@ describe('ProjectionEngine', () => {
     expect(stateAfterSnapshot.resyncRequired).toBe(false);
     expect(stateAfterSnapshot.state).toEqual(recoveryResult.state);
 
-    const resumeResult = engine.applyEvent(createEventEnvelope(201, {
+    const recoveryEventResult = engine.applyEvent(createEventEnvelope(201, {
       entityId: 'record-10',
       payload: {
         id: 'record-10',
@@ -840,7 +840,7 @@ describe('ProjectionEngine', () => {
       },
     }));
 
-    expect(resumeResult.status).toBe('EVENT_APPLIED');
+    expect(recoveryEventResult.status).toBe('EVENT_APPLIED');
     expect(engine.trackState()).toEqual({
       lastAppliedEventVersion: 201,
       resyncRequired: false,

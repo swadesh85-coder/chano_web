@@ -17,8 +17,10 @@ import type { TransportEnvelope } from '../../transport';
 
 const DEFAULT_RELAY_PORT = '8080';
 const DEFAULT_RELAY_PATH = '/relay';
-const DEFAULT_DEV_QR_RELAY_URL = `ws://10.0.2.2:${DEFAULT_RELAY_PORT}${DEFAULT_RELAY_PATH}`;
 const TRANSPORT_PROTOCOL_VERSION = 2;
+const IPV4_ADDRESS_PATTERN = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+const RELAY_DISCOVERY_TIMEOUT_MS = 1_500;
 
 function getRuntimeLocation(): Location | null {
   if (typeof globalThis.location !== 'object' || globalThis.location === null) {
@@ -30,6 +32,43 @@ function getRuntimeLocation(): Location | null {
 
 function createRelayUrl(host: string, protocol: string): string {
   return `${protocol}://${host}:${DEFAULT_RELAY_PORT}${DEFAULT_RELAY_PATH}`;
+}
+
+function isIpv4Address(host: string): boolean {
+  return IPV4_ADDRESS_PATTERN.test(host);
+}
+
+function isLoopbackHost(host: string): boolean {
+  return LOOPBACK_HOSTS.has(host.trim().toLowerCase());
+}
+
+function buildRelayUrlWithHost(baseRelayUrl: string, host: string): string {
+  const uri = new URL(baseRelayUrl);
+  uri.hostname = host.trim();
+  return uri.toString();
+}
+
+function toRelayInfoUrl(relayUrl: string): string {
+  const uri = new URL(relayUrl);
+  uri.protocol = uri.protocol === 'wss:' ? 'https:' : 'http:';
+  uri.pathname = '/relay-info';
+  uri.search = '';
+  uri.hash = '';
+  return uri.toString();
+}
+
+export function isValidQrRelayUrl(relayUrl: string): boolean {
+  try {
+    const uri = new URL(relayUrl);
+    return uri.protocol === 'ws:'
+      && isIpv4Address(uri.hostname)
+      && uri.port.length > 0
+      && uri.pathname === DEFAULT_RELAY_PATH
+      && uri.search.length === 0
+      && uri.hash.length === 0;
+  } catch {
+    return false;
+  }
 }
 
 export function resolveBrowserRelayUrl(location: Location | null = getRuntimeLocation()): string {
@@ -48,7 +87,7 @@ export function resolveBrowserRelayUrl(location: Location | null = getRuntimeLoc
   return createRelayUrl(host, protocol);
 }
 
-export function resolveQrRelayUrl(
+function resolveConfiguredQrRelayUrl(
   browserRelayUrl: string,
   location: Location | null = getRuntimeLocation(),
 ): string {
@@ -67,11 +106,117 @@ export function resolveQrRelayUrl(
     return relayUrlOverride;
   }
 
-  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-    return DEFAULT_DEV_QR_RELAY_URL;
+  return browserRelayUrl;
+}
+
+function extractIpv4FromIceCandidate(candidateValue: string): string | null {
+  const match = candidateValue.match(/\b((?:\d{1,3}\.){3}\d{1,3})\b/);
+  if (match === null) {
+    return null;
   }
 
-  return browserRelayUrl;
+  const host = match[1];
+  return isIpv4Address(host) && !isLoopbackHost(host) ? host : null;
+}
+
+async function discoverRelayHostViaHttp(relayUrl: string): Promise<string | null> {
+  if (typeof globalThis.fetch !== 'function') {
+    return null;
+  }
+
+  try {
+    const response = await globalThis.fetch(toRelayInfoUrl(relayUrl), {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json() as {
+      readonly preferredIpv4?: unknown;
+    };
+    const preferredIpv4 = payload.preferredIpv4;
+    return typeof preferredIpv4 === 'string' && isIpv4Address(preferredIpv4) ? preferredIpv4 : null;
+  } catch {
+    return null;
+  }
+}
+
+async function discoverLocalIpv4Address(): Promise<string | null> {
+  if (typeof globalThis.RTCPeerConnection !== 'function') {
+    return null;
+  }
+
+  return await new Promise<string | null>((resolve) => {
+    const peer = new globalThis.RTCPeerConnection({ iceServers: [] });
+    let settled = false;
+
+    const finish = (host: string | null) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeoutHandle);
+      peer.onicecandidate = null;
+      peer.close();
+      resolve(host);
+    };
+
+    const timeoutHandle = setTimeout(() => finish(null), RELAY_DISCOVERY_TIMEOUT_MS);
+
+    peer.createDataChannel('relay-discovery');
+    peer.onicecandidate = (event) => {
+      if (event.candidate === null) {
+        finish(null);
+        return;
+      }
+
+      const candidateValue = event.candidate?.candidate;
+      if (typeof candidateValue !== 'string') {
+        return;
+      }
+
+      const host = extractIpv4FromIceCandidate(candidateValue);
+      if (host !== null) {
+        finish(host);
+      }
+    };
+
+    void peer.createOffer()
+      .then((offer) => peer.setLocalDescription(offer))
+      .catch(() => finish(null));
+  });
+}
+
+export async function resolveQrRelayUrl(
+  browserRelayUrl: string,
+  location: Location | null = getRuntimeLocation(),
+): Promise<string> {
+  const configuredRelayUrl = resolveConfiguredQrRelayUrl(browserRelayUrl, location);
+  if (isValidQrRelayUrl(configuredRelayUrl)) {
+    return configuredRelayUrl;
+  }
+
+  try {
+    const browserUri = new URL(browserRelayUrl);
+    if (!isLoopbackHost(browserUri.hostname)) {
+      return configuredRelayUrl;
+    }
+  } catch {
+    return configuredRelayUrl;
+  }
+
+  const relayHostHint = await discoverRelayHostViaHttp(browserRelayUrl);
+  if (relayHostHint !== null) {
+    return buildRelayUrlWithHost(browserRelayUrl, relayHostHint);
+  }
+
+  const discoveredHost = await discoverLocalIpv4Address();
+  return discoveredHost === null
+    ? configuredRelayUrl
+    : buildRelayUrlWithHost(browserRelayUrl, discoveredHost);
 }
 
 type PairingStatus =
@@ -382,7 +527,8 @@ export class PairingComponent implements OnInit {
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
   private expiresAtMs = 0;
   private browserRelayUrl = resolveBrowserRelayUrl();
-  private qrRelayUrl = resolveQrRelayUrl(this.browserRelayUrl);
+  private qrRelayUrl = this.browserRelayUrl;
+  private connectionAttempt = 0;
 
   readonly status = signal<PairingStatus>('connecting');
   readonly qrDataUrl = signal('');
@@ -444,12 +590,38 @@ export class PairingComponent implements OnInit {
   // ── Connection ─────────────────────────────────────────────
 
   private openConnection(): void {
+    const attempt = this.connectionAttempt + 1;
+    this.connectionAttempt = attempt;
     this.stopCountdown();
-    this.status.set('connecting');
     this.errorMessage.set('');
+    this.qrDataUrl.set('');
+    this.countdown.set('');
     this.browserRelayUrl = resolveBrowserRelayUrl();
-    this.qrRelayUrl = resolveQrRelayUrl(this.browserRelayUrl);
-    this.relay.connect(this.browserRelayUrl);
+    this.status.set('connecting');
+    const configuredQrRelayUrl = resolveConfiguredQrRelayUrl(this.browserRelayUrl, getRuntimeLocation());
+
+    if (isValidQrRelayUrl(configuredQrRelayUrl)) {
+      this.qrRelayUrl = configuredQrRelayUrl;
+      this.relay.connect(this.browserRelayUrl);
+      return;
+    }
+
+    void resolveQrRelayUrl(this.browserRelayUrl, getRuntimeLocation()).then((qrRelayUrl) => {
+      if (attempt !== this.connectionAttempt) {
+        return;
+      }
+
+      this.qrRelayUrl = qrRelayUrl;
+      if (!isValidQrRelayUrl(this.qrRelayUrl)) {
+        this.status.set('error');
+        this.errorMessage.set(
+          'Unable to determine a mobile-reachable relay address automatically. Open this page using your PC LAN IPv4 instead of localhost.',
+        );
+        return;
+      }
+
+      this.relay.connect(this.browserRelayUrl);
+    });
   }
 
   private initiateSession(): void {

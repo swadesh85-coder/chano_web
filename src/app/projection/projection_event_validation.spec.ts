@@ -200,6 +200,7 @@ describe('EventValidation', () => {
     const envelope = await createEnvelope({
       entityType: 'thread',
       entityId: 'thread-2',
+      operation: 'create',
       payload: {
         folderUuid: 'folder-1',
         title: 'Backlog',
@@ -219,10 +220,14 @@ describe('EventValidation', () => {
 
     const result = await validateEventEnvelope(envelope);
 
-    expect(result).toEqual({
-      status: 'INVALID',
-      reason: 'INVALID_SCHEMA',
-    });
+    expect(result.status).toBe('VALID');
+    if (result.status === 'VALID') {
+      expect(result.eventEnvelope.payload).toEqual({
+        id: 'thread-2',
+        folderId: 'folder-1',
+        title: 'Backlog',
+      });
+    }
   });
 
   it('event_validation_accepts_authoritative_mobile_thread_update_payloads', async () => {
