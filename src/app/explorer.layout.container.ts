@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ViewChild,
   computed,
   inject,
   input,
@@ -14,6 +15,12 @@ import { ToolbarComponent } from './toolbar.component';
 import { SplitPaneComponent } from './split_pane.component';
 import { FolderTreePaneComponent } from './folder_tree.component';
 import { ExplorerContentPaneShellComponent } from './content_pane.component';
+import { StatusBarComponent } from './status-bar.component';
+import { ContextMenuComponent } from './ui/context-menu/context_menu.component';
+import { DialogComponent } from './ui/dialog/dialog.component';
+import { ToastContainerComponent } from './ui/toast/toast.component';
+import { DetailPanelComponent } from './explorer/detail_panel.component';
+import { KeyboardShortcutService } from './keyboard_shortcuts.service';
 
 const DEFAULT_SPLIT_RATIO = 0.3;
 const MIN_PERSISTED_SPLIT_RATIO = 0.2;
@@ -29,10 +36,30 @@ const PERSISTENCE_DEBOUNCE_MS = 150;
     SplitPaneComponent,
     FolderTreePaneComponent,
     ExplorerContentPaneShellComponent,
+    StatusBarComponent,
+    ContextMenuComponent,
+    DialogComponent,
+    ToastContainerComponent,
+    DetailPanelComponent,
   ],
   template: `
     <section class="chano-explorer explorer-layout-shell" role="main" aria-label="Vault explorer">
-      <app-explorer-toolbar (viewToggleRequested)="toggleSidebar()"></app-explorer-toolbar>
+      <app-explorer-toolbar
+        #toolbar
+        (sidebarToggleRequested)="toggleSidebar()"
+        (viewToggleRequested)="toggleSidebar()"
+      ></app-explorer-toolbar>
+
+      @if (showDisconnectionBanner()) {
+        <div class="disconnection-banner" role="alert">
+          <span class="material-symbols-outlined icon-sm disconnection-banner__icon" aria-hidden="true">warning</span>
+          <span class="disconnection-banner__text">Connection to your phone was lost. Viewing last synced data. Edits will sync when reconnected.</span>
+          <button type="button" class="disconnection-banner__dismiss" aria-label="Dismiss"
+            (click)="dismissDisconnectionBanner()">
+            <span class="material-symbols-outlined icon-sm" aria-hidden="true">close</span>
+          </button>
+        </div>
+      }
 
       <div class="explorer-layout-shell__body">
         <app-split-pane
@@ -72,9 +99,25 @@ const PERSISTENCE_DEBOUNCE_MS = 150;
             (recordRenameRequested)="recordRenameRequested.emit($event)"
             (recordMoveRequested)="recordMoveRequested.emit($event)"
             (recordDeleteRequested)="recordDeleteRequested.emit($event)"
+            (detailPanelRequested)="toggleDetailPanel()"
           ></app-explorer-content-pane>
         </app-split-pane>
+
+        <app-detail-panel
+          [open]="detailPanelOpen()"
+          [title]="detailPanelTitle()"
+          [entityType]="detailPanelEntityType()"
+          [location]="detailPanelLocation()"
+          [itemCount]="detailPanelItemCount()"
+          (closeRequested)="detailPanelOpen.set(false)"
+        ></app-detail-panel>
       </div>
+
+      <app-status-bar></app-status-bar>
+
+      <app-context-menu></app-context-menu>
+      <app-dialog></app-dialog>
+      <app-toast-container></app-toast-container>
     </section>
   `,
   styles: [`
@@ -84,7 +127,8 @@ const PERSISTENCE_DEBOUNCE_MS = 150;
       min-height: 100dvh;
     }
 
-    @media (max-width: 720px) {
+    /* Tablet: sidebar becomes overlay (Doc 25 §2.3) */
+    @media (max-width: 1023px) {
       .split-pane {
         grid-template-columns: 1fr;
         grid-template-rows:
@@ -112,11 +156,21 @@ const PERSISTENCE_DEBOUNCE_MS = 150;
         height: var(--explorer-mobile-divider-handle-height);
       }
     }
+
+    /* Desktop XL: detail panel inline (Doc 25 §2.3) */
+    @media (min-width: 1440px) {
+      :host {
+        --explorer-detail-panel-mode: inline;
+      }
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExplorerLayoutContainerComponent {
   private readonly destroyRef = inject(DestroyRef);
+  private readonly shortcuts = inject(KeyboardShortcutService);
+
+  @ViewChild('toolbar') private toolbarRef!: ToolbarComponent;
 
   readonly folderTree = input.required<readonly FolderTreeViewModel[]>();
   readonly selectedFolderId = input<string | null>(null);
@@ -128,6 +182,7 @@ export class ExplorerLayoutContainerComponent {
   readonly isRecordDisabled = input<(recordId: string) => boolean>(() => false);
   readonly createThreadDisabled = input(false);
   readonly createRecordDisabled = input(false);
+  readonly connectionStatus = input<'connected' | 'syncing' | 'reconnecting' | 'disconnected' | 'error'>('disconnected');
 
   readonly folderSelected = output<string | null>();
   readonly threadSelected = output<string>();
@@ -143,12 +198,58 @@ export class ExplorerLayoutContainerComponent {
 
   readonly splitRatio = signal(DEFAULT_SPLIT_RATIO);
   readonly sidebarCollapsed = signal(false);
+  readonly detailPanelOpen = signal(false);
+  readonly bannerDismissed = signal(false);
+
+  readonly showDisconnectionBanner = computed(() => {
+    const status = this.connectionStatus();
+    return (status === 'disconnected' || status === 'error') && !this.bannerDismissed();
+  });
+
   readonly visibleFolders = computed(() => {
     if (this.selectedFolderId() === null) {
       return this.folderTree();
     }
 
     return this.selectedFolder()?.children ?? [];
+  });
+
+  readonly detailPanelTitle = computed(() => {
+    if (this.activePane() === 'thread') {
+      const threadId = this.selectedThreadId();
+      if (threadId !== null) {
+        const thread = this.content().threadList.find(t => t.id === threadId);
+        return thread?.title ?? 'Thread';
+      }
+    }
+    if (this.activePane() === 'folder') {
+      return this.selectedFolder()?.name ?? 'My Vault';
+    }
+    return 'Details';
+  });
+
+  readonly detailPanelEntityType = computed(() => {
+    if (this.activePane() === 'thread') return 'Thread';
+    if (this.activePane() === 'folder') return 'Folder';
+    return '';
+  });
+
+  readonly detailPanelLocation = computed(() => {
+    return this.selectedFolder()?.name ?? 'My Vault';
+  });
+
+  readonly detailPanelItemCount = computed<number | null>(() => {
+    if (this.activePane() === 'thread') {
+      const threadId = this.selectedThreadId();
+      if (threadId !== null) {
+        const thread = this.content().threadList.find(t => t.id === threadId);
+        return thread?.recordCount ?? null;
+      }
+    }
+    if (this.activePane() === 'folder') {
+      return this.visibleFolders().length + this.content().threadList.length;
+    }
+    return null;
   });
 
   private persistTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -158,13 +259,32 @@ export class ExplorerLayoutContainerComponent {
     this.splitRatio.set(initialRatio);
     console.log(`LAYOUT_INIT ratio=${initialRatio.toFixed(3)}`);
 
+    this.shortcuts.register('i', () => this.toggleDetailPanel());
+    this.shortcuts.register('n', () => this.newItemRequested.emit());
+    this.shortcuts.register('Escape', () => this.detailPanelOpen.set(false));
+    this.shortcuts.registerSequence('g', 'h', () => this.folderSelected.emit('root'));
+
     this.destroyRef.onDestroy(() => {
+      this.shortcuts.unregister('i');
+      this.shortcuts.unregister('n');
+      this.shortcuts.unregister('Escape');
+      this.shortcuts.unregister('g+h');
       this.clearPendingPersistence();
     });
   }
 
+  readonly newItemRequested = output<void>();
+
+  toggleDetailPanel(): void {
+    this.detailPanelOpen.update(open => !open);
+  }
+
   toggleSidebar(): void {
     this.sidebarCollapsed.update((collapsed) => !collapsed);
+  }
+
+  dismissDisconnectionBanner(): void {
+    this.bannerDismissed.set(true);
   }
 
   updateSplitRatio(ratio: number): void {

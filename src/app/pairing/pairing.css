@@ -10,13 +10,13 @@
   align-items: center;
   justify-content: center;
   min-height: 100dvh;
-  background: #09090b;
+  background: var(--c-bg-app);
   background-image: radial-gradient(
     ellipse at 50% 0%,
-    rgba(88, 28, 135, 0.12) 0%,
+    var(--c-accent-primary-glow) 0%,
     transparent 60%
   );
-  padding: 1.5rem;
+  padding: var(--space-6);
 }
 
 /* ── Card ───────────────────────────────────────────────── */
@@ -24,13 +24,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.75rem;
+  gap: var(--space-6);
   width: 100%;
   max-width: 400px;
-  padding: 2.5rem 2rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 1.5rem;
+  padding: var(--space-10) var(--space-8);
+  background: var(--c-overlay-3);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-xl);
 }
 
 /* ── Header ─────────────────────────────────────────────── */
@@ -39,26 +39,25 @@
 }
 
 .pairing-title {
-  font-size: 1.75rem;
-  font-weight: 600;
-  color: #f5f5f7;
-  letter-spacing: -0.025em;
+  font-size: var(--fs-display);
+  font-weight: var(--weight-semibold);
+  color: var(--c-text-primary);
+  letter-spacing: var(--ls-headline);
   margin: 0;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .pairing-subtitle {
-  font-size: 0.9375rem;
-  color: rgba(255, 255, 255, 0.45);
-  margin: 0.5rem 0 0;
+  font-size: var(--fs-body);
+  color: var(--c-text-muted);
+  margin: var(--space-2) 0 0;
 }
 
 /* ── QR code ────────────────────────────────────────────── */
 .qr-container {
-  padding: 1rem;
+  padding: var(--space-4);
   background: #fff;
-  border-radius: 1rem;
+  border-radius: var(--radius-lg);
   line-height: 0;
 }
 
@@ -74,43 +73,37 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 1rem;
-  border: 1px dashed rgba(255, 255, 255, 0.08);
+  background: var(--c-overlay-2);
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--c-border-default);
 }
 
 /* ── Spinner ────────────────────────────────────────────── */
 .spinner {
-  width: 2.5rem;
-  height: 2.5rem;
-  border: 3px solid rgba(255, 255, 255, 0.08);
-  border-top-color: rgba(255, 255, 255, 0.5);
-  border-radius: 50%;
-  animation: spin 0.75s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  width: var(--space-10);
+  height: var(--space-10);
+  border: 3px solid var(--c-border-default);
+  border-top-color: var(--c-text-secondary);
+  border-radius: var(--radius-circle);
+  animation: spin var(--duration-slow) linear infinite;
 }
 
 /* ── Countdown ──────────────────────────────────────────── */
 .countdown {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
+  gap: var(--space-2);
+  font-size: var(--fs-body-sm);
 }
 
 .countdown-label {
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--c-text-muted);
 }
 
 .countdown-value {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--c-text-secondary);
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 /* ── Paired state ───────────────────────────────────────── */
@@ -123,20 +116,20 @@
 }
 
 .paired-icon {
-  width: 5rem;
-  height: 5rem;
-  border-radius: 50%;
-  background: rgba(34, 197, 94, 0.1);
+  width: var(--space-12);
+  height: var(--space-12);
+  border-radius: var(--radius-circle);
+  background: var(--c-accent-success-tint);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #22c55e;
-  animation: scale-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  color: var(--c-accent-success);
+  animation: scale-in var(--duration-complex) var(--ease-enter);
 }
 
 .paired-icon svg {
-  width: 2.5rem;
-  height: 2.5rem;
+  width: var(--space-10);
+  height: var(--space-10);
 }
 
 @keyframes scale-in {
@@ -158,76 +151,76 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1.25rem;
+  gap: var(--space-5);
 }
 
 .error-message {
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: var(--fs-body-sm);
+  color: var(--c-text-muted);
   text-align: center;
   margin: 0;
 }
 
 .retry-btn {
-  padding: 0.625rem 1.5rem;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.625rem;
-  color: #f5f5f7;
-  font-size: 0.875rem;
-  font-weight: 500;
+  padding: var(--space-3) var(--space-6);
+  background: var(--c-overlay-6);
+  border: 1px solid var(--c-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--c-text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background var(--duration-instant) var(--ease-default);
   font-family: inherit;
 }
 
 .retry-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--c-overlay-10);
 }
 
 .retry-btn:active {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--c-overlay-14);
 }
 
 /* ── Status bar ─────────────────────────────────────────── */
 .status-bar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 2rem;
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--c-overlay-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--c-overlay-4);
 }
 
 .status-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-circle);
   flex-shrink: 0;
 }
 
 .status-dot--connecting {
-  background: #f59e0b;
-  animation: pulse 1.5s ease-in-out infinite;
+  background: var(--c-accent-warning);
+  animation: pulse var(--duration-complex) var(--ease-default) infinite;
 }
 
 .status-dot--waiting_for_scan {
-  background: #3b82f6;
-  animation: pulse 1.5s ease-in-out infinite;
+  background: var(--c-accent-thread);
+  animation: pulse var(--duration-complex) var(--ease-default) infinite;
 }
 
 .status-dot--paired {
-  background: #22c55e;
+  background: var(--c-accent-success);
 }
 
 .status-dot--syncing {
-  background: #a855f7;
-  animation: pulse 1.5s ease-in-out infinite;
+  background: var(--c-accent-record);
+  animation: pulse var(--duration-complex) var(--ease-default) infinite;
 }
 
 .status-dot--error {
-  background: #ef4444;
+  background: var(--c-accent-danger);
 }
 
 @keyframes pulse {
@@ -241,7 +234,7 @@
 }
 
 .status-text {
-  font-size: 0.8125rem;
-  color: rgba(255, 255, 255, 0.55);
-  font-weight: 500;
+  font-size: var(--fs-body-sm);
+  color: var(--c-text-muted);
+  font-weight: var(--weight-medium);
 }

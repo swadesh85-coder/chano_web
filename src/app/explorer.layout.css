@@ -4,7 +4,8 @@
   min-height: 100dvh;
 }
 
-@media (max-width: 720px) {
+/* Tablet: sidebar becomes overlay (Doc 25 §2.3) */
+@media (max-width: 1023px) {
   .split-pane {
     grid-template-columns: 1fr;
     grid-template-rows:

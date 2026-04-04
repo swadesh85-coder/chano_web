@@ -35,13 +35,14 @@ import {
         <div class="explorer-action-bar">
           <button
             type="button"
-            class="panel-action-button panel-action-button--primary"
+            class="panel-action-button panel-action-button--accent"
             (click)="createRecordRequested.emit($event)"
             [disabled]="createDisabled()"
             data-testid="create-record-button"
-            aria-label="Create text record"
+            aria-label="Add content to thread"
           >
-            Create Text Record
+            <span class="material-symbols-outlined icon-sm" aria-hidden="true">add</span>
+            Add Content
           </button>
         </div>
 
@@ -60,7 +61,7 @@ import {
             (rangeChanged)="updateVisibleRange($event)"
           >
             <ng-template let-node>
-              <div class="explorer-list-row" data-testid="thread-view-node" [attr.data-node-key]="node.key">
+              <div class="explorer-list-row record-card-row" data-testid="thread-view-node" [attr.data-node-key]="node.key">
                 @if (node.kind === 'record') {
                   <app-content-item-row
                     [title]="node.record.displayLabel"

@@ -1,7 +1,9 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, NgZone, computed, inject, signal } from '@angular/core';
 import { validateEventEnvelope } from '../app/projection/projection_event_validation';
 import type { MutationCommand, TransportEnvelope } from './index';
 import { WebRelayClient } from './web-relay-client';
+
+const PENDING_TIMEOUT_MS = 5000;
 
 type PendingEntry = {
   readonly commandId: string;
@@ -9,18 +11,34 @@ type PendingEntry = {
   readonly entityType: MutationCommand['entityType'];
   readonly operation: MutationCommand['operation'];
   readonly createFingerprint: string | null;
-  readonly status: 'pending' | 'acknowledged';
+  readonly status: 'pending' | 'acknowledged' | 'timeout' | 'failed';
+  readonly createdAt: number;
 };
 
 @Injectable({ providedIn: 'root' })
 export class PendingCommandStore {
   private readonly relay = inject(WebRelayClient);
+  private readonly zone = inject(NgZone);
+  private readonly destroyRef = inject(DestroyRef);
 
   private readonly _pendingByCommandId = signal<Record<string, PendingEntry>>({});
   private readonly _pendingEntityIds = signal<Record<string, string>>({});
   private readonly _pendingCreateFingerprints = signal<Record<string, string>>({});
+  private readonly timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   readonly pendingByCommandId = this._pendingByCommandId.asReadonly();
+
+  /** Computed map: entityId → pending status for UI consumption */
+  readonly pendingStatusByEntityId = computed<Record<string, PendingEntry['status']>>(() => {
+    const pending = this._pendingByCommandId();
+    const result: Record<string, PendingEntry['status']> = {};
+    for (const entry of Object.values(pending)) {
+      if (entry.entityId !== null) {
+        result[entry.entityId] = entry.status;
+      }
+    }
+    return result;
+  });
 
   constructor() {
     this.relay.onCommandResultMessage((envelope) => {
@@ -28,6 +46,13 @@ export class PendingCommandStore {
     });
     this.relay.onProjectionMessage((envelope) => {
       void this.handleEventStream(envelope);
+    });
+
+    this.destroyRef.onDestroy(() => {
+      for (const timer of this.timeoutTimers.values()) {
+        clearTimeout(timer);
+      }
+      this.timeoutTimers.clear();
     });
   }
 
@@ -39,6 +64,7 @@ export class PendingCommandStore {
       operation: command.operation,
       createFingerprint: this.buildCreateFingerprintFromCommand(command),
       status: 'pending',
+      createdAt: Date.now(),
     };
 
     const existing = this._pendingByCommandId()[command.commandId];
@@ -66,6 +92,7 @@ export class PendingCommandStore {
       }));
     }
 
+    this.startTimeoutTimer(command.commandId);
     console.log(`PENDING_SET commandId=${command.commandId} entityId=${command.entityId}`);
   }
 
@@ -74,6 +101,8 @@ export class PendingCommandStore {
     if (!entry) {
       return;
     }
+
+    this.clearTimeoutTimer(commandId);
 
     this._pendingByCommandId.update((current) => omitKey(current, commandId));
     if (entry.entityId !== null) {
@@ -241,6 +270,37 @@ export class PendingCommandStore {
 
         return null;
       }
+    }
+  }
+
+  getPendingStatus(entityId: string): PendingEntry['status'] | null {
+    return this.pendingStatusByEntityId()[entityId] ?? null;
+  }
+
+  private startTimeoutTimer(commandId: string): void {
+    this.zone.runOutsideAngular(() => {
+      const timer = setTimeout(() => {
+        this.timeoutTimers.delete(commandId);
+        this.zone.run(() => {
+          const entry = this._pendingByCommandId()[commandId];
+          if (entry && (entry.status === 'pending' || entry.status === 'acknowledged')) {
+            this._pendingByCommandId.update((current) => ({
+              ...current,
+              [commandId]: { ...entry, status: 'timeout' },
+            }));
+            console.log(`PENDING_TIMEOUT commandId=${commandId} entityId=${entry.entityId}`);
+          }
+        });
+      }, PENDING_TIMEOUT_MS);
+      this.timeoutTimers.set(commandId, timer);
+    });
+  }
+
+  private clearTimeoutTimer(commandId: string): void {
+    const timer = this.timeoutTimers.get(commandId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.timeoutTimers.delete(commandId);
     }
   }
 }

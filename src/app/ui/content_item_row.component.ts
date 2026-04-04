@@ -28,6 +28,7 @@ import {
       [selected]="selected()"
       [disabled]="disabled()"
       [interactive]="interactive()"
+      [pendingStatus]="pendingStatus()"
       (activated)="activated.emit($event)"
     >
       <span class="ui-content-item-row__projection" row-leading>
@@ -54,6 +55,7 @@ export class ContentItemRowComponent {
   readonly selected = input(false);
   readonly disabled = input(false);
   readonly interactive = input(true);
+  readonly pendingStatus = input<string | null>(null);
 
   readonly activated = output<Event>();
 }

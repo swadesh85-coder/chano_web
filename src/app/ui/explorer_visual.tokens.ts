@@ -4,6 +4,7 @@ export type ExplorerRecordType = 'text' | 'image' | 'file' | 'audio';
 export const EXPLORER_VISUAL_DIMENSIONS = Object.freeze({
   sidebarIndentStepPx: 20,
   threadRowHeightPx: 88,
+  listRowHeightPx: 44,
   recordRowHeightPx: 132,
   virtualListBuffer: 4,
   sidebarMinWidthPx: 200,
@@ -12,6 +13,7 @@ export const EXPLORER_VISUAL_DIMENSIONS = Object.freeze({
 
 export const EXPLORER_SIDEBAR_INDENT_STEP_PX = EXPLORER_VISUAL_DIMENSIONS.sidebarIndentStepPx;
 export const EXPLORER_THREAD_ROW_HEIGHT_PX = EXPLORER_VISUAL_DIMENSIONS.threadRowHeightPx;
+export const EXPLORER_LIST_ROW_HEIGHT_PX = EXPLORER_VISUAL_DIMENSIONS.listRowHeightPx;
 export const EXPLORER_RECORD_ROW_HEIGHT_PX = EXPLORER_VISUAL_DIMENSIONS.recordRowHeightPx;
 export const EXPLORER_VIRTUAL_LIST_BUFFER = EXPLORER_VISUAL_DIMENSIONS.virtualListBuffer;
 export const EXPLORER_SIDEBAR_MIN_WIDTH_PX = EXPLORER_VISUAL_DIMENSIONS.sidebarMinWidthPx;

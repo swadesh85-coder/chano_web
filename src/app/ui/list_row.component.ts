@@ -23,6 +23,11 @@ export type ListRowDensity = 'sidebar' | 'folder' | 'thread' | 'record';
       [attr.data-density]="density()"
       [attr.data-selected]="selected()"
       [attr.data-disabled]="disabled()"
+      [attr.data-pending]="pendingStatus()"
+      [class.projection-pending]="pendingStatus() === 'pending'"
+      [class.projection-acknowledged]="pendingStatus() === 'acknowledged'"
+      [class.projection-timeout]="pendingStatus() === 'timeout'"
+      [class.projection-failed]="pendingStatus() === 'failed'"
       [style.--ui-row-indent.px]="indent()"
     >
       <span class="ui-list-row__leading">
@@ -89,6 +94,7 @@ export class ListRowComponent {
   readonly disabled = input(false);
   readonly interactive = input(true);
   readonly indent = input(0);
+  readonly pendingStatus = input<string | null>(null);
 
   readonly activated = output<Event>();
 

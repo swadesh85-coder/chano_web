@@ -1,5 +1,5 @@
 <section class="chano-explorer explorer-layout-shell" role="main" aria-label="Vault explorer">
-  <app-explorer-toolbar (viewToggleRequested)="toggleSidebar()"></app-explorer-toolbar>
+  <app-explorer-toolbar (sidebarToggleRequested)="toggleSidebar()" (viewToggleRequested)="toggleSidebar()"></app-explorer-toolbar>
 
   <div class="explorer-layout-shell__body">
     <app-split-pane
@@ -42,4 +42,6 @@
       ></app-explorer-content-pane>
     </app-split-pane>
   </div>
+
+  <app-status-bar></app-status-bar>
 </section>
